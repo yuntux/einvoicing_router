@@ -157,3 +157,115 @@ def test_callback_disabled_when_not_entra_id_mode(client):
         follow_redirects=False,
     )
     assert response.status_code == 404
+
+
+def test_callback_unknown_email_redirects_to_login_error(client, monkeypatch):
+    """Sauf amorçage (premier compte), un email sans compte pré-provisionné (§ NF4)
+    est refusé — pas de création à la volée depuis les claims Entra ID."""
+    monkeypatch.setattr(settings, "oidc_mode", "entra_id")
+    monkeypatch.setattr(settings, "oidc_tenant_id", "tenant")
+    monkeypatch.setattr(settings, "oidc_client_id", "client-123")
+    monkeypatch.setattr(settings, "frontend_base_url", "https://router.example.com")
+
+    # Amorce un premier compte pour sortir du cas "table vide".
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_access_token",
+        new=AsyncMock(
+            return_value={"userinfo": {"sub": "bootstrap-sub", "email": "bootstrap@example.com"}}
+        ),
+    ):
+        client.get(
+            "/api/ihm/auth/callback",
+            params={"code": "c0", "state": "s0"},
+            follow_redirects=False,
+        )
+    client.post("/api/ihm/auth/logout")
+
+    fake_token = {"userinfo": {"sub": "unknown-sub", "email": "inconnu@example.com"}}
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_access_token",
+        new=AsyncMock(return_value=fake_token),
+    ):
+        response = client.get(
+            "/api/ihm/auth/callback",
+            params={"code": "auth-code", "state": "s"},
+            follow_redirects=False,
+        )
+
+    assert response.headers["location"] == "https://router.example.com/login-error?reason=unknown"
+    assert "router_session" not in response.cookies
+
+
+def test_callback_preprovisioned_email_attaches_subject(client, monkeypatch):
+    monkeypatch.setattr(settings, "oidc_mode", "entra_id")
+    monkeypatch.setattr(settings, "oidc_tenant_id", "tenant")
+    monkeypatch.setattr(settings, "oidc_client_id", "client-123")
+
+    # Amorce l'admin, puis pré-provisionne le compte à connecter.
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_access_token",
+        new=AsyncMock(
+            return_value={"userinfo": {"sub": "admin-sub", "email": "admin@example.com"}}
+        ),
+    ):
+        client.get("/api/ihm/auth/callback", params={"code": "c0", "state": "s0"}, follow_redirects=False)
+    client.post("/api/ihm/users", json={"email": "preprovisioned@example.com"})
+    client.post("/api/ihm/auth/logout")
+
+    fake_token = {
+        "userinfo": {
+            "sub": "preprovisioned-sub",
+            "email": "preprovisioned@example.com",
+            "name": "Nom Réel",
+        }
+    }
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_access_token",
+        new=AsyncMock(return_value=fake_token),
+    ):
+        response = client.get(
+            "/api/ihm/auth/callback",
+            params={"code": "auth-code", "state": "s"},
+            follow_redirects=False,
+        )
+
+    assert "router_session" in response.cookies
+    me = client.get("/api/ihm/auth/me").json()
+    assert me["user"]["email"] == "preprovisioned@example.com"
+    assert me["user"]["name"] == "Nom Réel"
+    assert me["user"]["role"] == "user"
+
+
+def test_callback_inactive_user_redirects_to_login_error(client, monkeypatch):
+    monkeypatch.setattr(settings, "oidc_mode", "entra_id")
+    monkeypatch.setattr(settings, "oidc_tenant_id", "tenant")
+    monkeypatch.setattr(settings, "oidc_client_id", "client-123")
+    monkeypatch.setattr(settings, "frontend_base_url", "https://router.example.com")
+
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_access_token",
+        new=AsyncMock(
+            return_value={"userinfo": {"sub": "admin-sub2", "email": "admin2@example.com"}}
+        ),
+    ):
+        client.get("/api/ihm/auth/callback", params={"code": "c0", "state": "s0"}, follow_redirects=False)
+    created = client.post("/api/ihm/users", json={"email": "banned@example.com"}).json()
+    client.put(
+        f"/api/ihm/users/{created['id']}/access",
+        json={"role": "user", "company_ids": [], "is_active": False},
+    )
+    client.post("/api/ihm/auth/logout")
+
+    fake_token = {"userinfo": {"sub": "banned-sub", "email": "banned@example.com"}}
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_access_token",
+        new=AsyncMock(return_value=fake_token),
+    ):
+        response = client.get(
+            "/api/ihm/auth/callback",
+            params={"code": "auth-code", "state": "s"},
+            follow_redirects=False,
+        )
+
+    assert response.headers["location"] == "https://router.example.com/login-error?reason=inactive"
+    assert "router_session" not in response.cookies

@@ -14,7 +14,7 @@ from app.config import settings
 from app.db.session import get_db
 from app.models.referential import User
 from app.schemas.auth import CurrentUserRead, CurrentUserStatus
-from app.services.user_service import get_or_create_user
+from app.services.user_service import InactiveUserError, UnknownUserError, resolve_login_user
 
 router = APIRouter()
 
@@ -51,6 +51,14 @@ def _safe_next_path(next_path: str | None) -> str:
     return next_path
 
 
+def _login_error_redirect(reason: str) -> RedirectResponse:
+    """Page d'erreur IHM (route publique du frontend, cf. router.ts) plutôt qu'une
+    exception JSON brute : l'utilisateur arrive ici en pleine navigation de
+    navigateur (redirection depuis Entra ID ou le formulaire dev), pas via un appel
+    API programmatique."""
+    return RedirectResponse(url=f"{settings.frontend_base_url}/login-error?reason={reason}")
+
+
 @router.get("/me", response_model=CurrentUserStatus)
 def me(user: User | None = Depends(get_current_user)):
     return CurrentUserStatus(
@@ -74,7 +82,12 @@ async def login(
     next_path = _safe_next_path(next)
 
     if settings.oidc_mode == "dev":
-        user = get_or_create_user(db, oidc_subject=f"dev:{email}", email=email, name=name)
+        try:
+            user = resolve_login_user(db, oidc_subject=f"dev:{email}", email=email, name=name)
+        except UnknownUserError:
+            return _login_error_redirect("unknown")
+        except InactiveUserError:
+            return _login_error_redirect("inactive")
         response = RedirectResponse(url=f"{settings.frontend_base_url}{next_path}")
         _set_session_cookie(response, user)
         return response
@@ -103,12 +116,17 @@ async def callback(request: Request, db: Session = Depends(get_db)):
     if not claims.get("sub"):
         raise HTTPException(status_code=400, detail="Missing ID token claims")
 
-    user = get_or_create_user(
-        db,
-        oidc_subject=claims["sub"],
-        email=claims.get("email") or claims.get("preferred_username"),
-        name=claims.get("name", claims.get("email", "")),
-    )
+    try:
+        user = resolve_login_user(
+            db,
+            oidc_subject=claims["sub"],
+            email=claims.get("email") or claims.get("preferred_username"),
+            name=claims.get("name", claims.get("email", "")),
+        )
+    except UnknownUserError:
+        return _login_error_redirect("unknown")
+    except InactiveUserError:
+        return _login_error_redirect("inactive")
 
     next_path = _safe_next_path(request.session.pop("post_login_next", None))
     response = RedirectResponse(url=f"{settings.frontend_base_url}{next_path}")
