@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 test('creates a company and sees it listed', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/companies')
 
   await expect(page.getByRole('heading', { name: 'Entreprises gérées' })).toBeVisible()
 
