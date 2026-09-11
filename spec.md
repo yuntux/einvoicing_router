@@ -135,6 +135,8 @@ Le routeur agit comme émulation de PDP vis-à-vis du connecteur Odoo :
   - le **mapping/adaptation des données** entre les versions supportées (schémas de facture, d'annuaire, de cycle de vie) doit être isolé dans une couche dédiée, pour ne pas disperser la logique de conversion dans le reste du code ;
   - une version doit pouvoir être **dépréciée puis retirée** sans casser le routage déjà en place pour les entreprises non encore migrées.
 
+**Choix d'architecture — pas de bibliothèque "serveur" AFNOR séparée dans un premier temps** : **pyfrctc** est une bibliothèque **cliente** de l'API AFNOR (elle sait dialoguer avec une PDP). Le routeur, lui, doit aussi jouer un rôle **serveur** vis-à-vis d'Odoo (§ 4.4). Il serait possible de packager une bibliothèque "serveur" dédiée, construite au-dessus de pyfrctc pour ne pas dupliquer la logique de parsing/génération XML (largement symétrique entre client et serveur). Cependant, tant qu'il n'existe qu'un seul consommateur de ce rôle serveur (le routeur lui-même), ce module doit rester un **module interne du routeur** (cf. `AfnorServerController` au § 7.3), construit sur pyfrctc pour la partie parsing/génération/validation des flux, mais couplé à FastAPI pour la partie exposition HTTP (routes, pagination, gestion des applications OAuth, mapping des erreurs). Il doit néanmoins être **conçu de façon isolée et testable** (interfaces claires, pas de dépendance implicite au reste du routeur), afin de pouvoir être extrait en bibliothèque publiable séparément le jour où un second besoin de ce type apparaîtrait (un autre projet émulant une PDP, ou une volonté d'open-sourcer ce composant en complément de pyfrctc) — sans que cette extraction future ne soit anticipée prématurément dans le code.
+
 ### 4.9 Généricité du module de routage
 
 - Le système doit permettre d'ajouter, dans le futur, de **nouvelles cibles de routage** utilisant potentiellement d'autres mécanismes techniques de transfert.
@@ -468,6 +470,7 @@ classDiagram
     AfnorServerController --> RoutingRuleService : applique les règles
     AfnorServerController --> AfnorClientAdapter : proxy vers SuperPDP
     AfnorServerController --> OAuthApplication : authentifie
+    AfnorServerController --> DirectoryService : consultation annuaire
 
     MailRouterService --> InvoiceRouting : envoie
     MailRouterService --> TargetApplication : lit les paramètres
