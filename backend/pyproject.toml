@@ -13,6 +13,8 @@ dependencies = [
     "pyjwt>=2.9",
     "python-multipart>=0.0.12",
     "apscheduler>=3.10",
+    "pyfrctc>=0.22",
+    "cryptography>=43",
 ]
 
 [project.optional-dependencies]

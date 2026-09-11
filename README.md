@@ -7,7 +7,7 @@ Routeur de factures électroniques AFNOR XP Z12-013 — voir [`spec.md`](spec.md
 - `backend/` — API Python/FastAPI + SQLAlchemy (voir `spec.md` § 7.1/§ 7.3 pour la correspondance modèle/services).
 - `frontend/` — IHM Vue.js (Vite).
 - `docs/images/` — schémas de référence.
-- `integration_tests_sandbox/` — suite d'intégration séparée contre le bac à sable SuperPDP (§ 10.4, non implémentée à ce stade).
+- `integration_tests_sandbox/` — suite d'intégration séparée contre le bac à sable SuperPDP (§ 10.4, non bloquante — voir `integration_tests_sandbox/README.md`).
 
 ## Développement — backend
 

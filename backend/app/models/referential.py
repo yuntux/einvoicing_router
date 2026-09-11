@@ -3,7 +3,7 @@
 import enum
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, JSON, String, Table, Column
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, JSON, String, Table, Column, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -93,16 +93,27 @@ class RoutingRule(Base):
 
 
 class OAuthApplication(Base):
-    """Jeton d'accès par entreprise (spec.md § 6.1 / § 4.10). Authentification réelle
-    branchée au lot 4 : `client_secret_hash` stocke un hash du secret, jamais le
-    secret en clair (retourné une seule fois à la création, cf. § 4.9.2)."""
+    """Jeton d'accès par entreprise (spec.md § 6.1 / § 4.10) — deux usages distincts
+    selon `scope` :
+
+    - `consumer_to_router` (§ 4.9.2, lot 4) : identifiants que le routeur **émet**
+      lui-même pour un consommateur (Odoo) — `client_secret_hash` suffit (hash
+      irréversible, § 4.9.2), le secret en clair n'étant révélé qu'une fois à la
+      création.
+    - `router_to_superpdp` (§ 4.10, lot 6) : identifiants que **SuperPDP fournit** au
+      routeur pour s'authentifier auprès d'elle — le secret doit être récupérable pour
+      chaque rafraîchissement de jeton OAuth2, d'où `client_secret_encrypted` (chiffrement
+      réversible, cf. `app.services.secrets_encryption`) plutôt qu'un hash. `token_cache`
+      persiste le jeton/refresh token pyfrctc entre deux appels (§ 4.1/§ 4.8)."""
 
     __tablename__ = "oauth_applications"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"))
     client_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    client_secret_hash: Mapped[str] = mapped_column(String(255))
+    client_secret_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    client_secret_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    token_cache: Mapped[str | None] = mapped_column(Text, nullable=True)
     app_type: Mapped[OAuthAppType] = mapped_column(String(20))
     scope: Mapped[OAuthScope] = mapped_column(String(30))
     redirect_urls: Mapped[str | None] = mapped_column(String(2000), nullable=True)

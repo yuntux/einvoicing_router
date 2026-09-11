@@ -1,0 +1,31 @@
+name: SuperPDP sandbox (nightly, non bloquant)
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  sandbox-integration:
+    name: Intégration bac à sable SuperPDP
+    runs-on: ubuntu-latest
+    # Non bloquant (spec.md § 10.4) : un échec ici ne doit jamais empêcher un merge —
+    # seule ci.yml (backend/frontend, sans dépendance externe) est un gate obligatoire.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install backend dependencies (pyfrctc)
+        working-directory: backend
+        run: pip install -e ".[dev]"
+      - name: Run sandbox integration suite
+        working-directory: integration_tests_sandbox
+        env:
+          SUPERPDP_SANDBOX_CLIENT_ID: ${{ secrets.SUPERPDP_SANDBOX_CLIENT_ID }}
+          SUPERPDP_SANDBOX_CLIENT_SECRET: ${{ secrets.SUPERPDP_SANDBOX_CLIENT_SECRET }}
+          SUPERPDP_SANDBOX_COMPANY_SIREN: ${{ secrets.SUPERPDP_SANDBOX_COMPANY_SIREN }}
+        run: pytest -v

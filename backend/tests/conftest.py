@@ -27,6 +27,19 @@ def _disable_scheduler(monkeypatch):
     monkeypatch.setattr(settings, "scheduler_enabled", False)
 
 
+@pytest.fixture(autouse=True)
+def _reset_afnor_client_adapter_session_cache():
+    """`AfnorClientAdapter` (lot 6) est un singleton process-lifetime qui met en cache
+    ses sessions pyfrctc par `company.id` — sans ce nettoyage, une session mise en
+    cache par un test polluerait un autre test utilisant une base en mémoire fraîche
+    (les IDs y redémarrent à 1 à chaque fois)."""
+    from app.afnor.client.adapter import afnor_client_adapter
+
+    afnor_client_adapter._sessions.clear()
+    yield
+    afnor_client_adapter._sessions.clear()
+
+
 @pytest.fixture()
 def db_session():
     engine = create_engine(

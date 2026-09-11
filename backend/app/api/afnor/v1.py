@@ -3,13 +3,16 @@
 Point d'entrée du registre de versions (`app/afnor/versioning/`) : une future v2
 serait un module frère, monté sur un autre préfixe, sans toucher à celui-ci."""
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query
+import uuid
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
+from app.afnor.client.adapter import afnor_client_adapter
 from app.auth.oauth import get_current_oauth_application, issue_access_token, verify_secret
 from app.config import settings
 from app.db.session import get_db
-from app.models.referential import OAuthApplication
+from app.models.referential import Company, OAuthApplication
 from app.schemas.invoice import InvoiceRead
 from app.schemas.oauth import DirectoryLookupRead, TokenResponse
 from app.services import afnor_server_controller, audit_trace_service
@@ -17,6 +20,13 @@ from app.services import afnor_server_controller, audit_trace_service
 AFNOR_API_VERSION = "v1"
 
 router = APIRouter()
+
+
+def _company_for(db: Session, oauth_app: OAuthApplication) -> Company:
+    company = db.get(Company, oauth_app.company_id)
+    if company is None:
+        raise HTTPException(status_code=500, detail="Application OAuth sans entreprise associée")
+    return company
 
 
 @router.post("/oauth/token", response_model=TokenResponse)
@@ -81,4 +91,96 @@ def lookup_directory(
         response={"created": result.created},
         http_status=200,
     )
+    return result
+
+
+@router.post("/invoices/emit")
+async def emit_invoice(
+    file: UploadFile,
+    flow_syntax: str = Form(...),
+    processing_rule: str = Form(...),
+    oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+    db: Session = Depends(get_db),
+):
+    """Proxy transparent d'émission (§ 4.4) : la facture émise par Odoo est transmise
+    telle quelle à SuperPDP et jamais stockée côté routeur (§ 4.1 : seules les factures
+    *reçues* sont indexées) — seul le `FlowTrace` de l'échange est conservé."""
+    company = _company_for(db, oauth_app)
+    correlation_id = str(uuid.uuid4())
+    file_bin = await file.read()
+
+    audit_trace_service.record_flow_trace(
+        db,
+        direction="odoo_to_router",
+        afnor_api_version=AFNOR_API_VERSION,
+        request={
+            "endpoint": "POST /invoices/emit",
+            "filename": file.filename,
+            "flow_syntax": flow_syntax,
+            "processing_rule": processing_rule,
+            "client_id": oauth_app.client_id,
+        },
+        response={"status": "forwarding"},
+        http_status=202,
+        correlation_id=correlation_id,
+    )
+
+    try:
+        result = afnor_client_adapter.send_invoice(
+            db,
+            company=company,
+            file_bin=file_bin,
+            filename=file.filename or "invoice.xml",
+            flow_syntax=flow_syntax,
+            processing_rule=processing_rule,
+            correlation_id=correlation_id,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"SuperPDP unreachable: {exc}") from exc
+    return result
+
+
+@router.post("/lifecycle-events/emit")
+async def emit_lifecycle_event(
+    file: UploadFile,
+    oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+    db: Session = Depends(get_db),
+):
+    """Proxy transparent de cycle de vie (§ 4.2/§ 4.4) : un message CDAR généré par
+    Odoo est transmis tel quel à SuperPDP, sans réinterprétation côté routeur.
+
+    Limitation connue : contrairement aux messages saisis manuellement dans l'IHM du
+    routeur (§ 4.2, sens achat uniquement), ce proxy ne mémorise pas le message comme
+    `LifecycleEvent` — il concerne potentiellement des factures de vente qu'`Invoice`
+    ne modélise pas (§ 6.1, factures reçues uniquement), et son affichage dans l'IHM du
+    routeur nécessiterait un écran dédié aux factures émises, hors périmètre de ce
+    lot (cf. note dans `lifecycle_service.py`)."""
+    company = _company_for(db, oauth_app)
+    correlation_id = str(uuid.uuid4())
+    cdar_bytes = await file.read()
+
+    audit_trace_service.record_flow_trace(
+        db,
+        direction="odoo_to_router",
+        afnor_api_version=AFNOR_API_VERSION,
+        request={
+            "endpoint": "POST /lifecycle-events/emit",
+            "filename": file.filename,
+            "client_id": oauth_app.client_id,
+        },
+        response={"status": "forwarding"},
+        http_status=202,
+        correlation_id=correlation_id,
+    )
+
+    try:
+        result = afnor_client_adapter.send_cdar(
+            db,
+            company=company,
+            cdar_bytes=cdar_bytes,
+            filename=file.filename or "cdar.xml",
+            correlation_id=correlation_id,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"SuperPDP unreachable: {exc}") from exc
     return result
