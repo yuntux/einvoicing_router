@@ -94,6 +94,8 @@ def test_restricted_user_sees_only_their_company_scope(client, db_session, monke
 
     # Amorce un admin d'abord (premier utilisateur), pour que le second reste "user".
     client.get("/api/ihm/auth/login", params={"email": "admin@example.com"}, follow_redirects=False)
+    # Pré-provisionne le second compte (§ NF4) — sans ça sa connexion serait refusée.
+    client.post("/api/ihm/users", json={"email": "restricted@example.com"})
     client.post("/api/ihm/auth/logout")
 
     company_a = _make_company(db_session, siren="111111111", name="Société A")
@@ -143,3 +145,66 @@ def test_admin_sees_all_companies(client, db_session, monkeypatch):
     response = client.get("/api/ihm/companies")
     assert response.status_code == 200
     assert len(response.json()) == 2
+
+
+def test_login_unknown_email_redirects_to_login_error(client, monkeypatch):
+    """Sauf amorçage (premier compte, cf. UserService), un email sans compte
+    pré-provisionné (§ NF4) est refusé — pas de création à la volée."""
+    monkeypatch.setattr(settings, "oidc_mode", "dev")
+    monkeypatch.setattr(settings, "frontend_base_url", "https://router.example.com")
+
+    # Amorce un premier compte pour sortir du cas "table vide".
+    client.get("/api/ihm/auth/login", params={"email": "admin8@example.com"}, follow_redirects=False)
+    client.post("/api/ihm/auth/logout")
+
+    response = client.get(
+        "/api/ihm/auth/login",
+        params={"email": "inconnu@example.com"},
+        follow_redirects=False,
+    )
+    assert response.headers["location"] == "https://router.example.com/login-error?reason=unknown"
+    assert "router_session" not in response.cookies
+
+    me = client.get("/api/ihm/auth/me")
+    assert me.json()["authenticated"] is False
+
+
+def test_login_preprovisioned_user_attaches_subject_on_first_login(client, monkeypatch):
+    monkeypatch.setattr(settings, "oidc_mode", "dev")
+    client.get("/api/ihm/auth/login", params={"email": "admin9@example.com"}, follow_redirects=False)
+    client.post("/api/ihm/users", json={"email": "preprovisioned@example.com"})
+    client.post("/api/ihm/auth/logout")
+
+    response = client.get(
+        "/api/ihm/auth/login",
+        params={"email": "preprovisioned@example.com", "name": "Nom Réel"},
+        follow_redirects=False,
+    )
+    assert "router_session" in response.cookies
+
+    me = client.get("/api/ihm/auth/me").json()
+    assert me["authenticated"] is True
+    assert me["user"]["email"] == "preprovisioned@example.com"
+    assert me["user"]["name"] == "Nom Réel"
+    assert me["user"]["role"] == "user"
+
+
+def test_login_inactive_user_redirects_to_login_error(client, monkeypatch):
+    monkeypatch.setattr(settings, "oidc_mode", "dev")
+    monkeypatch.setattr(settings, "frontend_base_url", "https://router.example.com")
+
+    client.get("/api/ihm/auth/login", params={"email": "admin10@example.com"}, follow_redirects=False)
+    created = client.post("/api/ihm/users", json={"email": "banned@example.com"}).json()
+    client.put(
+        f"/api/ihm/users/{created['id']}/access",
+        json={"role": "user", "company_ids": [], "is_active": False},
+    )
+    client.post("/api/ihm/auth/logout")
+
+    response = client.get(
+        "/api/ihm/auth/login",
+        params={"email": "banned@example.com"},
+        follow_redirects=False,
+    )
+    assert response.headers["location"] == "https://router.example.com/login-error?reason=inactive"
+    assert "router_session" not in response.cookies
