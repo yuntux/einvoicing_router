@@ -1,10 +1,11 @@
-"""Scheduler définitif (spec.md § 4.7) — déclencheur découplé unique, sur lequel le
-polling SuperPDP viendra se brancher au lot 6 (§ 4.1)."""
+"""Scheduler définitif (spec.md § 4.7) — déclencheur découplé unique, sur lequel se
+branchent le cycle d'envoi/retry (§ 4.7, lot 5) et le polling SuperPDP (§ 4.1, lot 6)."""
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app.config import settings
 from app.db.session import SessionLocal
+from app.scheduler.polling_job import run_polling_cycle
 from app.services import retry_scheduler_service
 
 _scheduler: BackgroundScheduler | None = None
@@ -14,6 +15,14 @@ def _run_send_cycle_job() -> None:
     db = SessionLocal()
     try:
         retry_scheduler_service.run_send_cycle(db)
+    finally:
+        db.close()
+
+
+def _run_polling_cycle_job() -> None:
+    db = SessionLocal()
+    try:
+        run_polling_cycle(db)
     finally:
         db.close()
 
@@ -28,6 +37,12 @@ def start_scheduler() -> BackgroundScheduler:
         "interval",
         minutes=settings.retry_interval_minutes,
         id="mail-send-retry-cycle",
+    )
+    _scheduler.add_job(
+        _run_polling_cycle_job,
+        "interval",
+        minutes=settings.polling_interval_minutes,
+        id="superpdp-polling-cycle",
     )
     _scheduler.start()
     return _scheduler
