@@ -9,8 +9,11 @@ from app.afnor.client.fake import FakeSuperPDPClient
 from app.db.session import get_db
 from app.models.referential import Company, PartnerDirectory
 from app.models.invoicing import Invoice
+from app.models.lifecycle import LifecycleEvent
 from app.schemas.invoice import InvoiceDetailRead, InvoiceRead, SimulateInvoiceReception
+from app.schemas.lifecycle import CreateManualLifecycleEvent, LifecycleEventRead
 from app.services.invoice_ingestion_service import ingest_from_client
+from app.services.lifecycle_service import LifecycleValidationError, ManualEventInput, create_manual_event
 
 router = APIRouter()
 
@@ -63,6 +66,46 @@ def get_invoice(invoice_id: int, db: Session = Depends(get_db)):
     data = InvoiceDetailRead.model_validate(invoice)
     data.emitter_name = emitter_name
     return data
+
+
+@router.get("/{invoice_id}/lifecycle-events", response_model=list[LifecycleEventRead])
+def list_lifecycle_events(invoice_id: int, db: Session = Depends(get_db)):
+    invoice = db.get(Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    return (
+        db.query(LifecycleEvent)
+        .filter(LifecycleEvent.invoice_id == invoice_id)
+        .order_by(LifecycleEvent.event_datetime.desc())
+        .all()
+    )
+
+
+@router.post("/{invoice_id}/lifecycle-events", response_model=LifecycleEventRead, status_code=201)
+def create_lifecycle_event(
+    invoice_id: int, payload: CreateManualLifecycleEvent, db: Session = Depends(get_db)
+):
+    """Saisie manuelle d'un statut de cycle de vie (§ 4.2). Toujours côté achat : seule
+    la fiche d'une facture reçue existe comme point d'entrée IHM (cf. LifecycleService)."""
+    invoice = db.get(Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    try:
+        return create_manual_event(
+            db,
+            invoice=invoice,
+            side="purchase",
+            data=ManualEventInput(
+                status=payload.status,
+                reason=payload.reason,
+                action=payload.action,
+                comment=payload.comment,
+                confirmed=payload.confirmed,
+            ),
+        )
+    except LifecycleValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/simulate", response_model=InvoiceRead, status_code=201)
