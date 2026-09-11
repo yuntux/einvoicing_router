@@ -198,7 +198,7 @@ Cette méthode couvre le cas Odoo (§ 4.4) et tout futur consommateur de l'API A
 - **TargetApplication** (application cible) : nom, méthode de routage (enum extensible), entreprise gérée de rattachement (pour la méthode API AFNOR), paramètres (JSON typé selon la méthode — cf. § 4.9.1/4.9.2).
 - **OAuthApplication** (jeton d'accès par entreprise, cf. § 4.10) : entreprise gérée, `client_id`/`client_secret` (ou token), type d'application (confidentielle/publique), **portée** (`Router→SuperPDP` ou `Odoo/consommateur→Router`), URLs de redirection, format préféré de conversion AFNOR, **version d'API AFNOR cible** (pour la portée `Router→SuperPDP` : permet la bascule progressive par entreprise décrite au § 4.8).
 - **RoutingRule** : **classe d'association** entre `PartnerDirectory` (émetteur) et `TargetApplication` (application cible), porteuse de la période de validité du routage (date début, date fin — nullable = sans fin) et d'un indicateur actif/inactif. C'est parce que cette période de validité n'a de sens que pour un couple (émetteur, application cible) donné que la relation ne peut pas être une simple association N-N sans attributs : elle doit être portée par une entité propre (cf. § 7.1.1, où mermaid ne disposant pas de la notation UML stricte de classe d'association, `RoutingRule` est représentée comme une classe reliée par deux associations dirigées).
-- **Invoice** : identifiant, entreprise réceptrice, émetteur (SIREN/SIRET), statut cycle de vie courant, chemin fichier, métadonnées AFNOR, version d'API AFNOR d'origine, date de réception.
+- **Invoice** : identifiant, entreprise réceptrice, émetteur (SIREN/SIRET), statut cycle de vie courant, chemin fichier, métadonnées AFNOR, version d'API AFNOR d'origine, date de réception. Le SIREN/SIRET de l'émetteur est toujours présent (porté par les métadonnées AFNOR de la facture), mais le **lien vers l'entrée `PartnerDirectory` correspondante peut être absent** (cardinalité `0..1` au § 7.1.2) si cet émetteur n'a encore jamais été vu par le routeur — l'entrée d'annuaire est alors créée a posteriori (typiquement lors d'une consultation d'annuaire par Odoo, § 4.4). Une facture dont l'émetteur n'a pas d'entrée `PartnerDirectory` ne peut mécaniquement correspondre à aucune `RoutingRule` : c'est l'un des cas concrets couverts par l'alerte "facture sans règle de routage active" du § 4.7.
 - **InvoiceRouting** (table de routage effective par facture/cible) : facture, application cible, statut de transfert (à faire / envoyé / échec / en retry / échec définitif), nombre de tentatives, horodatage de la prochaine tentative (cf. § 4.7).
 - **BillingManagerContact** : adresse(s) email du/des "Gestionnaire(s) de facturation" (destinataires des alertes de routage sans cible et d'échec définitif d'envoi, cf. § 4.7), paramétrées **globalement** dans la configuration générale du routeur — les Gestionnaires de facturation ont une vue sur l'ensemble des factures, toutes entreprises gérées confondues, il n'y a donc pas lieu de distinguer ces adresses par entreprise.
 - **FlowTrace** (traçabilité NF1) : correlationID, sens (Odoo→Routeur, Routeur→SuperPDP, etc.), version d'API AFNOR utilisée, requête, réponse, horodatage, statut HTTP.
@@ -214,7 +214,7 @@ Reprise du découpage éprouvé par le module OCA/Akretion `l10n_fr_einvoicing` 
   - **LifecycleEventPayment** (≈ `fr.einvoicing.event.payment`) : événement lié (statut `payment_sent`), montant, devise, date.
   - **LifecycleEventAttachment** : pièces jointes associées à un événement (le cas échéant).
 - **AfnorFlow** (≈ `fr.einvoicing.flow`) : représentation générique d'un flux AFNOR XP Z12-013 (facture, e-reporting ou message de cycle de vie), avec son propre cycle de vie **technique** distinct du cycle de vie métier de la facture : `created` → `generated` → `sent`/`downloaded` → `done` (ou `error`/`cancel`). Porte : identifiant de flux (`flowId`), sens, type (`CustomerInvoiceLC`, `SupplierInvoiceLC`, e-reporting…), syntaxe (`CDAR`, `UBL`, `CII`, `Factur-X`…), règle de traitement (`B2B`, `B2G`, `B2C`, `OutOfScope`…), fichier binaire généré/téléchargé, données JSON structurées extraites.
-- **TechnicalLog** (≈ `fr.einvoicing.log`) : journal technique des opérations d'import/génération/envoi/synchronisation d'annuaire (type d'opération, origine, entreprise, statut succès/avertissement/échec, compteurs, détail HTML) — complémentaire du `FlowTrace` (§ 6.1) qui trace les requêtes/réponses HTTP brutes ; ce journal trace plutôt le **résultat métier** de chaque exécution (ex. cron de récupération). Le module de référence (`l10n_fr_einvoicing`) purge automatiquement ces journaux au bout de 600 jours par défaut (`autovacuum`) ; **dans le routeur, la durée de rétention par défaut est fixée à 15 ans** (alignée sur la durée de conservation des pièces comptables en France), mais reste **paramétrable dans la configuration générale du routeur** (attribut `technical_log_retention_days` de `RouterSettings`, cf. ci-dessous) — sans remise en cause du mécanisme si la durée est amenée à changer.
+- **TechnicalLog** (≈ `fr.einvoicing.log`) : journal technique des opérations d'import/génération/envoi/synchronisation d'annuaire (type d'opération, origine, entreprise, statut succès/avertissement/échec, compteurs `new_count`/`updated_count`, détail HTML) — complémentaire du `FlowTrace` (§ 6.1) qui trace les requêtes/réponses HTTP brutes ; ce journal trace plutôt le **résultat métier** de chaque exécution (ex. cron de récupération). Le module de référence (`l10n_fr_einvoicing`) purge automatiquement ces journaux au bout de 600 jours par défaut (`autovacuum`) ; **dans le routeur, la durée de rétention par défaut est fixée à 15 ans** (alignée sur la durée de conservation des pièces comptables en France), mais reste **paramétrable dans la configuration générale du routeur** (attribut `technical_log_retention_days` de `RouterSettings`, cf. ci-dessous) — sans remise en cause du mécanisme si la durée est amenée à changer.
 - **RouterSettings** (configuration générale du routeur, instance unique) : durée de rétention de `TechnicalLog` (`technical_log_retention_days`, 15 ans par défaut), paramètres du serveur d'envoi SMTP mutualisé (§ 4.9.1). Toute configuration transverse ultérieure (non spécifique à une entreprise ni à une application cible) y a naturellement sa place.
 
 Cette séparation **Invoice / LifecycleEvent / AfnorFlow / TechnicalLog** est à conserver dans le routeur : la facture porte l'état métier courant, l'événement de cycle de vie porte le détail d'un changement d'état, le flux AFNOR porte le suivi technique de la transmission (génération, envoi, statut de dépôt côté PDP), et le journal technique trace le déroulé des traitements batch.
@@ -396,6 +396,8 @@ classDiagram
         +string log_type
         +string origin
         +string status
+        +int new_count
+        +int updated_count
         +text details
     }
     class BillingManagerContact {
@@ -419,7 +421,8 @@ classDiagram
     Company "1" --> "0..*" FlowTrace : concerne
     Company "1" --> "0..*" TechnicalLog : concerne
     AuditLog "0..*" --> "1" User : auteur
-    RouterSettings "1" ..> "0..*" TechnicalLog : pilote la rétention
+    RouterSettings "1" ..> "0..*" TechnicalLog : pilote la rétention (purge)
+    RouterSettings "1" --> "0..*" BillingManagerContact : porte
 ```
 
 ### 7.2 Diagramme de composants
@@ -447,7 +450,7 @@ flowchart LR
             AfnorServer["Serveur AFNOR XP Z12-013\n(exposé à Odoo, multi-version,\nparsing/génération réutilisés de pyfrctc)"]
             MailConnector["Connecteur mail\n(Spendesk / Comptable)"]
             Lifecycle["Module Cycle de vie"]
-            Scheduler["Scheduler / Cron\n(polling, retry, alerting)"]
+            Scheduler["Scheduler / Cron\n(polling, retry, alerting, purge TechnicalLog)"]
             Tracing["Traçabilité & Audit\n(FlowTrace, AuditLog, TechnicalLog)"]
         end
 
@@ -468,6 +471,7 @@ flowchart LR
     Scheduler --> AfnorClient
     Scheduler --> MailConnector
     Scheduler --> AfnorServer
+    Scheduler --> Tracing
 
     RoutingEngine --> DB
     AfnorClient --> DB
@@ -505,7 +509,9 @@ classDiagram
     class OAuthApplication
     class FlowTrace
     class TechnicalLog
+    class AuditLog
     class BillingManagerContact
+    class RouterSettings
 
     RoutingRuleService --> RoutingRule : gère
     RoutingRuleService --> TargetApplication : gère
@@ -517,6 +523,7 @@ classDiagram
     InvoiceIngestionService --> AfnorClientAdapter : utilise
     InvoiceIngestionService --> RoutingRuleService : résout le routage
     InvoiceIngestionService --> InvoiceRouting : crée
+    InvoiceIngestionService --> BillingManagerContact : alerte (facture non routée)
 
     AfnorClientAdapter --> FlowTrace : trace
     AfnorClientAdapter --> OAuthApplication : s'authentifie via
@@ -538,10 +545,12 @@ classDiagram
     RetrySchedulerService --> InvoiceRouting : rejoue
     RetrySchedulerService --> MailRouterService : déclenche
     RetrySchedulerService --> AfnorClientAdapter : déclenche
-    RetrySchedulerService --> BillingManagerContact : alerte
+    RetrySchedulerService --> BillingManagerContact : alerte (échec définitif)
+    RetrySchedulerService --> TechnicalLog : purge selon RouterSettings
 
     AuditTraceService --> FlowTrace : enregistre
     AuditTraceService --> TechnicalLog : enregistre
+    AuditTraceService --> AuditLog : enregistre
 ```
 
 ## 8. API exposées / consommées
