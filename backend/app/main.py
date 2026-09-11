@@ -3,7 +3,9 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.afnor.v1 import router as afnor_v1_router
+import app.api.afnor.v1  # noqa: F401  (s'enregistre auprès du registre de versions)
+import app.api.afnor.v2  # noqa: F401  (idem — cf. app/afnor/versioning/registry.py)
+from app.afnor.versioning.registry import get_router
 from app.api.ihm.auth import router as auth_router
 from app.api.ihm.companies import router as companies_router
 from app.api.ihm.invoice_routings import router as invoice_routings_router
@@ -77,7 +79,16 @@ def create_app() -> FastAPI:
         tags=["lifecycle"],
         dependencies=ihm_auth,
     )
-    app.include_router(afnor_v1_router, prefix="/api/afnor/v1", tags=["afnor-v1"])
+    # Registre de versions AFNOR (§ 4.8) : chaque version activée dans
+    # `settings.afnor_api_enabled_versions` est montée sous son propre préfixe, sans
+    # qu'ajouter/retirer une version ne touche aux autres routers ici.
+    for version in settings.afnor_api_enabled_versions.split(","):
+        version = version.strip()
+        version_router = get_router(version)
+        if version_router is not None:
+            app.include_router(
+                version_router, prefix=f"/api/afnor/{version}", tags=[f"afnor-{version}"]
+            )
     app.include_router(
         invoice_routings_router,
         prefix="/api/ihm/invoice-routings",

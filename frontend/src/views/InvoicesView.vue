@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { listCompanies, type Company } from '../api/companies'
 import {
   getInvoice,
+  invoiceDownloadUrl,
   listInvoices,
   simulateInvoiceReception,
   type Invoice,
@@ -42,6 +43,12 @@ async function refreshInvoices() {
 
 async function selectInvoice(id: number) {
   selected.value = await getInvoice(id)
+}
+
+async function refreshSelected() {
+  if (selected.value) {
+    selected.value = await getInvoice(selected.value.id)
+  }
 }
 
 async function onLifecycleEventCreated() {
@@ -144,6 +151,23 @@ onMounted(async () => {
       <h2>Facture {{ selected.invoice_number }}</h2>
       <p>Émetteur : {{ selected.emitter_siren }} ({{ selected.emitter_name ?? 'annuaire inconnu' }})</p>
       <p>Statut cycle de vie : {{ selected.lifecycle_status ?? '—' }}</p>
+      <p>
+        <a
+          :href="invoiceDownloadUrl(selected.id)"
+          data-testid="invoice-download-link"
+          @click="() => setTimeout(refreshSelected, 500)"
+        >
+          Télécharger le fichier
+        </a>
+      </p>
+      <p data-testid="invoice-last-download">
+        Dernier téléchargement :
+        <template v-if="selected.last_download_at">
+          {{ selected.last_download_at }} par {{ selected.last_download_by ?? 'utilisateur non identifié' }}
+        </template>
+        <template v-else>jamais</template>
+      </p>
+
       <h3>Routage</h3>
       <ul v-if="selected.routings.length" data-testid="invoice-routings-list">
         <li v-for="routing in selected.routings" :key="routing.id">

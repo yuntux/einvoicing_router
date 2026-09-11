@@ -1,4 +1,4 @@
-from app.models.audit import FlowTrace
+from app.models.audit import AuditLog, FlowTrace, TechnicalLog
 from app.models.invoicing import Invoice, InvoiceRouting, InvoiceType, TransferStatus
 from app.models.lifecycle import (
     AfnorFlow,
@@ -19,6 +19,7 @@ from app.models.settings import BillingManagerContact, RouterSettings
 
 __all__ = [
     "AfnorFlow",
+    "AuditLog",
     "BillingManagerContact",
     "Company",
     "FlowTrace",
@@ -34,6 +35,7 @@ __all__ = [
     "RouterSettings",
     "RoutingRule",
     "TargetApplication",
+    "TechnicalLog",
     "TransferStatus",
     "User",
 ]

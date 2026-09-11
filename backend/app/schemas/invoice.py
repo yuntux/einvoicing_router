@@ -42,6 +42,9 @@ class InvoiceRoutingRead(BaseModel):
 class InvoiceDetailRead(InvoiceRead):
     routings: list[InvoiceRoutingRead]
     emitter_name: str | None = None
+    # Obtenus par jointure sur AuditLog (§ 6.1) — jamais dénormalisés sur Invoice.
+    last_download_at: datetime | None = None
+    last_download_by: str | None = None
 
 
 class SimulateInvoiceReception(BaseModel):
