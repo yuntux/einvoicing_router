@@ -10,13 +10,14 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, Response, Up
 from sqlalchemy.orm import Session
 
 from app.afnor.client.adapter import afnor_client_adapter
+from app.afnor.server import afnor_server_controller
 from app.afnor.versioning.registry import register_version
 from app.auth.oauth import get_current_oauth_application, issue_token_response
 from app.db.session import get_db
 from app.models.referential import Company, OAuthApplication
 from app.schemas.invoice import InvoiceRead
 from app.schemas.oauth import DirectoryLookupRead
-from app.services import afnor_server_controller, audit_trace_service
+from app.services import audit_trace_service
 
 AFNOR_API_VERSION = "v1"
 
