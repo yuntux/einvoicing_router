@@ -14,55 +14,49 @@ La réforme française de la facturation électronique impose progressivement à
 Au-delà du simple envoi/réception de la facture, la réforme impose également le suivi d'un **cycle de vie normalisé** : chaque étape du traitement d'une facture (dépôt, mise à disposition, prise en charge, approbation, litige, paiement…) doit être transmise sous forme de statuts normalisés entre la plateforme du vendeur et celle de l'acheteur, afin que l'administration fiscale dispose d'une vision fiable de l'état réel de chaque facture à des fins de contrôle de la TVA. Le schéma suivant illustre ce cycle de vie standard (statuts **obligatoires** en rouge, **recommandés** en bleu-vert, **autres** en blanc) ; les clés techniques entre parenthèses sont celles utilisées dans le catalogue de statuts détaillé au § 4.2 :
 
 ```mermaid
-flowchart LR
-    subgraph P1["Préparation émission"]
-        direction TB
+flowchart TD
+    subgraph FOURNISSEUR["🏢 Plateforme Fournisseur"]
+        direction LR
         submitted["Déposée<br/>(submitted)"]
         ap_sent["Émise par la plateforme<br/>(ap_sent)"]
         ap_received["Reçue par la plateforme<br/>(ap_received)"]
+        submitted --> ap_sent --> ap_received
+    end
+
+    subgraph ACHETEUR["🏦 Plateforme Acheteur"]
+        direction TB
         ap_available["Mise à disposition<br/>(ap_available)"]
-    end
-
-    subgraph P2["Réception"]
-        direction TB
-        rejected["Rejetée<br/>(raison technique)<br/>(rejected)"]
+        rejected["Rejetée (raison technique)<br/>(rejected)"]
         in_hand["Prise en charge<br/>(in_hand)"]
-    end
-
-    subgraph P3["Validation / Renvoi"]
-        direction TB
         completed["Complétée<br/>(completed)"]
         suspended["Suspendue<br/>(suspended)"]
         dispute["En litige<br/>(dispute)"]
         approved["Approuvée<br/>(approved)"]
         partially_approved["Partiellement approuvée<br/>(partially_approved)"]
         refused["Refusée<br/>(refused)"]
-    end
-
-    subgraph P4["Paiement"]
-        direction TB
         payment_sent["Paiement transmis<br/>(payment_sent)"]
         payment_received["Encaissée<br/>(payment_received)"]
+
+        ap_available --> rejected
+        ap_available --> in_hand
+
+        in_hand --> suspended
+        in_hand --> dispute
+        in_hand --> approved
+        in_hand --> partially_approved
+        in_hand --> refused
+
+        dispute --> refused
+        partially_approved --> refused
+
+        completed --> approved
+        approved --> payment_sent
+        completed --> payment_sent
+        payment_sent --> payment_received
     end
 
-    submitted --> ap_sent --> ap_received --> ap_available
-    ap_available --> rejected
+    ap_received --> ap_available
     rejected -.->|renvoi| submitted
-    ap_available --> in_hand
-
-    in_hand --> suspended
-    in_hand --> dispute
-    in_hand --> approved
-    in_hand --> partially_approved
-    in_hand --> refused
-
-    dispute --> refused
-    partially_approved --> refused
-
-    completed --> approved
-    approved --> payment_sent
-    completed --> payment_sent
-    payment_sent --> payment_received
 
     classDef obligatoire fill:#e0455f,stroke:#c22233,color:#ffffff
     classDef recommande fill:#1a9ba1,stroke:#0e6b70,color:#ffffff
