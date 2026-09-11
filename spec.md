@@ -140,7 +140,7 @@ Le routeur agit comme émulation de PDP vis-à-vis du connecteur Odoo :
 - **Échec d'un envoi vers une application cible** (méthode mail ou méthode API) :
   - le routeur **retente automatiquement l'envoi toutes les 30 minutes, pendant 3 heures** (soit au maximum 6 tentatives après l'échec initial) ;
   - si, à l'issue de cette fenêtre, l'envoi n'a toujours pas abouti, une **alerte email est envoyée au(x) Gestionnaire(s) de facturation** pour signaler l'échec définitif (la facture reste néanmoins consultable et son routage vers cette cible reste en erreur, avec possibilité de rejeu manuel depuis l'IHM).
-  - Précision pour la méthode API AFNOR : ce cas concerne les échecs applicatifs ou réseau lors de la préparation/mise à disposition des données pour Odoo (le routeur n'effectue pas de push vers Odoo hors mécanisme de webhook — c'est en principe Odoo qui vient consulter l'API à intervalle régulier ; le retry décrit ci-dessus s'applique donc principalement à la méthode mail et à tout futur mécanisme de routage à push explicite, dont un éventuel webhook).
+  - Précision pour la méthode API AFNOR : quand Odoo consulte l'API en polling (comportement passif, à son rythme), il n'y a pas d'envoi actif du routeur, donc pas de notion d'échec/retry applicable à ce mode. En revanche, le routeur pousse désormais aussi des **notifications webhook** vers Odoo (§ 4.4) : un échec de livraison de cette notification (URL de callback injoignable, erreur HTTP côté Odoo, etc.) est un envoi actif du routeur et suit donc le même cycle de retry (30 minutes × 3 heures) que les envois par mail, avant repli silencieux sur le polling classique (le contenu reste de toute façon consultable par Odoo au prochain cycle de polling, webhook ou non).
 - **Rejeu manuel depuis l'IHM**, sur une facture en échec (définitif ou non) de routage vers une ou plusieurs cibles :
   - possible **à la maille d'une application cible unique** (rejouer uniquement l'envoi qui a échoué vers telle cible) **ou à la maille de toutes les cibles en échec** de la facture en une seule action ;
   - **action de masse** : la liste des factures en échec affiche des **cases à cocher**, permettant de sélectionner plusieurs factures et de déclencher le rejeu en une seule action pour l'ensemble de la sélection ;
@@ -611,6 +611,7 @@ classDiagram
   - **Consultation factures** : filtrage par règles de routage (uniquement les factures flaggées "Odoo").
   - **Consultation annuaire** : création à la volée d'une règle de routage implicite "vers Odoo" pour toute entreprise nouvellement interrogée.
   - **Émission facture / e-reporting / cycle de vie** : proxy transparent vers SuperPDP (requête et réponse tracées avec correlationID commun).
+  - **Notification webhook** : en complément du polling, le routeur pousse une notification vers l'URL de webhook enregistrée pour l'application OAuth d'Odoo dès qu'un événement le concernant est disponible (cf. § 4.4).
 
 ### 8.3 IHM (interne)
 
