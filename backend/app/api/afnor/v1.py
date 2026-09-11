@@ -6,17 +6,16 @@ celui-ci ni aux services qu'il appelle."""
 
 import uuid
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from app.afnor.client.adapter import afnor_client_adapter
 from app.afnor.versioning.registry import register_version
-from app.auth.oauth import get_current_oauth_application, issue_access_token, verify_secret
-from app.config import settings
+from app.auth.oauth import get_current_oauth_application, issue_token_response
 from app.db.session import get_db
 from app.models.referential import Company, OAuthApplication
 from app.schemas.invoice import InvoiceRead
-from app.schemas.oauth import DirectoryLookupRead, TokenResponse
+from app.schemas.oauth import DirectoryLookupRead
 from app.services import afnor_server_controller, audit_trace_service
 
 AFNOR_API_VERSION = "v1"
@@ -31,31 +30,29 @@ def _company_for(db: Session, oauth_app: OAuthApplication) -> Company:
     return company
 
 
-@router.post("/oauth/token", response_model=TokenResponse)
+@router.post("/oauth/token")
 def issue_token(
+    response: Response,
     grant_type: str = Form(...),
     client_id: str = Form(...),
     client_secret: str = Form(...),
     db: Session = Depends(get_db),
 ):
-    if grant_type != "client_credentials":
-        raise HTTPException(status_code=400, detail="unsupported_grant_type")
-
-    oauth_app = db.query(OAuthApplication).filter(OAuthApplication.client_id == client_id).first()
-    if oauth_app is None or not verify_secret(client_secret, oauth_app.client_secret_hash):
-        raise HTTPException(status_code=401, detail="invalid_client")
-
-    token = issue_access_token(oauth_app)
-    response = TokenResponse(access_token=token, expires_in=settings.jwt_expiry_seconds)
+    """Conformité RFC 6749 (authentification client, validation du grant, erreurs
+    normalisées) déléguée à Authlib — cf. `app.auth.oauth.issue_token_response`."""
+    status_code, body = issue_token_response(
+        db, grant_type=grant_type, client_id=client_id, client_secret=client_secret
+    )
+    response.status_code = status_code
     audit_trace_service.record_flow_trace(
         db,
         direction="odoo_to_router",
         afnor_api_version=AFNOR_API_VERSION,
         request={"endpoint": "POST /oauth/token", "client_id": client_id},
-        response={"status": "issued"},
-        http_status=200,
+        response={"status": "issued" if status_code == 200 else body.get("error")},
+        http_status=status_code,
     )
-    return response
+    return body
 
 
 @router.get("/invoices", response_model=list[InvoiceRead])

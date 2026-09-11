@@ -1,92 +1,36 @@
-"""Flux OIDC réel contre Microsoft Entra ID (spec.md NF3, lot 7) — authorization code
-+ PKCE, adapté à une IHM SPA servie séparément du backend (§ 3).
+"""Client OIDC réel contre Microsoft Entra ID (spec.md NF3, lot 7) — construit sur
+**Authlib** (`authlib.integrations.starlette_client`) plutôt que réimplémenté à la
+main : Authlib gère nativement la découverte OpenID Connect, PKCE, state/nonce
+(stockés côté serveur via `starlette.middleware.sessions.SessionMiddleware`, cf.
+`app.main`) et la validation de l'ID token (signature JWKS, émetteur, audience,
+nonce). Ce module se contente d'enregistrer le client avec la configuration
+courante — `app/api/ihm/auth.py` appelle directement les méthodes Authlib
+(`authorize_redirect`/`authorize_access_token`)."""
 
-Utilise directement `requests`/`PyJWT` (déjà des dépendances du projet, via pyfrctc et
-l'API AFNOR) plutôt qu'une bibliothèque OIDC dédiée (`msal`/`authlib`), pour rester
-minimal : le flux ne nécessite que la découverte OpenID Connect, l'échange
-code/jetons, et la validation de signature du jeton d'ID via son JWKS."""
-
-import base64
-import hashlib
-import secrets
-from urllib.parse import quote
-
-import jwt
-import requests
+from authlib.integrations.starlette_client import OAuth
 
 from app.config import settings
 
-DISCOVERY_TIMEOUT_SECONDS = 10
-TOKEN_EXCHANGE_TIMEOUT_SECONDS = 10
+oauth = OAuth()
+
+CLIENT_NAME = "entra_id"
 
 
-def _authority() -> str:
-    return f"https://login.microsoftonline.com/{settings.oidc_tenant_id}/v2.0"
-
-
-def _discovery_document() -> dict:
-    response = requests.get(
-        f"{_authority()}/.well-known/openid-configuration", timeout=DISCOVERY_TIMEOUT_SECONDS
+def entra_id_client():
+    """(Ré)enregistre le client à chaque appel avec la configuration courante :
+    `settings.oidc_*` peut changer sans redémarrage du process (tenant/app OIDC
+    reconfigurable depuis l'IHM à terme). Authlib met en cache le client construit
+    dès son premier accès (`oauth._clients`) — on l'invalide explicitement pour que
+    la configuration courante soit toujours prise en compte."""
+    oauth._clients.pop(CLIENT_NAME, None)
+    oauth.register(
+        name=CLIENT_NAME,
+        server_metadata_url=(
+            f"https://login.microsoftonline.com/{settings.oidc_tenant_id}"
+            "/v2.0/.well-known/openid-configuration"
+        ),
+        client_id=settings.oidc_client_id,
+        client_secret=settings.oidc_client_secret,
+        client_kwargs={"scope": "openid profile email"},
     )
-    response.raise_for_status()
-    return response.json()
-
-
-def generate_pkce_pair() -> tuple[str, str]:
-    """Retourne (code_verifier, code_challenge) — S256, RFC 7636."""
-    code_verifier = secrets.token_urlsafe(64)
-    digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
-    code_challenge = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
-    return code_verifier, code_challenge
-
-
-def build_authorization_url(*, state: str, code_challenge: str) -> str:
-    discovery = _discovery_document()
-    params = {
-        "client_id": settings.oidc_client_id,
-        "response_type": "code",
-        "redirect_uri": settings.oidc_redirect_uri,
-        "scope": "openid profile email",
-        "state": state,
-        "code_challenge": code_challenge,
-        "code_challenge_method": "S256",
-    }
-    query = "&".join(f"{key}={quote(str(value))}" for key, value in params.items())
-    return f"{discovery['authorization_endpoint']}?{query}"
-
-
-def exchange_code_for_id_token(*, code: str, code_verifier: str) -> str:
-    """Échange le code d'autorisation contre les jetons, et retourne l'`id_token`
-    (JWT) — seul jeton dont ce routeur a besoin : il n'appelle aucune API Microsoft
-    Graph pour le compte de l'utilisateur, l'identité déclarée dans l'ID token suffit."""
-    discovery = _discovery_document()
-    response = requests.post(
-        discovery["token_endpoint"],
-        data={
-            "client_id": settings.oidc_client_id,
-            "client_secret": settings.oidc_client_secret,
-            "grant_type": "authorization_code",
-            "code": code,
-            "redirect_uri": settings.oidc_redirect_uri,
-            "code_verifier": code_verifier,
-        },
-        timeout=TOKEN_EXCHANGE_TIMEOUT_SECONDS,
-    )
-    response.raise_for_status()
-    return response.json()["id_token"]
-
-
-def validate_id_token(id_token: str) -> dict:
-    """Vérifie la signature (JWKS du tenant), l'émetteur et l'audience de l'ID token,
-    et retourne ses claims (`sub`, `email`/`preferred_username`, `name`)."""
-    discovery = _discovery_document()
-    jwks_client = jwt.PyJWKClient(discovery["jwks_uri"])
-    signing_key = jwks_client.get_signing_key_from_jwt(id_token)
-    claims = jwt.decode(
-        id_token,
-        signing_key.key,
-        algorithms=["RS256"],
-        audience=settings.oidc_client_id,
-        issuer=discovery["issuer"],
-    )
-    return claims
+    return oauth.create_client(CLIENT_NAME)

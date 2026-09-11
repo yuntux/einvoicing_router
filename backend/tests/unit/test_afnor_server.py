@@ -100,7 +100,9 @@ def test_token_issuance_success(client, db_session):
     assert response.status_code == 200
     body = response.json()
     assert body["access_token"]
-    assert body["token_type"] == "bearer"
+    # RFC 6749 : "bearer" est insensible à la casse (RFC 6750 § 7.1) — Authlib émet
+    # "Bearer", capitalisé, ce qui est tout aussi conforme.
+    assert body["token_type"].lower() == "bearer"
 
     traces = db_session.query(FlowTrace).all()
     assert len(traces) == 1
@@ -120,7 +122,11 @@ def test_token_issuance_wrong_secret(client, db_session):
         },
     )
 
-    assert response.status_code == 401
+    # RFC 6749 § 5.2 : 401 n'est requis que si le client a tenté de s'authentifier
+    # via l'en-tête Authorization ; en client_secret_post (notre cas, § 4.10),
+    # Authlib retourne 400 invalid_client, conformément à la norme.
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_client"
 
 
 def test_token_issuance_unknown_client(client, db_session):
@@ -133,7 +139,8 @@ def test_token_issuance_unknown_client(client, db_session):
         },
     )
 
-    assert response.status_code == 401
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_client"
 
 
 def test_token_issuance_wrong_grant_type(client, db_session):

@@ -20,6 +20,13 @@ dependencies = [
     # disponible uniquement en dépendance transitive de pyfrctc, déclaré ici pour ne
     # pas dépendre silencieusement de son arbre de dépendances.
     "requests>=2.32",
+    # Serveur OAuth2 (client_credentials, § 4.4/§ 4.10) et client OIDC (Entra ID,
+    # NF3) : conformité RFC 6749/OIDC déléguée à Authlib plutôt que réimplémentée.
+    "authlib>=1.3",
+    # Requis par starlette.middleware.sessions.SessionMiddleware, utilisée par
+    # Authlib (authlib.integrations.starlette_client) pour stocker state/nonce OIDC
+    # côté serveur pendant le flux Entra ID.
+    "itsdangerous>=2.2",
 ]
 
 [project.optional-dependencies]
