@@ -13,59 +13,9 @@ La réforme française de la facturation électronique impose progressivement à
 
 Au-delà du simple envoi/réception de la facture, la réforme impose également le suivi d'un **cycle de vie normalisé** : chaque étape du traitement d'une facture (dépôt, mise à disposition, prise en charge, approbation, litige, paiement…) doit être transmise sous forme de statuts normalisés entre la plateforme du vendeur et celle de l'acheteur, afin que l'administration fiscale dispose d'une vision fiable de l'état réel de chaque facture à des fins de contrôle de la TVA. Le schéma suivant illustre ce cycle de vie standard (statuts **obligatoires** en rouge, **recommandés** en bleu-vert, **autres** en blanc) ; les clés techniques entre parenthèses sont celles utilisées dans le catalogue de statuts détaillé au § 4.2 :
 
-```mermaid
-flowchart LR
-    subgraph FOURNISSEUR["🏢 Plateforme Fournisseur"]
-        direction TB
-        submitted["Déposée<br/>(submitted)"]
-        ap_sent["Émise par la plateforme<br/>(ap_sent)"]
-        ap_received["Reçue par la plateforme<br/>(ap_received)"]
-        completed["Complétée<br/>(completed)"]
-        payment_received["Encaissée<br/>(payment_received)"]
-        submitted --> ap_sent --> ap_received
-    end
+![Cycle de vie de la facture électronique — statuts obligatoires et recommandés](docs/images/cycle-de-vie-facture.png)
 
-    subgraph ACHETEUR["🏦 Plateforme Acheteur"]
-        direction TB
-        ap_available["Mise à disposition<br/>(ap_available)"]
-        rejected["Rejetée (raison technique)<br/>(rejected)"]
-        in_hand["Prise en charge<br/>(in_hand)"]
-        suspended["Suspendue<br/>(suspended)"]
-        dispute["En litige<br/>(dispute)"]
-        approved["Approuvée<br/>(approved)"]
-        partially_approved["Partiellement approuvée<br/>(partially_approved)"]
-        refused["Refusée<br/>(refused)"]
-        payment_sent["Paiement transmis<br/>(payment_sent)"]
-
-        ap_available --> rejected
-        ap_available --> in_hand
-
-        in_hand --> suspended
-        in_hand --> dispute
-        in_hand --> approved
-        in_hand --> partially_approved
-        in_hand --> refused
-
-        dispute --> refused
-        partially_approved --> refused
-
-        approved --> payment_sent
-    end
-
-    ap_received --> ap_available
-    rejected -.->|renvoi| submitted
-    approved --> completed
-    completed --> payment_sent
-    payment_sent --> payment_received
-
-    classDef obligatoire fill:#e0455f,stroke:#c22233,color:#ffffff
-    classDef recommande fill:#1a9ba1,stroke:#0e6b70,color:#ffffff
-    classDef autre fill:#ffffff,stroke:#333333,color:#000000
-
-    class submitted,rejected,refused,payment_received obligatoire
-    class ap_available,in_hand,approved,partially_approved,payment_sent recommande
-    class ap_sent,ap_received,completed,suspended,dispute autre
-```
+*Source : Esker. Correspondance avec les clés techniques du catalogue de statuts détaillé au § 4.2 : Déposée = `submitted`, Émise par la plateforme = `ap_sent`, Reçue par la plateforme = `ap_received`, Mise à disposition = `ap_available`, Rejetée = `rejected`, Prise en charge = `in_hand`, Suspendue = `suspended`, En litige = `dispute`, Approuvée = `approved`, Partiellement approuvée = `partially_approved`, Refusée = `refused`, Complétée = `completed`, Paiement transmis = `payment_sent`, Encaissée = `payment_received`.*
 
 C'est ce cycle de vie — repris intégralement, avec l'ensemble de ses statuts (y compris ceux non représentés dans ce schéma simplifié : `stamped`, `cancelled`, `routing_error`, `direct_payment_query`, `factored`, `undisclosed_factored`, `payment_entity_change`, `not_factored`, `unacceptable`) et mappé aux codes techniques de la norme AFNOR XP Z12-013 — que le routeur doit permettre de consulter et, pour le sous-ensemble saisissable manuellement, de générer (§ 4.2).
 
