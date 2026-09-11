@@ -1,4 +1,11 @@
 from app.models.invoicing import Invoice, InvoiceRouting, InvoiceType, TransferStatus
+from app.models.lifecycle import (
+    AfnorFlow,
+    LifecycleEvent,
+    LifecycleEventAttachment,
+    LifecycleEventDetail,
+    LifecycleEventPayment,
+)
 from app.models.referential import (
     Company,
     OAuthApplication,
@@ -9,10 +16,15 @@ from app.models.referential import (
 )
 
 __all__ = [
+    "AfnorFlow",
     "Company",
     "Invoice",
     "InvoiceRouting",
     "InvoiceType",
+    "LifecycleEvent",
+    "LifecycleEventAttachment",
+    "LifecycleEventDetail",
+    "LifecycleEventPayment",
     "OAuthApplication",
     "PartnerDirectory",
     "RoutingRule",

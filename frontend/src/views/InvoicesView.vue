@@ -9,6 +9,7 @@ import {
   type InvoiceDetail,
   type InvoiceFilters,
 } from '../api/invoices'
+import LifecycleEventForm from '../components/LifecycleEventForm.vue'
 
 const companies = ref<Company[]>([])
 const invoices = ref<Invoice[]>([])
@@ -41,6 +42,12 @@ async function refreshInvoices() {
 
 async function selectInvoice(id: number) {
   selected.value = await getInvoice(id)
+}
+
+async function onLifecycleEventCreated() {
+  if (selected.value) {
+    selected.value = await getInvoice(selected.value.id)
+  }
 }
 
 async function submitSimulation() {
@@ -144,6 +151,8 @@ onMounted(async () => {
         </li>
       </ul>
       <p v-else data-testid="invoice-no-routing">Aucune application cible routée.</p>
+
+      <LifecycleEventForm :key="selected.id" :invoice-id="selected.id" @created="onLifecycleEventCreated" />
     </section>
   </main>
 </template>

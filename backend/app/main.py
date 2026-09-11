@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.ihm.companies import router as companies_router
 from app.api.ihm.invoices import router as invoices_router
+from app.api.ihm.lifecycle import router as lifecycle_router
 from app.api.ihm.partners import router as partners_router
 from app.api.ihm.routing_rules import router as routing_rules_router
 from app.api.ihm.target_applications import router as target_applications_router
@@ -27,6 +28,9 @@ def create_app() -> FastAPI:
         routing_rules_router, prefix="/api/ihm/routing-rules", tags=["routing-rules"]
     )
     app.include_router(invoices_router, prefix="/api/ihm/invoices", tags=["invoices"])
+    app.include_router(
+        lifecycle_router, prefix="/api/ihm/lifecycle-catalog", tags=["lifecycle"]
+    )
     return app
 
 
