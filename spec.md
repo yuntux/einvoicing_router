@@ -14,9 +14,9 @@ La réforme française de la facturation électronique impose progressivement à
 Au-delà du simple envoi/réception de la facture, la réforme impose également le suivi d'un **cycle de vie normalisé** : chaque étape du traitement d'une facture (dépôt, mise à disposition, prise en charge, approbation, litige, paiement…) doit être transmise sous forme de statuts normalisés entre la plateforme du vendeur et celle de l'acheteur, afin que l'administration fiscale dispose d'une vision fiable de l'état réel de chaque facture à des fins de contrôle de la TVA. Le schéma suivant illustre ce cycle de vie standard (statuts **obligatoires** en rouge, **recommandés** en bleu-vert, **autres** en blanc) ; les clés techniques entre parenthèses sont celles utilisées dans le catalogue de statuts détaillé au § 4.2 :
 
 ```mermaid
-flowchart TD
+flowchart LR
     subgraph FOURNISSEUR["🏢 Plateforme Fournisseur"]
-        direction LR
+        direction TB
         submitted["Déposée<br/>(submitted)"]
         ap_sent["Émise par la plateforme<br/>(ap_sent)"]
         ap_received["Reçue par la plateforme<br/>(ap_received)"]
