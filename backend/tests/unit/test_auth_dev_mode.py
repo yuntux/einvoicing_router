@@ -45,6 +45,33 @@ def test_login_dev_mode_sets_session_and_me_reflects_user(client, monkeypatch):
     assert body["user"]["role"] == "admin"
 
 
+def test_login_dev_mode_redirects_to_next_path(client, monkeypatch):
+    monkeypatch.setattr(settings, "oidc_mode", "dev")
+    monkeypatch.setattr(settings, "frontend_base_url", "https://router.example.com")
+
+    response = client.get(
+        "/api/ihm/auth/login",
+        params={"email": "carol@example.com", "next": "/invoices/42"},
+        follow_redirects=False,
+    )
+    assert response.status_code in (302, 307)
+    assert response.headers["location"] == "https://router.example.com/invoices/42"
+
+
+def test_login_dev_mode_rejects_absolute_url_as_next(client, monkeypatch):
+    """`next` doit rester un chemin interne — jamais une redirection ouverte vers un
+    domaine arbitraire (cf. _safe_next_path)."""
+    monkeypatch.setattr(settings, "oidc_mode", "dev")
+    monkeypatch.setattr(settings, "frontend_base_url", "https://router.example.com")
+
+    response = client.get(
+        "/api/ihm/auth/login",
+        params={"email": "mallory@example.com", "next": "https://evil.example/phishing"},
+        follow_redirects=False,
+    )
+    assert response.headers["location"] == "https://router.example.com/"
+
+
 def test_protected_route_requires_session_when_enabled(client, monkeypatch):
     monkeypatch.setattr(settings, "oidc_mode", "dev")
     response = client.get("/api/ihm/companies")

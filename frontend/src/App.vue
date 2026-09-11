@@ -1,19 +1,16 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { getCurrentUserStatus, loginUrl, logout, type CurrentUserStatus } from './api/auth'
+import { onMounted } from 'vue'
+import { useRoute } from 'vue-router'
+import { authStatus, ensureAuthStatus, loginUrl, logout } from './api/auth'
 
-const authStatus = ref<CurrentUserStatus | null>(null)
-
-async function refreshAuthStatus() {
-  authStatus.value = await getCurrentUserStatus()
-}
+const route = useRoute()
 
 async function doLogout() {
   await logout()
-  await refreshAuthStatus()
+  await ensureAuthStatus()
 }
 
-onMounted(refreshAuthStatus)
+onMounted(ensureAuthStatus)
 </script>
 
 <template>
@@ -32,7 +29,7 @@ onMounted(refreshAuthStatus)
         <button type="button" data-testid="logout-button" @click="doLogout">Se déconnecter</button>
       </template>
       <template v-else>
-        | <a :href="loginUrl()" data-testid="login-link">Se connecter</a>
+        | <a :href="loginUrl(route.fullPath)" data-testid="login-link">Se connecter</a>
       </template>
     </span>
   </nav>
