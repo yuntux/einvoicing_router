@@ -214,7 +214,8 @@ Reprise du découpage éprouvé par le module OCA/Akretion `l10n_fr_einvoicing` 
   - **LifecycleEventPayment** (≈ `fr.einvoicing.event.payment`) : événement lié (statut `payment_sent`), montant, devise, date.
   - **LifecycleEventAttachment** : pièces jointes associées à un événement (le cas échéant).
 - **AfnorFlow** (≈ `fr.einvoicing.flow`) : représentation générique d'un flux AFNOR XP Z12-013 (facture, e-reporting ou message de cycle de vie), avec son propre cycle de vie **technique** distinct du cycle de vie métier de la facture : `created` → `generated` → `sent`/`downloaded` → `done` (ou `error`/`cancel`). Porte : identifiant de flux (`flowId`), sens, type (`CustomerInvoiceLC`, `SupplierInvoiceLC`, e-reporting…), syntaxe (`CDAR`, `UBL`, `CII`, `Factur-X`…), règle de traitement (`B2B`, `B2G`, `B2C`, `OutOfScope`…), fichier binaire généré/téléchargé, données JSON structurées extraites.
-- **TechnicalLog** (≈ `fr.einvoicing.log`) : journal technique des opérations d'import/génération/envoi/synchronisation d'annuaire (type d'opération, origine, entreprise, statut succès/avertissement/échec, compteurs, détail HTML) — complémentaire du `FlowTrace` (§ 6.1) qui trace les requêtes/réponses HTTP brutes ; ce journal trace plutôt le **résultat métier** de chaque exécution (ex. cron de récupération). Le module de référence (`l10n_fr_einvoicing`) purge automatiquement ces journaux au bout de 600 jours par défaut (`autovacuum`) ; **dans le routeur, la durée de rétention par défaut est fixée à 15 ans** (alignée sur la durée de conservation des pièces comptables en France), configurable dans les paramètres généraux du routeur.
+- **TechnicalLog** (≈ `fr.einvoicing.log`) : journal technique des opérations d'import/génération/envoi/synchronisation d'annuaire (type d'opération, origine, entreprise, statut succès/avertissement/échec, compteurs, détail HTML) — complémentaire du `FlowTrace` (§ 6.1) qui trace les requêtes/réponses HTTP brutes ; ce journal trace plutôt le **résultat métier** de chaque exécution (ex. cron de récupération). Le module de référence (`l10n_fr_einvoicing`) purge automatiquement ces journaux au bout de 600 jours par défaut (`autovacuum`) ; **dans le routeur, la durée de rétention par défaut est fixée à 15 ans** (alignée sur la durée de conservation des pièces comptables en France), mais reste **paramétrable dans la configuration générale du routeur** (attribut `technical_log_retention_days` de `RouterSettings`, cf. ci-dessous) — sans remise en cause du mécanisme si la durée est amenée à changer.
+- **RouterSettings** (configuration générale du routeur, instance unique) : durée de rétention de `TechnicalLog` (`technical_log_retention_days`, 15 ans par défaut), paramètres du serveur d'envoi SMTP mutualisé (§ 4.9.1). Toute configuration transverse ultérieure (non spécifique à une entreprise ni à une application cible) y a naturellement sa place.
 
 Cette séparation **Invoice / LifecycleEvent / AfnorFlow / TechnicalLog** est à conserver dans le routeur : la facture porte l'état métier courant, l'événement de cycle de vie porte le détail d'un changement d'état, le flux AFNOR porte le suivi technique de la transmission (génération, envoi, statut de dépôt côté PDP), et le journal technique trace le déroulé des traitements batch.
 
@@ -408,10 +409,17 @@ classDiagram
         +string ip_address
         +datetime created_at
     }
+    class RouterSettings {
+        +int technical_log_retention_days
+        +string smtp_host
+        +string smtp_port
+        +string smtp_credentials
+    }
 
     Company "1" --> "0..*" FlowTrace : concerne
     Company "1" --> "0..*" TechnicalLog : concerne
     AuditLog "0..*" --> "1" User : auteur
+    RouterSettings "1" ..> "0..*" TechnicalLog : pilote la rétention
 ```
 
 ### 7.2 Diagramme de composants
