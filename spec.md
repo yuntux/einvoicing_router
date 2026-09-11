@@ -20,6 +20,8 @@ flowchart TD
         submitted["Déposée<br/>(submitted)"]
         ap_sent["Émise par la plateforme<br/>(ap_sent)"]
         ap_received["Reçue par la plateforme<br/>(ap_received)"]
+        completed["Complétée<br/>(completed)"]
+        payment_received["Encaissée<br/>(payment_received)"]
         submitted --> ap_sent --> ap_received
     end
 
@@ -28,14 +30,12 @@ flowchart TD
         ap_available["Mise à disposition<br/>(ap_available)"]
         rejected["Rejetée (raison technique)<br/>(rejected)"]
         in_hand["Prise en charge<br/>(in_hand)"]
-        completed["Complétée<br/>(completed)"]
         suspended["Suspendue<br/>(suspended)"]
         dispute["En litige<br/>(dispute)"]
         approved["Approuvée<br/>(approved)"]
         partially_approved["Partiellement approuvée<br/>(partially_approved)"]
         refused["Refusée<br/>(refused)"]
         payment_sent["Paiement transmis<br/>(payment_sent)"]
-        payment_received["Encaissée<br/>(payment_received)"]
 
         ap_available --> rejected
         ap_available --> in_hand
@@ -49,14 +49,14 @@ flowchart TD
         dispute --> refused
         partially_approved --> refused
 
-        completed --> approved
         approved --> payment_sent
-        completed --> payment_sent
-        payment_sent --> payment_received
     end
 
     ap_received --> ap_available
     rejected -.->|renvoi| submitted
+    approved --> completed
+    completed --> payment_sent
+    payment_sent --> payment_received
 
     classDef obligatoire fill:#e0455f,stroke:#c22233,color:#ffffff
     classDef recommande fill:#1a9ba1,stroke:#0e6b70,color:#ffffff
