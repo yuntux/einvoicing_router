@@ -595,6 +595,129 @@ classDiagram
     AuditTraceService --> AuditLog : enregistre
 ```
 
+### 7.4 Diagrammes de séquence — cas d'usage Odoo ↔ Routeur
+
+Les diagrammes de classes (§ 7.1/7.3) et de composants (§ 7.2) montrent la structure statique ; les diagrammes ci-dessous montrent le **déroulé dans le temps** des principaux échanges entre le connecteur Odoo et le routeur (§ 4.4/§ 4.10), pour les cas d'usage qui ne se lisent pas facilement sur un diagramme de classes.
+
+#### 7.4.1 Authentification — obtention d'un jeton OAuth (par entreprise)
+
+Préalable à tout appel Odoo → Routeur (§ 4.10) : chaque appel ci-après suppose un jeton déjà obtenu pour l'entreprise concernée, via ce flux `client_credentials` (RFC 6749 §4.4).
+
+```mermaid
+sequenceDiagram
+    participant Odoo as Connecteur Odoo
+    participant Routeur as API AFNOR (Routeur)
+    participant DB as Base de données
+
+    Odoo->>Routeur: POST /oauth/token (client_id, client_secret de l'entreprise, grant_type=client_credentials)
+    Routeur->>DB: vérifie OAuthApplication (client_id, hash du secret)
+    alt identifiants valides
+        Routeur-->>Odoo: 200 { access_token, expires_in }
+    else identifiants invalides
+        Routeur-->>Odoo: 400/401 invalid_client
+    end
+    Note over Odoo,Routeur: Le token est scopé à une seule entreprise (§ 4.10) — Odoo en détient un par entreprise gérée.
+```
+
+#### 7.4.2 Consultation des factures reçues (polling Odoo)
+
+Cas nominal § 4.4 : Odoo ne voit que les factures que le routeur a flaggées à son intention (résolues par `RoutingRuleService`, § 4.3).
+
+```mermaid
+sequenceDiagram
+    participant Odoo as Connecteur Odoo
+    participant Routeur as API AFNOR (Routeur)
+    participant Ctrl as AfnorServerController
+    participant DB as Base de données
+
+    Odoo->>Routeur: GET /invoices?... (Bearer token entreprise X)
+    Routeur->>Routeur: authentifie l'application OAuth (§ 4.9.2)
+    Routeur->>Ctrl: liste des factures pour cette entreprise
+    Ctrl->>DB: Invoice ⋈ InvoiceRouting (cible = cette application OAuth)
+    DB-->>Ctrl: factures routées vers Odoo
+    Ctrl-->>Routeur: liste filtrée
+    Routeur->>DB: FlowTrace (requête, réponse, correlationID) — NF1
+    Routeur-->>Odoo: 200 [Invoice...]
+```
+
+#### 7.4.3 Consultation de l'annuaire — création à la volée
+
+Cas spécifique § 4.4 : une entreprise inconnue interrogée par Odoo est ajoutée à l'annuaire et routée implicitement vers Odoo, sans intervention d'un administrateur.
+
+```mermaid
+sequenceDiagram
+    participant Odoo as Connecteur Odoo
+    participant Routeur as API AFNOR (Routeur)
+    participant Ctrl as AfnorServerController
+    participant DB as Base de données
+
+    Odoo->>Routeur: GET /directory/{siren} (Bearer token entreprise X)
+    Routeur->>Ctrl: lookup_or_create_directory_entry(siren)
+    Ctrl->>DB: PartnerDirectory existe pour ce SIREN ?
+    alt entrée déjà connue
+        DB-->>Ctrl: PartnerDirectory existante
+    else entrée inconnue
+        Ctrl->>DB: crée PartnerDirectory(siren)
+        Ctrl->>DB: crée RoutingRule implicite (PartnerDirectory → TargetApplication Odoo, sans date de fin)
+        Note over Ctrl,DB: dès la prochaine facture de cet émetteur, elle sera automatiquement routée vers Odoo (§ 4.4)
+    end
+    Ctrl-->>Routeur: entrée annuaire
+    Routeur->>DB: FlowTrace — NF1
+    Routeur-->>Odoo: 200 DirectoryEntry
+```
+
+#### 7.4.4 Émission facture / e-reporting / cycle de vie (proxy transparent vers SuperPDP)
+
+Cas § 4.4 : le routeur ne réinterprète pas ce qu'Odoo émet — il relaie tel quel vers SuperPDP et retourne la réponse telle quelle, en traçant les deux bouts sous un même `correlationID`.
+
+```mermaid
+sequenceDiagram
+    participant Odoo as Connecteur Odoo
+    participant Routeur as API AFNOR (Routeur)
+    participant Adapter as AfnorClientAdapter
+    participant SuperPDP
+    participant DB as Base de données
+
+    Odoo->>Routeur: POST /invoices ou /lifecycle (Bearer token entreprise X, payload AFNOR)
+    Routeur->>Routeur: authentifie l'application OAuth
+    Routeur->>Adapter: transfère la requête (proxy)
+    Adapter->>DB: OAuthApplication Router→SuperPDP de cette entreprise (§ 4.10)
+    Adapter->>SuperPDP: relaie la requête (mêmes données, jeton SuperPDP de l'entreprise)
+    SuperPDP-->>Adapter: réponse (succès ou erreur)
+    Adapter-->>Routeur: réponse inchangée
+    Routeur->>DB: FlowTrace (requête + réponse, correlationID commun aux deux sauts) — NF1
+    Routeur-->>Odoo: réponse SuperPDP, sans altération fonctionnelle
+    Note over Routeur,DB: la facture émise n'est pas stockée comme Invoice (§ 4.1) — seule sa trace via FlowTrace est conservée
+```
+
+#### 7.4.5 Notification webhook vers Odoo (push, avec repli sur polling)
+
+Cas § 4.4/§ 4.7 : dès qu'un événement concerne Odoo (nouvelle facture routée vers lui, ou nouveau message de cycle de vie — y compris saisi manuellement dans l'IHM du routeur, § 4.7), le routeur pousse une notification, avec retry si la livraison échoue.
+
+```mermaid
+sequenceDiagram
+    participant IHM as IHM Routeur / Scheduler
+    participant Routeur as Routeur
+    participant DB as Base de données
+    participant Odoo as Webhook Odoo (webhook_url)
+
+    IHM->>Routeur: nouvel événement pour Odoo (facture routée, ou statut cycle de vie)
+    Routeur->>DB: OAuthApplication Odoo — webhook_url renseignée ?
+    alt webhook configuré
+        Routeur->>Odoo: POST webhook_url (notification événement)
+        alt livraison réussie
+            Odoo-->>Routeur: 2xx
+            Routeur->>DB: FlowTrace (succès) — NF1
+        else échec de livraison
+            Odoo--xRouteur: erreur HTTP / injoignable
+            Routeur->>DB: InvoiceRouting/notification en retry (§ 4.7)
+            Note over Routeur,Odoo: retenté toutes les 30 min pendant 3h (6 tentatives) ; au-delà, alerte au(x) Gestionnaire(s) de facturation, repli silencieux sur le polling classique (§ 7.4.2)
+        end
+    else pas de webhook configuré
+        Note over Routeur,Odoo: repli sur le cycle de polling classique (§ 7.4.2) — le contenu reste consultable au prochain appel d'Odoo
+    end
+```
+
 ## 8. API exposées / consommées
 
 ### 8.1 Consommée : API SuperPDP (norme AFNOR XP Z12-013)
