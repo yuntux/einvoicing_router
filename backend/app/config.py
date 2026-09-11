@@ -52,5 +52,14 @@ class Settings(BaseSettings):
     # (`SessionLocal`, hors du mécanisme de substitution `get_db` propre à FastAPI).
     ip_allowlist_enabled: bool = True
 
+    # Purge de TechnicalLog (§ 6.1, lot 8) : cycle quotidien, durée de rétention pilotée
+    # par RouterSettings.technical_log_retention_days (15 ans par défaut).
+    technical_log_purge_interval_hours: int = 24
+
+    # Registre de versions AFNOR (§ 4.8, lot 8) : versions du serveur exposé à Odoo
+    # effectivement montées, séparées par des virgules — permet de désactiver/retirer
+    # une version sans supprimer son code (dépréciation progressive, § 4.8).
+    afnor_api_enabled_versions: str = "v1,v2"
+
 
 settings = Settings()

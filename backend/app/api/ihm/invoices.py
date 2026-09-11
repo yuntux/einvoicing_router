@@ -1,7 +1,9 @@
+import os
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.afnor.client.base import RawInvoice
@@ -9,15 +11,37 @@ from app.afnor.client.fake import FakeSuperPDPClient
 from app.auth.perimeter import apply_company_scope, ensure_company_in_scope
 from app.auth.session import get_current_user
 from app.db.session import get_db
+from app.models.audit import AuditLog
 from app.models.referential import Company, PartnerDirectory, User
 from app.models.invoicing import Invoice
 from app.models.lifecycle import LifecycleEvent
 from app.schemas.invoice import InvoiceDetailRead, InvoiceRead, SimulateInvoiceReception
 from app.schemas.lifecycle import CreateManualLifecycleEvent, LifecycleEventRead
+from app.services import audit_trace_service
 from app.services.invoice_ingestion_service import ingest_from_client
 from app.services.lifecycle_service import LifecycleValidationError, ManualEventInput, create_manual_event
 
 router = APIRouter()
+
+INVOICE_DOWNLOAD_ACTION = "invoice_download"
+
+
+def _last_download(db: Session, invoice_id: int) -> tuple[object | None, str | None]:
+    """Dernier téléchargement de cette facture, obtenu par jointure sur `AuditLog`
+    (§ 6.1) — jamais dénormalisé sur `Invoice`."""
+    last = (
+        db.query(AuditLog)
+        .filter(AuditLog.action == INVOICE_DOWNLOAD_ACTION, AuditLog.target == str(invoice_id))
+        .order_by(AuditLog.created_at.desc())
+        .first()
+    )
+    if last is None:
+        return None, None
+    user_email = None
+    if last.user_id is not None:
+        user = db.get(User, last.user_id)
+        user_email = user.email if user else None
+    return last.created_at, user_email
 
 
 @router.get("", response_model=list[InvoiceRead])
@@ -72,7 +96,40 @@ def get_invoice(
 
     data = InvoiceDetailRead.model_validate(invoice)
     data.emitter_name = emitter_name
+    data.last_download_at, data.last_download_by = _last_download(db, invoice.id)
     return data
+
+
+@router.get("/{invoice_id}/download")
+def download_invoice(
+    invoice_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    """Téléchargement du fichier de la facture (§ 4.2/§ 8.3) — chaque téléchargement
+    génère une entrée `AuditLog` (NF9), consultée par jointure sur la fiche facture."""
+    invoice = db.get(Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    ensure_company_in_scope(user, invoice.company_id)
+
+    if not os.path.exists(invoice.file_path):
+        raise HTTPException(status_code=404, detail="Invoice file not found on disk")
+
+    audit_trace_service.record_audit_log(
+        db,
+        action=INVOICE_DOWNLOAD_ACTION,
+        target=str(invoice.id),
+        user_id=user.id if user else None,
+        ip_address=request.client.host if request.client else None,
+    )
+
+    return FileResponse(
+        invoice.file_path,
+        filename=os.path.basename(invoice.file_path),
+        media_type="application/octet-stream",
+    )
 
 
 @router.get("/{invoice_id}/lifecycle-events", response_model=list[LifecycleEventRead])

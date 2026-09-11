@@ -30,6 +30,8 @@ export interface InvoiceRouting {
 export interface InvoiceDetail extends Invoice {
   routings: InvoiceRouting[]
   emitter_name: string | null
+  last_download_at: string | null
+  last_download_by: string | null
 }
 
 export interface InvoiceFilters {
@@ -73,6 +75,10 @@ export async function getInvoice(id: number): Promise<InvoiceDetail> {
   const response = await fetch(`${API_BASE}/api/ihm/invoices/${id}`, { credentials: 'include' })
   if (!response.ok) throw new Error(`Failed to get invoice: ${response.status}`)
   return response.json()
+}
+
+export function invoiceDownloadUrl(id: number): string {
+  return `${API_BASE}/api/ihm/invoices/${id}/download`
 }
 
 export async function simulateInvoiceReception(payload: SimulateInvoicePayload): Promise<Invoice> {

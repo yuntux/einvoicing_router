@@ -1,7 +1,8 @@
 """API AFNOR XP Z12-013 exposée à Odoo — version v1 (spec.md § 4.4/§ 4.8).
 
-Point d'entrée du registre de versions (`app/afnor/versioning/`) : une future v2
-serait un module frère, monté sur un autre préfixe, sans toucher à celui-ci."""
+Point d'entrée du registre de versions (`app/afnor/versioning/registry.py`) : `v2`
+(module frère `app/api/afnor/v2.py`) est monté sur un autre préfixe sans toucher à
+celui-ci ni aux services qu'il appelle."""
 
 import uuid
 
@@ -9,6 +10,7 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from app.afnor.client.adapter import afnor_client_adapter
+from app.afnor.versioning.registry import register_version
 from app.auth.oauth import get_current_oauth_application, issue_access_token, verify_secret
 from app.config import settings
 from app.db.session import get_db
@@ -184,3 +186,6 @@ async def emit_lifecycle_event(
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"SuperPDP unreachable: {exc}") from exc
     return result
+
+
+register_version(AFNOR_API_VERSION, router)
