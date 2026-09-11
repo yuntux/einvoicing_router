@@ -98,7 +98,25 @@ sudo -u router .venv/bin/pip install -e .
 
 (pas besoin de `[dev]` en production — ce sont les dépendances de tests uniquement.)
 
-### 4. Configuration — fichier `.env`
+### 4. Configuration
+
+#### 4.1 Enregistrer l'application dans Entra ID (NF3)
+
+Authentification IHM (`ROUTER_OIDC_MODE=entra_id`) : créer un enregistrement d'application dans le portail Entra ID (https://entra.microsoft.com) — **App registrations**, pas *Enterprise applications* (deux vues différentes du même objet ; seule la première expose les onglets ci-dessous).
+
+1. **Identity → Applications → App registrations → New registration**
+   - *Name* : un nom parlant, ex. `Routeur factures électroniques`.
+   - *Supported account types* : `Accounts in this organizational directory only (Single tenant)`, sauf besoin explicite d'ouvrir à d'autres tenants.
+   - *Redirect URI* : plateforme **Web** (pas SPA/mobile — l'échange de code se fait côté serveur via Authlib), valeur exactement égale à `ROUTER_OIDC_REDIRECT_URI` ci-dessous (ex. `https://router.example.com/api/ihm/auth/callback`).
+   - **Register**.
+2. Sur la page **Overview** de l'app créée, relever :
+   - *Application (client) ID* → `ROUTER_OIDC_CLIENT_ID`
+   - *Directory (tenant) ID* → `ROUTER_OIDC_TENANT_ID`
+3. **Certificates & secrets → New client secret** : choisir une description/durée, **Add**, puis copier immédiatement la colonne *Value* (affichée une seule fois) → `ROUTER_OIDC_CLIENT_SECRET`.
+4. **API permissions** : vérifier la présence des permissions déléguées Microsoft Graph `openid`, `profile`, `email` (ajoutées par défaut sur un nouvel enregistrement ; sinon **Add a permission → Microsoft Graph → Delegated permissions**). Si le tenant l'exige, **Grant admin consent**.
+5. *(Recommandé)* **Token configuration → Add optional claim** : type **ID**, cocher `email`, **Add** — garantit la présence de la claim `email` dans l'ID token (à défaut, le routeur se rabat sur `preferred_username`, cf. `app/api/ihm/auth.py`).
+
+#### 4.2 Fichier `.env`
 
 Toutes les variables sont préfixées `ROUTER_` (cf. `app/config.py`). Créer `/opt/einvoicing_router/backend/.env`, lisible uniquement par l'utilisateur `router` :
 
@@ -115,11 +133,13 @@ ROUTER_SECRETS_ENCRYPTION_KEY=<openssl rand -hex 32>
 # Client AFNOR réel contre SuperPDP (§ 4.1/§ 4.8) — "fake" reste le défaut de dev/tests
 ROUTER_SUPERPDP_CLIENT_MODE=pyfrctc
 
-# Authentification IHM (NF3) — Entra ID en production, jamais "disabled"/"dev"
+# Authentification IHM (NF3) — Entra ID en production, jamais "disabled"/"dev".
+# Valeurs récupérées à l'étape 4.1 ci-dessus (Directory tenant ID, Application
+# client ID, secret généré dans Certificates & secrets).
 ROUTER_OIDC_MODE=entra_id
-ROUTER_OIDC_TENANT_ID=<tenant Entra ID>
-ROUTER_OIDC_CLIENT_ID=<client id de l'app enregistrée>
-ROUTER_OIDC_CLIENT_SECRET=<client secret>
+ROUTER_OIDC_TENANT_ID=<Directory (tenant) ID>
+ROUTER_OIDC_CLIENT_ID=<Application (client) ID>
+ROUTER_OIDC_CLIENT_SECRET=<valeur du client secret>
 ROUTER_OIDC_REDIRECT_URI=https://router.example.com/api/ihm/auth/callback
 ROUTER_FRONTEND_BASE_URL=https://router.example.com
 
