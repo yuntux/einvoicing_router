@@ -711,7 +711,7 @@ sequenceDiagram
         else échec de livraison
             Odoo--xRouteur: erreur HTTP / injoignable
             Routeur->>DB: InvoiceRouting/notification en retry (§ 4.7)
-            Note over Routeur,Odoo: retenté toutes les 30 min pendant 3h (6 tentatives) ; au-delà, alerte au(x) Gestionnaire(s) de facturation, repli silencieux sur le polling classique (§ 7.4.2)
+            Note over Routeur,Odoo: retenté toutes les 30 min pendant 3h, 6 tentatives au total. Au-delà, alerte aux Gestionnaires de facturation, puis repli silencieux sur le polling classique cf § 7.4.2
         end
     else pas de webhook configuré
         Note over Routeur,Odoo: repli sur le cycle de polling classique (§ 7.4.2) — le contenu reste consultable au prochain appel d'Odoo
