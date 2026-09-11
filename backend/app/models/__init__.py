@@ -1,3 +1,4 @@
+from app.models.audit import FlowTrace
 from app.models.invoicing import Invoice, InvoiceRouting, InvoiceType, TransferStatus
 from app.models.lifecycle import (
     AfnorFlow,
@@ -18,6 +19,7 @@ from app.models.referential import (
 __all__ = [
     "AfnorFlow",
     "Company",
+    "FlowTrace",
     "Invoice",
     "InvoiceRouting",
     "InvoiceType",

@@ -49,7 +49,14 @@ class PartnerDirectory(Base):
 
 
 class TargetApplication(Base):
-    """Application cible (spec.md § 6.1 / § 4.9)."""
+    """Application cible (spec.md § 6.1 / § 4.9).
+
+    Pour la méthode `afnor_api`, les paramètres décrits au § 4.9.2 (URLs de
+    redirection, format de conversion préféré, type d'application, URL de webhook)
+    sont portés par l'`OAuthApplication` liée (`oauth_application_id`) — c'est elle
+    qui détient les identifiants OAuth réels (§ 4.10), pas `parameters`, pour éviter
+    de dupliquer ces champs à deux endroits du modèle (redondance identifiée au lot 1,
+    résolue au lot 4 en branchant l'authentification réelle)."""
 
     __tablename__ = "target_applications"
 
@@ -57,11 +64,15 @@ class TargetApplication(Base):
     name: Mapped[str] = mapped_column(String(255))
     routing_method: Mapped[RoutingMethod] = mapped_column(String(20))
     company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id"), nullable=True)
-    # Paramètres propres à la méthode (§ 4.9.1 mail: to/cc/bcc ; § 4.9.2 afnor_api: redirect_urls/
-    # preferred_conversion_format/app_type/webhook_url).
+    oauth_application_id: Mapped[int | None] = mapped_column(
+        ForeignKey("oauth_applications.id"), nullable=True
+    )
+    # Paramètres propres à la méthode mail (§ 4.9.1 : to/cc/bcc). Vide/non utilisé
+    # pour la méthode afnor_api (cf. docstring ci-dessus).
     parameters: Mapped[dict] = mapped_column(JSON, default=dict)
 
     company: Mapped[Company | None] = relationship()
+    oauth_application: Mapped["OAuthApplication | None"] = relationship()
     routing_rules: Mapped[list["RoutingRule"]] = relationship(back_populates="target_application")
 
 
@@ -82,15 +93,16 @@ class RoutingRule(Base):
 
 
 class OAuthApplication(Base):
-    """Jeton d'accès par entreprise (spec.md § 6.1 / § 4.10) — modèle seul pour l'instant,
-    la logique d'authentification/émission de jeton arrive au lot 4."""
+    """Jeton d'accès par entreprise (spec.md § 6.1 / § 4.10). Authentification réelle
+    branchée au lot 4 : `client_secret_hash` stocke un hash du secret, jamais le
+    secret en clair (retourné une seule fois à la création, cf. § 4.9.2)."""
 
     __tablename__ = "oauth_applications"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"))
     client_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    client_secret: Mapped[str] = mapped_column(String(255))
+    client_secret_hash: Mapped[str] = mapped_column(String(255))
     app_type: Mapped[OAuthAppType] = mapped_column(String(20))
     scope: Mapped[OAuthScope] = mapped_column(String(30))
     redirect_urls: Mapped[str | None] = mapped_column(String(2000), nullable=True)
