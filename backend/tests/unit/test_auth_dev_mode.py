@@ -45,6 +45,27 @@ def test_login_dev_mode_sets_session_and_me_reflects_user(client, monkeypatch):
     assert body["user"]["role"] == "admin"
 
 
+def test_login_dev_mode_resyncs_name_on_repeat_login(client, monkeypatch):
+    """`name` reflète toujours la dernière connexion (source de vérité IdP), pas
+    seulement la première (cf. resolve_login_user)."""
+    monkeypatch.setattr(settings, "oidc_mode", "dev")
+
+    client.get(
+        "/api/ihm/auth/login",
+        params={"email": "renamed@example.com", "name": "Ancien Nom"},
+        follow_redirects=False,
+    )
+    client.post("/api/ihm/auth/logout")
+
+    client.get(
+        "/api/ihm/auth/login",
+        params={"email": "renamed@example.com", "name": "Nouveau Nom"},
+        follow_redirects=False,
+    )
+    body = client.get("/api/ihm/auth/me").json()
+    assert body["user"]["name"] == "Nouveau Nom"
+
+
 def test_login_dev_mode_redirects_to_next_path(client, monkeypatch):
     monkeypatch.setattr(settings, "oidc_mode", "dev")
     monkeypatch.setattr(settings, "frontend_base_url", "https://router.example.com")
