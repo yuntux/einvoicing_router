@@ -14,7 +14,12 @@ from app.config import settings
 from app.db.session import get_db
 from app.models.referential import User
 from app.schemas.auth import CurrentUserRead, CurrentUserStatus
-from app.services.user_service import InactiveUserError, UnknownUserError, resolve_login_user
+from app.services.user_service import (
+    EmailConflictError,
+    InactiveUserError,
+    UnknownUserError,
+    resolve_login_user,
+)
 
 router = APIRouter()
 
@@ -88,6 +93,8 @@ async def login(
             return _login_error_redirect("unknown")
         except InactiveUserError:
             return _login_error_redirect("inactive")
+        except EmailConflictError:
+            return _login_error_redirect("conflict")
         response = RedirectResponse(url=f"{settings.frontend_base_url}{next_path}")
         _set_session_cookie(response, user)
         return response
@@ -127,6 +134,8 @@ async def callback(request: Request, db: Session = Depends(get_db)):
         return _login_error_redirect("unknown")
     except InactiveUserError:
         return _login_error_redirect("inactive")
+    except EmailConflictError:
+        return _login_error_redirect("conflict")
 
     next_path = _safe_next_path(request.session.pop("post_login_next", None))
     response = RedirectResponse(url=f"{settings.frontend_base_url}{next_path}")
