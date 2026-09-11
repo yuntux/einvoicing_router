@@ -15,6 +15,11 @@ dependencies = [
     "apscheduler>=3.10",
     "pyfrctc>=0.22",
     "cryptography>=43",
+    # Utilisé directement par app/auth/oidc.py (flux OIDC Entra ID) et
+    # app/services/webhook_sender.py (notification webhook vers Odoo) — jusqu'ici
+    # disponible uniquement en dépendance transitive de pyfrctc, déclaré ici pour ne
+    # pas dépendre silencieusement de son arbre de dépendances.
+    "requests>=2.32",
 ]
 
 [project.optional-dependencies]
