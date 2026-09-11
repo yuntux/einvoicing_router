@@ -1,3 +1,5 @@
+import { ref } from 'vue'
+
 export interface CurrentUser {
   id: number
   email: string
@@ -20,8 +22,9 @@ export async function getCurrentUserStatus(): Promise<CurrentUserStatus> {
   return response.json()
 }
 
-export function loginUrl(): string {
-  return `${API_BASE}/api/ihm/auth/login`
+export function loginUrl(next?: string): string {
+  const base = `${API_BASE}/api/ihm/auth/login`
+  return next ? `${base}?next=${encodeURIComponent(next)}` : base
 }
 
 export async function logout(): Promise<void> {
@@ -30,4 +33,22 @@ export async function logout(): Promise<void> {
     credentials: 'include',
   })
   if (!response.ok) throw new Error(`Failed to logout: ${response.status}`)
+  authStatus.value = null
+}
+
+// État d'authentification partagé (App.vue pour l'affichage, router.ts pour la garde
+// de navigation) — un seul appel à /auth/me par chargement de page plutôt qu'un par
+// consommateur.
+export const authStatus = ref<CurrentUserStatus | null>(null)
+let pendingFetch: Promise<CurrentUserStatus> | null = null
+
+export async function ensureAuthStatus(): Promise<CurrentUserStatus> {
+  if (authStatus.value) return authStatus.value
+  if (!pendingFetch) {
+    pendingFetch = getCurrentUserStatus().finally(() => {
+      pendingFetch = null
+    })
+  }
+  authStatus.value = await pendingFetch
+  return authStatus.value
 }

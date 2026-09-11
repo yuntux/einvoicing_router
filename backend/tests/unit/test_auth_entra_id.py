@@ -29,6 +29,42 @@ def test_login_entra_id_redirects(client, monkeypatch):
     mock_authorize_redirect.assert_called_once()
 
 
+def test_login_then_callback_redirects_to_next_path(client, monkeypatch):
+    """`next` transite par la session Starlette (state/nonce OIDC, cf. app.main) le
+    temps de l'aller-retour vers Entra ID, et détermine la redirection finale une fois
+    `callback` atteint — pas seulement `frontend_base_url`."""
+    monkeypatch.setattr(settings, "oidc_mode", "entra_id")
+    monkeypatch.setattr(settings, "oidc_tenant_id", "tenant")
+    monkeypatch.setattr(settings, "oidc_client_id", "client-123")
+    monkeypatch.setattr(settings, "frontend_base_url", "https://router.example.com")
+
+    fake_redirect = RedirectResponse(url="https://login.microsoftonline.com/authorize?x=1")
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_redirect",
+        new=AsyncMock(return_value=fake_redirect),
+    ):
+        client.get(
+            "/api/ihm/auth/login",
+            params={"next": "/invoices/42"},
+            follow_redirects=False,
+        )
+
+    fake_token = {
+        "userinfo": {"sub": "entra-subject-next", "email": "next@example.com", "name": "Next"}
+    }
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_access_token",
+        new=AsyncMock(return_value=fake_token),
+    ):
+        response = client.get(
+            "/api/ihm/auth/callback",
+            params={"code": "auth-code", "state": "s"},
+            follow_redirects=False,
+        )
+
+    assert response.headers["location"] == "https://router.example.com/invoices/42"
+
+
 def test_login_disabled_mode_returns_404(client):
     response = client.get("/api/ihm/auth/login", follow_redirects=False)
     assert response.status_code == 404
