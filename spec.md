@@ -183,6 +183,7 @@ Cette méthode couvre le cas Odoo (§ 4.4) et tout futur consommateur de l'API A
 | NF7 | Le client de l'API AFNOR XP Z12-013 s'appuie sur la librairie Python **pyfrctc** (https://pypi.org/project/pyfrctc/). Le module doit supporter **plusieurs versions** de la norme XP Z12-013 simultanément, tant en client (vers SuperPDP) qu'en serveur (vers Odoo) — cf. § 4.8. |
 | NF8 | Les fichiers de factures sont stockés sur le **système de fichiers** ; ils sont **indexés en base de données** (métadonnées + chemin). **Aucune purge/rétention limitée n'est appliquée à ce stade** (ni fichiers, ni métadonnées) — une politique de purge pourra être introduite ultérieurement sans remise en cause du modèle de stockage. |
 | NF9 | Des **logs techniques** tracent avec précision toutes les actions des utilisateurs sur l'IHM (audit applicatif, distinct du traçage des flux NF1). |
+| NF10 | Deux suites de tests automatisés (**pytest** backoffice, **Playwright** frontoffice), déclenchées par la **CI GitHub**, avec base **SQLite en mémoire** pour les tests ; surveillance des CVE des dépendances via GitHub (Dependabot/Advisory Database) — cf. § 9. |
 
 ## 6. Modèle de données (esquisse)
 
@@ -249,11 +250,32 @@ Cette séparation **Invoice / LifecycleEvent / AfnorFlow / TechnicalLog** est à
 - Filtrage réseau : allowlist IPv4/IPv6 configurable.
 - Traçabilité complète des flux (NF1) et des actions utilisateur (NF9) à des fins d'audit et de conformité.
 
-## 9. Points ouverts / à clarifier
+## 9. Stratégie de tests et intégration continue
+
+### 9.1 Deux niveaux de tests automatisés
+
+- **Tests backoffice (backend)** : suite **pytest** couvrant l'API FastAPI, la logique de routage, le client/serveur AFNOR XP Z12-013, les intégrations SuperPDP/Odoo (mockées), la logique de retry/alerting, etc.
+- **Tests frontoffice (IHM)** : suite **Playwright** couvrant les parcours utilisateurs de l'IHM Vue.js (consultation des factures, gestion des règles de routage, génération de messages de cycle de vie, gestion des applications cibles, rejeu manuel — cf. § 4.7).
+- Les deux suites sont indépendantes mais complémentaires : pytest valide la logique métier et les contrats d'API, Playwright valide les parcours de bout en bout au travers de l'IHM réellement rendue dans un navigateur.
+
+### 9.2 Base de données de test
+
+- Lors de l'exécution des tests (pytest comme Playwright, quand ce dernier a besoin d'un backend actif), la base **SQLite est en mémoire** (`:memory:` ou équivalent) : elle n'est **jamais écrite sur le disque**, garantissant des tests isolés, rapides et sans effet de bord entre exécutions ou entre environnements de CI.
+
+### 9.3 Intégration continue GitHub
+
+- Les deux suites de tests (pytest et Playwright) sont **déclenchées automatiquement par la CI GitHub** (GitHub Actions), a minima sur chaque pull request et sur la branche principale.
+- **Surveillance des vulnérabilités (CVE)** des composants et dépendances (Python/pip, JavaScript/npm) via les outils natifs GitHub :
+  - **Dependabot** (alertes de sécurité + mises à jour automatiques de dépendances) ;
+  - **Dependabot security updates** / **GitHub Advisory Database** pour la détection de CVE connues sur les dépendances directes et transitives ;
+  - une analyse de type **Dependency Review** (ou équivalent) peut être ajoutée sur les pull requests pour bloquer l'introduction d'une dépendance vulnérable.
+- Ces contrôles CI (tests + veille CVE) constituent des **gates obligatoires** avant fusion sur la branche principale.
+
+## 10. Points ouverts / à clarifier
 
 Tous les points ouverts identifiés à ce stade ont été tranchés (cf. § 4.1, 4.7, 4.9, 4.10 et NF8).
 
-## 10. Hors périmètre (à ce stade)
+## 11. Hors périmètre (à ce stade)
 
 - Validation métier des factures (circuit d'approbation) : reste géré par Spendesk / Odoo, pas par le routeur.
 - Comptabilisation : reste gérée par Odoo / le comptable.
