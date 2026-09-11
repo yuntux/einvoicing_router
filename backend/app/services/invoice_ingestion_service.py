@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.afnor.client.base import RawInvoice, SuperPDPClientProtocol
 from app.models.referential import Company
 from app.models.invoicing import Invoice, InvoiceRouting
-from app.services import routing_rule_service
+from app.services import retry_scheduler_service, routing_rule_service
 from app.storage.filesystem import save_invoice_file
 
 
@@ -68,7 +68,7 @@ def _route_invoice(db: Session, invoice: Invoice) -> bool:
     """Résout et matérialise le routage effectif de la facture (§ 4.3).
 
     Retourne True si la facture n'a résolu aucune cible (cas "facture non routée",
-    § 4.7 — l'alerte email elle-même sera branchée au lot 5)."""
+    § 4.7) — l'appelant déclenche alors l'alerte email correspondante."""
     targets = routing_rule_service.resolve(
         db, siren=invoice.emitter_siren, reference_date=invoice.invoice_date
     )
@@ -95,5 +95,6 @@ def ingest_from_client(
         (created if is_new else updated).append(invoice)
         if _route_invoice(db, invoice):
             unrouted_ids.append(invoice.id)
+            retry_scheduler_service.alert_unrouted_invoice(db, invoice=invoice)
 
     return IngestResult(created=created, updated=updated, unrouted_invoice_ids=unrouted_ids)

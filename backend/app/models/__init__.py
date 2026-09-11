@@ -15,9 +15,11 @@ from app.models.referential import (
     TargetApplication,
     User,
 )
+from app.models.settings import BillingManagerContact, RouterSettings
 
 __all__ = [
     "AfnorFlow",
+    "BillingManagerContact",
     "Company",
     "FlowTrace",
     "Invoice",
@@ -29,6 +31,7 @@ __all__ = [
     "LifecycleEventPayment",
     "OAuthApplication",
     "PartnerDirectory",
+    "RouterSettings",
     "RoutingRule",
     "TargetApplication",
     "TransferStatus",

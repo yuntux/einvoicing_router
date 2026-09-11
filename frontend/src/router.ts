@@ -1,7 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import CompaniesView from './views/CompaniesView.vue'
+import FailedRoutingsView from './views/FailedRoutingsView.vue'
 import InvoicesView from './views/InvoicesView.vue'
 import RoutingRulesView from './views/RoutingRulesView.vue'
+import SettingsView from './views/SettingsView.vue'
 import TargetApplicationsView from './views/TargetApplicationsView.vue'
 
 export const router = createRouter({
@@ -12,5 +14,7 @@ export const router = createRouter({
     { path: '/target-applications', name: 'target-applications', component: TargetApplicationsView },
     { path: '/routing-rules', name: 'routing-rules', component: RoutingRulesView },
     { path: '/invoices', name: 'invoices', component: InvoicesView },
+    { path: '/failed-routings', name: 'failed-routings', component: FailedRoutingsView },
+    { path: '/settings', name: 'settings', component: SettingsView },
   ],
 })

@@ -12,5 +12,11 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-insecure-secret-change-me"
     jwt_expiry_seconds: int = 3600
 
+    # Scheduler définitif (§ 4.7) : cycle de rejeu automatique des envois en échec.
+    # Désactivé dans les tests (cf. conftest.py) pour ne pas démarrer de thread de fond
+    # contre la base réelle pendant l'exécution de la suite.
+    scheduler_enabled: bool = True
+    retry_interval_minutes: int = 30
+
 
 settings = Settings()
