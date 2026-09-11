@@ -43,7 +43,7 @@ Développer un **routeur de factures** qui :
 | Routeur (objet de cette spec) | Récupère, stocke, route, expose les factures |
 | Odoo (via connecteur/module OCA) | Consomme l'API AFNOR exposée par le routeur ; émet factures et e-reporting via le routeur |
 | Spendesk | Reçoit les factures par email |
-| Comptable (canal direct) | Reçoit certaines factures (mécanisme à définir, cf. § 9 questions ouvertes) |
+| Comptable (canal direct) | Reçoit certaines factures par email (cf. § 4.6) |
 
 ## 3. Vue d'ensemble des flux
 
@@ -67,6 +67,8 @@ Le routeur joue donc un double rôle vis-à-vis de la norme AFNOR XP Z12-013 :
 - Chaque facture récupérée est stockée :
   - le **fichier** de la facture sur le système de fichiers ;
   - les **métadonnées** (dont le chemin du fichier) indexées en base de données.
+- **Mode de récupération** : à ce jour, SuperPDP n'expose pas de mécanisme de notification (webhook) — le routeur interroge donc l'API en **polling toutes les 5 minutes**. SuperPDP a annoncé le support futur d'un mécanisme de webhook : le routeur doit être conçu pour pouvoir **basculer sur un mode webhook sans changement structurel** (le déclencheur de récupération — cron ou callback HTTP entrant — doit rester découplé de la logique de récupération/stockage elle-même).
+- **Aucune purge n'est mise en œuvre à ce stade** : ni les fichiers de factures sur le système de fichiers, ni leurs métadonnées en base, ne sont automatiquement supprimés (cf. NF8).
 
 ### 4.2 IHM de consultation des factures et gestion du cycle de vie
 
@@ -99,12 +101,25 @@ Le routeur agit comme émulation de PDP vis-à-vis du connecteur Odoo :
 ### 4.5 Routage vers Spendesk (email)
 
 - Envoi automatisé de la facture (fichier + informations utiles) par email à l'adresse Spendesk dédiée, pour les factures dont la règle de routage désigne ce canal.
+- **Contenu de l'email** (cf. § 4.9.1 pour le paramétrage des destinataires) :
+  - **Pièce jointe** : le fichier de la facture, sans autre pièce jointe.
+  - **Objet** : le numéro de la facture.
+  - **Corps** : message minimaliste indiquant qu'il s'agit d'un message de routage automatique d'une facture reçue via la plateforme agréée (SuperPDP) — pas de métadonnées détaillées dans le corps.
 
 ### 4.6 Routage vers le comptable
 
-- Pour le moment, le canal "comptable" utilise le même mécanisme générique de **transfert par email** que Spendesk (cf. § 4.5) : c'est une instance à part entière du connecteur "routage mail" (application cible distincte, avec sa/ses propre(s) adresse(s) destinataire(s) et adresse(s) en copie), et non une variante spécifique du connecteur Spendesk.
+- Pour le moment, le canal "comptable" utilise le même mécanisme générique de **transfert par email** que Spendesk (cf. § 4.5), avec le même format de contenu (facture en pièce jointe, numéro de facture en objet, corps minimaliste) : c'est une instance à part entière du connecteur "routage mail" (application cible distincte, avec sa/ses propre(s) adresse(s) destinataire(s) et adresse(s) en copie), et non une variante spécifique du connecteur Spendesk.
 
-### 4.7 Gestion multi-versions de l'API AFNOR XP Z12-013
+### 4.7 Erreurs de routage, échecs d'envoi et alerting
+
+- **Le "Gestionnaire de facturation"** : rôle non applicatif (pas un compte OIDC), représenté par une ou plusieurs **adresses email** paramétrées dans l'IHM d'administration (configuration générale du routeur, ou par entreprise gérée — à trancher en conception détaillée). Ces adresses sont les destinataires des alertes suivantes.
+- **Facture sans règle de routage active** (0 application cible à la date de réception) : la facture est archivée normalement (aucun blocage du flux de récupération), et une **alerte email est envoyée au(x) Gestionnaire(s) de facturation** pour signaler la facture non routée et permettre une action corrective (création d'une règle, routage manuel).
+- **Échec d'un envoi vers une application cible** (méthode mail ou méthode API) :
+  - le routeur **retente automatiquement l'envoi toutes les 30 minutes, pendant 3 heures** (soit au maximum 6 tentatives après l'échec initial) ;
+  - si, à l'issue de cette fenêtre, l'envoi n'a toujours pas abouti, une **alerte email est envoyée au(x) Gestionnaire(s) de facturation** pour signaler l'échec définitif (la facture reste néanmoins consultable et son routage vers cette cible reste en erreur, avec possibilité de rejeu manuel depuis l'IHM).
+  - Précision pour la méthode API AFNOR : ce cas concerne les échecs applicatifs ou réseau lors de la préparation/mise à disposition des données pour Odoo (le routeur n'effectue pas de push vers Odoo hors mécanisme de webhook — c'est en principe Odoo qui vient consulter l'API à intervalle régulier ; le retry décrit ci-dessus s'applique donc principalement à la méthode mail et à tout futur mécanisme de routage à push explicite, dont un éventuel webhook).
+
+### 4.8 Gestion multi-versions de l'API AFNOR XP Z12-013
 
 - La norme AFNOR XP Z12-013 est amenée à évoluer (versions successives). Le module doit pouvoir **gérer plusieurs versions** de cette API, à la fois :
   - côté **client** (appels vers SuperPDP), SuperPDP pouvant exposer une version différente selon la période ou la migration de la PDP ;
@@ -116,28 +131,53 @@ Le routeur agit comme émulation de PDP vis-à-vis du connecteur Odoo :
   - le **mapping/adaptation des données** entre les versions supportées (schémas de facture, d'annuaire, de cycle de vie) doit être isolé dans une couche dédiée, pour ne pas disperser la logique de conversion dans le reste du code ;
   - une version doit pouvoir être **dépréciée puis retirée** sans casser le routage déjà en place pour les entreprises non encore migrées.
 
-### 4.8 Généricité du module de routage
+### 4.9 Généricité du module de routage
 
 - Le système doit permettre d'ajouter, dans le futur, de **nouvelles cibles de routage** utilisant potentiellement d'autres mécanismes techniques de transfert.
 - Lors de l'ajout d'une application cible dans l'IHM d'administration :
   - on choisit une **méthode de routage** parmi celles disponibles (au lancement : *routage mail* et *mise à disposition via API AFNOR*) ;
-  - on renseigne les **paramètres propres** à cette application et à cette méthode :
-    - méthode API AFNOR : paramètres de connexion (endpoint, clé API/authentification côté Odoo, etc.) ;
-    - méthode mail : adresse email destinataire et adresse(s) en copie.
+  - on renseigne les **paramètres propres** à cette application et à cette méthode.
 - L'architecture doit permettre l'ajout d'un nouveau type de méthode de routage (nouveau connecteur) sans remise en cause du modèle de données des règles de routage.
+
+#### 4.9.1 Paramètres de la méthode "routage mail"
+
+- **Destinataires** (par application cible) :
+  - une ou plusieurs adresses **À** (To) ;
+  - une ou plusieurs adresses **CC** (copie) ;
+  - une ou plusieurs adresses **CCI** (copie cachée).
+- **Paramètres du serveur d'envoi (SMTP)** : ne sont **pas** portés par l'application cible — ils sont mutualisés dans la **configuration générale du routeur** (un seul serveur d'envoi pour toutes les applications cibles de type mail).
+
+#### 4.9.2 Paramètres de la méthode "mise à disposition via API AFNOR"
+
+Cette méthode couvre le cas Odoo (§ 4.4) et tout futur consommateur de l'API AFNOR exposée par le routeur. Chaque application cible de ce type est enregistrée comme une **application OAuth** scopée à une entreprise gérée, sur le modèle du formulaire d'enregistrement d'application déjà utilisé côté SuperPDP :
+
+- **Entreprise** : l'entreprise gérée à laquelle l'application est rattachée — les droits de l'application OAuth sont restreints à cette seule entreprise (cohérent avec le principe "une clé/un token par entreprise", NF2).
+- **URLs de redirection** (facultatif) : liste d'URLs de redirection autorisées pour le flux OAuth, une par ligne.
+- **Format préféré de conversion AFNOR** (facultatif) : format de facture retourné pour l'option `docType=Converted` de l'API AFNOR, s'il est demandé par le consommateur.
+- **Type d'application** : *confidentielle* ou *publique*, au sens de la [RFC 6749 §2.1](https://datatracker.ietf.org/doc/html/rfc6749#section-2.1) — *confidentielle* quand `client_id`/`client_secret` sont stockés côté serveur (cas d'Odoo), *publique* quand le `client_id` est stocké côté client.
+- Cette structure de paramétrage — reprise du modèle d'enregistrement d'application OAuth de SuperPDP — permet au routeur d'exposer une expérience d'administration cohérente entre le paramétrage de son propre accès à SuperPDP et celui de ses consommateurs (Odoo, futurs consommateurs), en restant conforme au modèle OAuth2 (cf. § 4.10).
+
+### 4.10 Connecteur Odoo unique, jetons distincts par entreprise (OAuth)
+
+- Un **seul connecteur Odoo** (une seule instance, une seule configuration technique côté Odoo) interroge le routeur pour le compte des **deux entreprises**.
+- Néanmoins, chaque entreprise est déclarée côté routeur comme une **application OAuth distincte** (cf. § 4.9.2), avec son propre `client_id`/`client_secret` (ou token API) — le connecteur Odoo détient donc deux jeux d'identifiants, un par entreprise, et sélectionne le bon selon l'entreprise pour laquelle il agit à chaque appel.
+- Ce principe **"une application OAuth = une entreprise = un jeton"** est appliqué de façon symétrique aux deux interfaces du routeur :
+  - **Odoo → Routeur** : un token par entreprise, comme décrit ci-dessus ;
+  - **Routeur → SuperPDP** : de la même façon, le routeur détient une clé API/un jeton SuperPDP distinct par entreprise gérée (cf. NF2).
+- Ce choix garantit qu'aucune entreprise ne peut, via un jeton compromis ou mal utilisé, accéder aux données de l'autre entreprise — le périmètre d'un jeton est strictement borné à l'entreprise pour laquelle il a été émis, à chaque niveau de la chaîne (SuperPDP ↔ Routeur ↔ Odoo).
 
 ## 5. Exigences non fonctionnelles
 
 | # | Exigence |
 |---|---|
 | NF1 | Toutes les requêtes/réponses entre Odoo et le routeur, et entre le routeur et SuperPDP, sont **tracées en base de données**, avec un **correlationID** commun par flux, permettant l'audit de bout en bout. |
-| NF2 | Le routeur détient **une clé API SuperPDP par entreprise gérée**. L'API exposée par le routeur à Odoo applique le même principe (une clé par entreprise / par consommateur). |
+| NF2 | Le routeur détient **une clé API SuperPDP par entreprise gérée**. L'API exposée par le routeur à Odoo applique le même principe : chaque entreprise est déclarée comme une **application OAuth distincte** avec son propre jeton, y compris quand un seul connecteur applicatif (ex. l'unique connecteur Odoo) les utilise tous (cf. § 4.9.2 et § 4.10). |
 | NF3 | L'IHM est protégée par authentification **OIDC** auprès de l'**Entra ID (Office 365)** des entreprises. |
 | NF4 | L'IHM permet de restreindre le **périmètre de consultation** d'un utilisateur à une liste d'entreprises réceptrices (l'une, l'autre, ou les deux gérées dans SuperPDP). |
 | NF5 | Stack technique imposée : backend **Python / FastAPI**, ORM **SQLAlchemy**, base de données **SQLite** dans un premier temps (migration future possible vers PostgreSQL) ; frontend **Vue.js**. |
 | NF6 | Possibilité de restreindre les accès à une liste d'adresses **IPv4/IPv6** autorisées. |
-| NF7 | Le client de l'API AFNOR XP Z12-013 s'appuie sur la librairie Python **pyfrctc** (https://pypi.org/project/pyfrctc/). Le module doit supporter **plusieurs versions** de la norme XP Z12-013 simultanément, tant en client (vers SuperPDP) qu'en serveur (vers Odoo) — cf. § 4.7. |
-| NF8 | Les fichiers de factures sont stockés sur le **système de fichiers** ; ils sont **indexés en base de données** (métadonnées + chemin). |
+| NF7 | Le client de l'API AFNOR XP Z12-013 s'appuie sur la librairie Python **pyfrctc** (https://pypi.org/project/pyfrctc/). Le module doit supporter **plusieurs versions** de la norme XP Z12-013 simultanément, tant en client (vers SuperPDP) qu'en serveur (vers Odoo) — cf. § 4.8. |
+| NF8 | Les fichiers de factures sont stockés sur le **système de fichiers** ; ils sont **indexés en base de données** (métadonnées + chemin). **Aucune purge/rétention limitée n'est appliquée à ce stade** (ni fichiers, ni métadonnées) — une politique de purge pourra être introduite ultérieurement sans remise en cause du modèle de stockage. |
 | NF9 | Des **logs techniques** tracent avec précision toutes les actions des utilisateurs sur l'IHM (audit applicatif, distinct du traçage des flux NF1). |
 
 ## 6. Modèle de données (esquisse)
@@ -146,12 +186,14 @@ Le routeur agit comme émulation de PDP vis-à-vis du connecteur Odoo :
 
 ### 6.1 Entités générales
 
-- **Company** (entreprise gérée) : SIREN, raison sociale, clé API SuperPDP (par version d'API, cf. § 4.7).
+- **Company** (entreprise gérée) : SIREN, raison sociale, clé API SuperPDP (par version d'API, cf. § 4.8).
 - **PartnerDirectory** (annuaire des émetteurs/tiers connus du routeur) : SIREN/SIRET, raison sociale, date de première apparition.
-- **TargetApplication** (application cible) : nom, méthode de routage (enum extensible), paramètres (JSON typé selon la méthode).
+- **TargetApplication** (application cible) : nom, méthode de routage (enum extensible), entreprise gérée de rattachement (pour la méthode API AFNOR), paramètres (JSON typé selon la méthode — cf. § 4.9.1/4.9.2).
+- **OAuthApplication** (jeton d'accès par entreprise, cf. § 4.10) : entreprise gérée, `client_id`/`client_secret` (ou token), type d'application (confidentielle/publique), portée (Router→SuperPDP, ou Odoo/consommateur→Router), URLs de redirection, format préféré de conversion AFNOR.
 - **RoutingRule** : SIREN/SIRET émetteur (ou entrée d'annuaire), application cible, date début, date fin (nullable = sans fin), actif/inactif.
 - **Invoice** : identifiant, entreprise réceptrice, émetteur (SIREN/SIRET), statut cycle de vie courant, chemin fichier, métadonnées AFNOR, version d'API AFNOR d'origine, date de réception.
-- **InvoiceRouting** (table de routage effective par facture/cible) : facture, application cible, statut de transfert (à faire / fait / erreur), horodatage.
+- **InvoiceRouting** (table de routage effective par facture/cible) : facture, application cible, statut de transfert (à faire / envoyé / échec / en retry / échec définitif), nombre de tentatives, horodatage de la prochaine tentative (cf. § 4.7).
+- **BillingManagerContact** : adresse(s) email du/des "Gestionnaire(s) de facturation" (destinataires des alertes de routage sans cible et d'échec définitif d'envoi, cf. § 4.7), paramétrées globalement ou par entreprise gérée.
 - **FlowTrace** (traçabilité NF1) : correlationID, sens (Odoo→Routeur, Routeur→SuperPDP, etc.), version d'API AFNOR utilisée, requête, réponse, horodatage, statut HTTP.
 - **AuditLog** (NF9) : utilisateur, action, cible, horodatage, IP.
 - **User / AccessScope** : utilisateur OIDC, liste des entreprises réceptrices autorisées, rôle.
@@ -205,13 +247,10 @@ Cette séparation **Invoice / LifecycleEvent / AfnorFlow / TechnicalLog** est à
 
 ## 9. Points ouverts / à clarifier
 
-- **Contenu de l'email Spendesk / comptable** : format attendu (facture en pièce jointe uniquement ? métadonnées dans le corps du mail ?).
-- **Gestion des erreurs de routage** : que se passe-t-il si une facture n'a aucune règle de routage active à sa date de réception (0 destinataire) ? Simple archivage en base, avec alerte à l'administrateur ?
-- **Rejeu / ré-émission** : en cas d'échec d'un envoi (mail ou API), mécanisme de retry et de ré-émission manuelle depuis l'IHM ?
-- **Volumétrie / fréquence de polling** SuperPDP (webhook si disponible, ou polling périodique ?).
-- **Rétention des factures** sur le système de fichiers et en base (durée de conservation légale, purge).
-- **Multi-tenant Odoo** : un seul connecteur Odoo interrogeant le routeur pour les deux entreprises, ou une instance de connecteur par entreprise ?
-- **Format des paramètres par méthode de routage** (schéma JSON précis pour la méthode "API AFNOR" et pour la méthode "mail") à formaliser lors de la conception technique.
+Tous les points ouverts identifiés à ce stade ont été tranchés (cf. § 4.1, 4.7, 4.9, 4.10 et NF8). Reste à confirmer en conception détaillée, sans bloquer la spécification fonctionnelle :
+
+- **Rejeu manuel depuis l'IHM** : au-delà du retry automatique décrit au § 4.7, l'IHM doit offrir un moyen de déclencher manuellement un nouvel essai d'envoi sur une facture en échec définitif (bouton "Rejouer") — le principe est acquis, l'ergonomie précise reste à concevoir.
+- **Granularité du paramétrage des adresses "Gestionnaire de facturation"** (§ 4.7, entité `BillingManagerContact`) : liste globale au routeur, ou paramétrable par entreprise gérée ? Les deux besoins semblent légitimes (ex. deux comptables différents) ; à confirmer lors de la conception détaillée de l'IHM d'administration.
 
 ## 10. Hors périmètre (à ce stade)
 
