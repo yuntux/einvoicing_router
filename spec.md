@@ -389,8 +389,8 @@ flowchart LR
         subgraph API["Backend FastAPI"]
             Auth["Module Authentification\n(OIDC + tokens API)"]
             RoutingEngine["Moteur de routage\n(résolution des règles)"]
-            AfnorClient["Client AFNOR XP Z12-013\n(multi-version, pyfrctc)"]
-            AfnorServer["Serveur AFNOR XP Z12-013\n(exposé à Odoo, multi-version)"]
+            AfnorClient["Client AFNOR XP Z12-013\n(multi-version, basé sur pyfrctc)"]
+            AfnorServer["Serveur AFNOR XP Z12-013\n(exposé à Odoo, multi-version,\nparsing/génération réutilisés de pyfrctc)"]
             MailConnector["Connecteur mail\n(Spendesk / Comptable)"]
             Lifecycle["Module Cycle de vie"]
             Scheduler["Scheduler / Cron\n(polling, retry, alerting)"]
@@ -407,6 +407,7 @@ flowchart LR
 
     AfnorClient <-->|API AFNOR XP Z12-013| SuperPDP
     Odoo <-->|API AFNOR XP Z12-013| AfnorServer
+    AfnorServer -.->|réutilise parsing/génération pyfrctc| AfnorClient
     MailConnector -->|SMTP| Spendesk
     MailConnector -->|SMTP| Comptable
 
@@ -468,7 +469,8 @@ classDiagram
 
     AfnorServerController --> Invoice : filtre / expose
     AfnorServerController --> RoutingRuleService : applique les règles
-    AfnorServerController --> AfnorClientAdapter : proxy vers SuperPDP
+    AfnorServerController --> AfnorClientAdapter : proxy émission vers SuperPDP
+    AfnorServerController ..> AfnorClientAdapter : réutilise parsing/génération (pyfrctc)
     AfnorServerController --> OAuthApplication : authentifie
     AfnorServerController --> DirectoryService : consultation annuaire
 
