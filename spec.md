@@ -185,7 +185,7 @@ Cette méthode couvre le cas Odoo (§ 4.4) et tout futur consommateur de l'API A
 | NF7 | Le client de l'API AFNOR XP Z12-013 s'appuie sur la librairie Python **pyfrctc** (https://pypi.org/project/pyfrctc/). Le module doit supporter **plusieurs versions** de la norme XP Z12-013 simultanément, tant en client (vers SuperPDP) qu'en serveur (vers Odoo) — cf. § 4.8. |
 | NF8 | Les fichiers de factures sont stockés sur le **système de fichiers** ; ils sont **indexés en base de données** (métadonnées + chemin). **Aucune purge/rétention limitée n'est appliquée à ce stade** (ni fichiers, ni métadonnées) — une politique de purge pourra être introduite ultérieurement sans remise en cause du modèle de stockage. |
 | NF9 | Des **logs techniques** tracent avec précision toutes les actions des utilisateurs sur l'IHM (audit applicatif, distinct du traçage des flux NF1). |
-| NF10 | Deux suites de tests automatisés (**pytest** backoffice, **Playwright** frontoffice), déclenchées par la **CI GitHub**, avec base **SQLite en mémoire** pour les tests ; surveillance des CVE des dépendances via GitHub (Dependabot/Advisory Database) — cf. § 10. |
+| NF10 | Deux suites de tests automatisés (**pytest** backoffice, **Playwright** frontoffice), déclenchées par la **CI GitHub**, avec base **SQLite en mémoire** pour les tests ; surveillance des CVE des dépendances via GitHub (Dependabot/Advisory Database) ; suite d'intégration séparée (non bloquante) contre le bac à sable SuperPDP — cf. § 10. |
 
 ## 6. Modèle de données (esquisse)
 
@@ -607,6 +607,15 @@ classDiagram
   - **Dependabot security updates** / **GitHub Advisory Database** pour la détection de CVE connues sur les dépendances directes et transitives ;
   - une analyse de type **Dependency Review** (ou équivalent) peut être ajoutée sur les pull requests pour bloquer l'introduction d'une dépendance vulnérable.
 - Ces contrôles CI (tests + veille CVE) constituent des **gates obligatoires** avant fusion sur la branche principale.
+
+### 10.4 Suite d'intégration séparée contre le bac à sable SuperPDP
+
+- En complément de la suite pytest principale (mockée, § 10.1), une **suite d'intégration séparée** exécute un sous-ensemble de scénarios contre le **compte de test réel SuperPDP** (bac à sable), pour obtenir une confiance contractuelle que les mocks ne peuvent pas donner (dérive du contrat d'API, changement de comportement côté SuperPDP, etc.).
+- Cette suite est **distincte du gate obligatoire** de la § 10.3 :
+  - elle **ne bloque pas la fusion** des pull requests sur la branche principale (la CI n'est ainsi jamais dépendante de la disponibilité de SuperPDP) ;
+  - elle s'exécute dans un **job CI séparé**, déclenché soit sur une planification récurrente (ex. nightly), soit manuellement (ex. avant une mise en production, ou pour valider une évolution suite à une nouvelle version de l'API AFNOR, cf. § 4.8) ;
+  - son échec produit une alerte/notification distincte, à traiter par l'équipe, sans jamais empêcher un développeur de merger une pull request par ailleurs valide.
+- **Gestion du secret** : la clé/le jeton du compte de test SuperPDP est stocké en **GitHub Actions Secret**, accessible uniquement au job d'intégration séparé (jamais exposé aux jobs de la suite principale ni aux logs) — cf. gestion des secrets en développement local et en CI.
 
 ## 11. Points ouverts / à clarifier
 
