@@ -203,8 +203,8 @@ Cette méthode couvre le cas Odoo (§ 4.4) et tout futur consommateur de l'API A
 |---|---|
 | NF1 | Toutes les requêtes/réponses entre Odoo et le routeur, et entre le routeur et SuperPDP, sont **tracées en base de données**, avec un **correlationID** commun par flux, permettant l'audit de bout en bout. |
 | NF2 | Le routeur détient **une clé API SuperPDP par entreprise gérée**. L'API exposée par le routeur à Odoo applique le même principe : chaque entreprise est déclarée comme une **application OAuth distincte** avec son propre jeton, y compris quand un seul connecteur applicatif (ex. l'unique connecteur Odoo) les utilise tous (cf. § 4.9.2 et § 4.10). |
-| NF3 | L'IHM est protégée par authentification **OIDC** auprès de l'**Entra ID (Office 365)** des entreprises. |
-| NF4 | L'IHM permet de restreindre le **périmètre de consultation** d'un utilisateur à une liste d'entreprises réceptrices (l'une, l'autre, ou les deux gérées dans SuperPDP). |
+| NF3 | L'IHM est protégée par authentification **OIDC** auprès de l'**Entra ID (Office 365)** des entreprises. Les comptes sont **pré-provisionnés par un administrateur** (email, depuis l'IHM de gestion des accès, § 8.3) avant la première connexion de leur titulaire : une connexion réussie côté IdP dont l'email ne correspond à aucun compte pré-provisionné est **refusée** (page d'erreur dédiée), de même qu'un compte existant mais **désactivé** — seule exception, la toute première connexion jamais effectuée sur une instance du routeur amorce son propre compte administrateur (sans lui, personne ne pourrait pré-provisionner qui que ce soit). Assignation Entra ID (qui peut *s'authentifier*) et pré-provisionnement côté routeur (qui peut *accéder à l'application*) sont deux contrôles indépendants et cumulatifs. |
+| NF4 | L'IHM permet de restreindre le **périmètre de consultation** d'un utilisateur à une liste d'entreprises réceptrices (l'une, l'autre, ou les deux gérées dans SuperPDP), ainsi que de **désactiver** un accès sans supprimer l'historique (audit, factures consultées) qui lui est attaché. |
 | NF5 | Stack technique imposée : backend **Python / FastAPI**, ORM **SQLAlchemy**, base de données **SQLite** dans un premier temps (migration future possible vers PostgreSQL) ; frontend **Vue.js**. |
 | NF6 | Possibilité de restreindre les accès à une liste d'adresses **IPv4/IPv6** autorisées. |
 | NF7 | Le client de l'API AFNOR XP Z12-013 s'appuie sur la librairie Python **pyfrctc** (https://pypi.org/project/pyfrctc/). Le module doit supporter **plusieurs versions** de la norme XP Z12-013 simultanément, tant en client (vers SuperPDP) qu'en serveur (vers Odoo) — cf. § 4.8. |
@@ -230,7 +230,7 @@ Cette méthode couvre le cas Odoo (§ 4.4) et tout futur consommateur de l'API A
 - **BillingManagerContact** : adresse(s) email du/des "Gestionnaire(s) de facturation" (destinataires des alertes de routage sans cible et d'échec définitif d'envoi, cf. § 4.7), paramétrées **globalement** dans la configuration générale du routeur — les Gestionnaires de facturation ont une vue sur l'ensemble des factures, toutes entreprises gérées confondues, il n'y a donc pas lieu de distinguer ces adresses par entreprise.
 - **FlowTrace** (traçabilité NF1) : correlationID, sens (Odoo→Routeur, Routeur→SuperPDP, etc.), version d'API AFNOR utilisée, requête, réponse, horodatage, statut HTTP.
 - **AuditLog** (NF9) : utilisateur, action, cible, horodatage, IP.
-- **User / AccessScope** : utilisateur OIDC, liste des entreprises réceptrices autorisées, rôle.
+- **User / AccessScope** : utilisateur OIDC, liste des entreprises réceptrices autorisées, rôle, indicateur `is_active` (révocation d'accès sans suppression du compte, § NF4). L'identifiant OIDC (`oidc_subject`) est **nullable** : un compte pré-provisionné par un administrateur (email seul, depuis l'IHM) n'en porte aucun jusqu'à la première connexion réussie de son titulaire, qui le rattache alors à cette ligne existante plutôt que d'en créer une nouvelle (cf. § NF3).
 
 ### 6.2 Cycle de vie de la facture (inspiré de `l10n_fr_einvoicing`)
 
@@ -297,6 +297,7 @@ classDiagram
         +string email
         +string name
         +string role
+        +bool is_active
     }
 
     Company "1" --> "0..*" OAuthApplication : possède
@@ -422,6 +423,7 @@ classDiagram
         +string email
         +string name
         +string role
+        +bool is_active
     }
     class FlowTrace {
         +int id
@@ -743,7 +745,7 @@ sequenceDiagram
 - Consultation des factures et de leur statut de routage, avec **filtrage riche** (numéro, dates, montants, devise, syntaxe, règle de traitement, émetteur — via jointure `PartnerDirectory` — cf. § 6.1).
 - **Téléchargement du fichier** de la facture, avec traçabilité (chaque téléchargement génère une entrée `AuditLog` ; date/utilisateur du dernier téléchargement affichés par jointure sur `AuditLog`, cf. § 6.1).
 - Génération de messages de cycle de vie.
-- Gestion des accès (périmètre entreprises par utilisateur).
+- Gestion des accès : pré-provisionnement d'un compte par email (avant sa première connexion), périmètre entreprises par utilisateur, rôle, activation/désactivation (§ NF3/NF4).
 
 ## 9. Sécurité
 

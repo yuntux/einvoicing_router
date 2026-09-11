@@ -15,4 +15,13 @@ test('manages a user access scope from the users page', async ({ page }) => {
   await page.goto('/users')
   await expect(page.getByRole('heading', { name: 'Gestion des accès (§ NF4)' })).toBeVisible()
   await expect(page.getByTestId('users-table')).toBeVisible()
+
+  // Pré-provisionnement d'un compte par email (§ NF4) : visible dans la liste avant
+  // toute connexion réelle, avec le statut "en attente de première connexion".
+  const newEmail = `precree.${unique}@example.com`
+  await page.getByTestId('new-user-email-input').fill(newEmail)
+  await page.getByTestId('new-user-name-input').fill('Précréé')
+  await page.getByTestId('new-user-submit-button').click()
+  await expect(page.getByTestId('users-table')).toContainText(newEmail)
+  await expect(page.getByTestId('users-table')).toContainText('En attente de première connexion')
 })
