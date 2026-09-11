@@ -5,7 +5,13 @@ export interface TargetApplication {
   name: string
   routing_method: RoutingMethod
   company_id: number | null
+  oauth_application_id: number | null
   parameters: Record<string, unknown>
+}
+
+export interface TargetApplicationCreated extends TargetApplication {
+  oauth_client_id: string | null
+  oauth_client_secret: string | null
 }
 
 export interface TargetApplicationCreate {
@@ -25,7 +31,7 @@ export async function listTargetApplications(): Promise<TargetApplication[]> {
 
 export async function createTargetApplication(
   payload: TargetApplicationCreate,
-): Promise<TargetApplication> {
+): Promise<TargetApplicationCreated> {
   const response = await fetch(`${API_BASE}/api/ihm/target-applications`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -34,7 +34,16 @@ class TargetApplicationRead(BaseModel):
     name: str
     routing_method: RoutingMethod
     company_id: int | None
+    oauth_application_id: int | None
     parameters: dict
+
+
+class TargetApplicationCreated(TargetApplicationRead):
+    """Réponse de création : porte le secret OAuth en clair une seule fois
+    (méthode afnor_api uniquement, § 4.9.2) — jamais renvoyé ensuite."""
+
+    oauth_client_id: str | None = None
+    oauth_client_secret: str | None = None
 
 
 class RoutingRuleCreate(BaseModel):

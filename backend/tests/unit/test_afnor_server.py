@@ -1,0 +1,268 @@
+"""Module serveur AFNOR — API exposée à Odoo (spec.md § 4.4/§ 4.8, lot 4)."""
+
+from datetime import date
+
+from app.auth.oauth import generate_client_credentials, hash_secret
+from app.models.audit import FlowTrace
+from app.models.invoicing import Invoice, InvoiceRouting
+from app.models.referential import (
+    Company,
+    OAuthAppType,
+    OAuthScope,
+    OAuthApplication,
+    PartnerDirectory,
+    RoutingMethod,
+    TargetApplication,
+)
+from app.services import routing_rule_service
+
+
+def _make_company(db, siren="123456789", name="Ma Société"):
+    company = Company(siren=siren, name=name)
+    db.add(company)
+    db.commit()
+    db.refresh(company)
+    return company
+
+
+def _make_oauth_app(db, company, client_id=None, client_secret="s3cret-value"):
+    client_id = client_id or generate_client_credentials()[0]
+    oauth_app = OAuthApplication(
+        company_id=company.id,
+        client_id=client_id,
+        client_secret_hash=hash_secret(client_secret),
+        app_type=OAuthAppType.CONFIDENTIAL,
+        scope=OAuthScope.CONSUMER_TO_ROUTER,
+    )
+    db.add(oauth_app)
+    db.commit()
+    db.refresh(oauth_app)
+    return oauth_app
+
+
+def _make_target(db, company, oauth_app=None, name="Odoo"):
+    target = TargetApplication(
+        name=name,
+        routing_method=RoutingMethod.AFNOR_API,
+        company_id=company.id,
+        oauth_application_id=oauth_app.id if oauth_app else None,
+    )
+    db.add(target)
+    db.commit()
+    db.refresh(target)
+    return target
+
+
+def _make_partner(db, siren="987654321", name="Fournisseur"):
+    partner = PartnerDirectory(siren=siren, name=name)
+    db.add(partner)
+    db.commit()
+    db.refresh(partner)
+    return partner
+
+
+def _make_invoice(db, company, partner, flow_id="flow-1"):
+    invoice = Invoice(
+        company_id=company.id,
+        partner_directory_id=partner.id,
+        emitter_siren=partner.siren,
+        invoice_number="INV-1",
+        invoice_date=date(2026, 1, 1),
+        file_path="/tmp/fake.pdf",
+        superpdp_flow_id=flow_id,
+    )
+    db.add(invoice)
+    db.commit()
+    db.refresh(invoice)
+    return invoice
+
+
+def _route(db, invoice, target):
+    routing = InvoiceRouting(invoice_id=invoice.id, target_application_id=target.id)
+    db.add(routing)
+    db.commit()
+    return routing
+
+
+def test_token_issuance_success(client, db_session):
+    company = _make_company(db_session)
+    oauth_app = _make_oauth_app(db_session, company, client_secret="s3cret-value")
+
+    response = client.post(
+        "/api/afnor/v1/oauth/token",
+        data={
+            "grant_type": "client_credentials",
+            "client_id": oauth_app.client_id,
+            "client_secret": "s3cret-value",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["access_token"]
+    assert body["token_type"] == "bearer"
+
+    traces = db_session.query(FlowTrace).all()
+    assert len(traces) == 1
+    assert traces[0].direction == "odoo_to_router"
+
+
+def test_token_issuance_wrong_secret(client, db_session):
+    company = _make_company(db_session)
+    oauth_app = _make_oauth_app(db_session, company, client_secret="s3cret-value")
+
+    response = client.post(
+        "/api/afnor/v1/oauth/token",
+        data={
+            "grant_type": "client_credentials",
+            "client_id": oauth_app.client_id,
+            "client_secret": "wrong-secret",
+        },
+    )
+
+    assert response.status_code == 401
+
+
+def test_token_issuance_unknown_client(client, db_session):
+    response = client.post(
+        "/api/afnor/v1/oauth/token",
+        data={
+            "grant_type": "client_credentials",
+            "client_id": "unknown-client",
+            "client_secret": "whatever",
+        },
+    )
+
+    assert response.status_code == 401
+
+
+def test_token_issuance_wrong_grant_type(client, db_session):
+    company = _make_company(db_session)
+    oauth_app = _make_oauth_app(db_session, company, client_secret="s3cret-value")
+
+    response = client.post(
+        "/api/afnor/v1/oauth/token",
+        data={
+            "grant_type": "authorization_code",
+            "client_id": oauth_app.client_id,
+            "client_secret": "s3cret-value",
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def _authenticate(client, oauth_app, secret):
+    response = client.post(
+        "/api/afnor/v1/oauth/token",
+        data={
+            "grant_type": "client_credentials",
+            "client_id": oauth_app.client_id,
+            "client_secret": secret,
+        },
+    )
+    assert response.status_code == 200
+    return response.json()["access_token"]
+
+
+def test_list_invoices_scoped_to_consumer(client, db_session):
+    company_a = _make_company(db_session, siren="111111111", name="Société A")
+    company_b = _make_company(db_session, siren="222222222", name="Société B")
+
+    oauth_app_a = _make_oauth_app(db_session, company_a, client_secret="secret-a")
+    oauth_app_b = _make_oauth_app(db_session, company_b, client_secret="secret-b")
+
+    target_a = _make_target(db_session, company_a, oauth_app=oauth_app_a, name="Odoo A")
+    target_b = _make_target(db_session, company_b, oauth_app=oauth_app_b, name="Odoo B")
+
+    partner = _make_partner(db_session)
+    invoice_a = _make_invoice(db_session, company_a, partner, flow_id="flow-a")
+    invoice_b = _make_invoice(db_session, company_b, partner, flow_id="flow-b")
+
+    _route(db_session, invoice_a, target_a)
+    _route(db_session, invoice_b, target_b)
+
+    token_a = _authenticate(client, oauth_app_a, "secret-a")
+
+    response = client.get(
+        "/api/afnor/v1/invoices", headers={"Authorization": f"Bearer {token_a}"}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["id"] == invoice_a.id
+
+
+def test_list_invoices_no_target_returns_empty(client, db_session):
+    company = _make_company(db_session)
+    oauth_app = _make_oauth_app(db_session, company, client_secret="s3cret-value")
+    token = _authenticate(client, oauth_app, "s3cret-value")
+
+    response = client.get(
+        "/api/afnor/v1/invoices", headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_list_invoices_rejects_missing_token(client, db_session):
+    response = client.get("/api/afnor/v1/invoices")
+    assert response.status_code == 401
+
+
+def test_list_invoices_rejects_invalid_token(client, db_session):
+    response = client.get(
+        "/api/afnor/v1/invoices", headers={"Authorization": "Bearer not-a-real-token"}
+    )
+    assert response.status_code == 401
+
+
+def test_directory_lookup_creates_entry_and_implicit_rule(client, db_session):
+    company = _make_company(db_session)
+    oauth_app = _make_oauth_app(db_session, company, client_secret="s3cret-value")
+    target = _make_target(db_session, company, oauth_app=oauth_app)
+    token = _authenticate(client, oauth_app, "s3cret-value")
+
+    response = client.get(
+        "/api/afnor/v1/directory/999999999",
+        params={"name": "Nouveau Tiers"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["created"] is True
+    assert body["siren"] == "999999999"
+    assert body["name"] == "Nouveau Tiers"
+
+    partner = (
+        db_session.query(PartnerDirectory)
+        .filter(PartnerDirectory.siren == "999999999")
+        .one()
+    )
+    resolved = routing_rule_service.resolve(
+        db_session, siren=partner.siren, reference_date=date(2026, 1, 1)
+    )
+    assert [t.id for t in resolved] == [target.id]
+
+    traces = db_session.query(FlowTrace).all()
+    assert any(t.response.get("created") is True for t in traces)
+
+
+def test_directory_lookup_known_siren_does_not_recreate(client, db_session):
+    company = _make_company(db_session)
+    oauth_app = _make_oauth_app(db_session, company, client_secret="s3cret-value")
+    partner = _make_partner(db_session, siren="555555555", name="Déjà Connu")
+    token = _authenticate(client, oauth_app, "s3cret-value")
+
+    response = client.get(
+        "/api/afnor/v1/directory/555555555",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["created"] is False
+    assert body["partner_id"] == partner.id

@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.afnor.v1 import router as afnor_v1_router
 from app.api.ihm.companies import router as companies_router
 from app.api.ihm.invoices import router as invoices_router
 from app.api.ihm.lifecycle import router as lifecycle_router
@@ -31,6 +32,7 @@ def create_app() -> FastAPI:
     app.include_router(
         lifecycle_router, prefix="/api/ihm/lifecycle-catalog", tags=["lifecycle"]
     )
+    app.include_router(afnor_v1_router, prefix="/api/afnor/v1", tags=["afnor-v1"])
     return app
 
 
