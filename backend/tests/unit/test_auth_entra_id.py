@@ -1,126 +1,37 @@
-"""Flux OIDC réel Entra ID (spec.md NF3, lot 7) — découverte/JWKS/échange de jetons
-mockés (aucun réseau, aucun tenant réel requis)."""
+"""Flux OIDC réel Entra ID, construit sur Authlib (spec.md NF3, lot 7) — mocké au
+niveau des méthodes publiques d'Authlib (`authorize_redirect`/`authorize_access_token`),
+jamais de ses internes (découverte, PKCE, validation JWKS) : c'est le rôle d'Authlib
+lui-même de les garantir correctes, pas de ce projet de les retester. Aucun réseau,
+aucun tenant Entra ID réel requis."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-import jwt as pyjwt
-from cryptography.hazmat.primitives.asymmetric import rsa
+from authlib.integrations.base_client.errors import OAuthError
+from fastapi.responses import RedirectResponse
 
-from app.auth import oidc
 from app.config import settings
 
-DISCOVERY = {
-    "authorization_endpoint": "https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize",
-    "token_endpoint": "https://login.microsoftonline.com/tenant/oauth2/v2.0/token",
-    "jwks_uri": "https://login.microsoftonline.com/tenant/discovery/v2.0/keys",
-    "issuer": "https://login.microsoftonline.com/tenant/v2.0",
-}
 
-
-def _rsa_keypair():
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    return private_key, private_key.public_key()
-
-
-def test_build_authorization_url_includes_pkce_and_state(monkeypatch):
-    monkeypatch.setattr(settings, "oidc_tenant_id", "tenant")
-    monkeypatch.setattr(settings, "oidc_client_id", "client-123")
-    with patch("app.auth.oidc._discovery_document", return_value=DISCOVERY):
-        url = oidc.build_authorization_url(state="state-abc", code_challenge="challenge-xyz")
-
-    assert url.startswith(DISCOVERY["authorization_endpoint"])
-    assert "client_id=client-123" in url
-    assert "state=state-abc" in url
-    assert "code_challenge=challenge-xyz" in url
-    assert "code_challenge_method=S256" in url
-
-
-def test_exchange_code_for_id_token(monkeypatch):
-    monkeypatch.setattr(settings, "oidc_client_id", "client-123")
-    monkeypatch.setattr(settings, "oidc_client_secret", "secret")
-
-    mock_response = MagicMock()
-    mock_response.json.return_value = {"id_token": "the-id-token"}
-    mock_response.raise_for_status.return_value = None
-
-    with (
-        patch("app.auth.oidc._discovery_document", return_value=DISCOVERY),
-        patch("app.auth.oidc.requests.post", return_value=mock_response) as mock_post,
-    ):
-        token = oidc.exchange_code_for_id_token(code="auth-code", code_verifier="verifier")
-
-    assert token == "the-id-token"
-    mock_post.assert_called_once()
-    assert mock_post.call_args.args[0] == DISCOVERY["token_endpoint"]
-
-
-def test_validate_id_token_success(monkeypatch):
-    monkeypatch.setattr(settings, "oidc_client_id", "client-123")
-    private_key, public_key = _rsa_keypair()
-
-    id_token = pyjwt.encode(
-        {
-            "sub": "entra-subject-1",
-            "email": "user@example.com",
-            "name": "Entra User",
-            "aud": "client-123",
-            "iss": DISCOVERY["issuer"],
-        },
-        private_key,
-        algorithm="RS256",
-    )
-
-    fake_signing_key = MagicMock()
-    fake_signing_key.key = public_key
-
-    with (
-        patch("app.auth.oidc._discovery_document", return_value=DISCOVERY),
-        patch.object(
-            pyjwt.PyJWKClient, "get_signing_key_from_jwt", return_value=fake_signing_key
-        ),
-    ):
-        claims = oidc.validate_id_token(id_token)
-
-    assert claims["sub"] == "entra-subject-1"
-    assert claims["email"] == "user@example.com"
-
-
-def test_validate_id_token_rejects_wrong_audience(monkeypatch):
-    monkeypatch.setattr(settings, "oidc_client_id", "client-123")
-    private_key, public_key = _rsa_keypair()
-
-    id_token = pyjwt.encode(
-        {"sub": "s", "aud": "someone-else", "iss": DISCOVERY["issuer"]},
-        private_key,
-        algorithm="RS256",
-    )
-    fake_signing_key = MagicMock()
-    fake_signing_key.key = public_key
-
-    with (
-        patch("app.auth.oidc._discovery_document", return_value=DISCOVERY),
-        patch.object(
-            pyjwt.PyJWKClient, "get_signing_key_from_jwt", return_value=fake_signing_key
-        ),
-    ):
-        try:
-            oidc.validate_id_token(id_token)
-            assert False, "expected InvalidAudienceError"
-        except pyjwt.InvalidAudienceError:
-            pass
-
-
-def test_login_entra_id_redirects_and_sets_state_cookie(client, monkeypatch):
+def test_login_entra_id_redirects(client, monkeypatch):
     monkeypatch.setattr(settings, "oidc_mode", "entra_id")
     monkeypatch.setattr(settings, "oidc_tenant_id", "tenant")
     monkeypatch.setattr(settings, "oidc_client_id", "client-123")
 
-    with patch("app.api.ihm.auth.oidc.build_authorization_url", return_value="https://login.example/authorize?x=1"):
+    fake_redirect = RedirectResponse(url="https://login.microsoftonline.com/authorize?x=1")
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_redirect",
+        new=AsyncMock(return_value=fake_redirect),
+    ) as mock_authorize_redirect:
         response = client.get("/api/ihm/auth/login", follow_redirects=False)
 
     assert response.status_code in (302, 307)
-    assert response.headers["location"] == "https://login.example/authorize?x=1"
-    assert "router_oidc_state" in response.cookies
+    assert response.headers["location"] == "https://login.microsoftonline.com/authorize?x=1"
+    mock_authorize_redirect.assert_called_once()
+
+
+def test_login_disabled_mode_returns_404(client):
+    response = client.get("/api/ihm/auth/login", follow_redirects=False)
+    assert response.status_code == 404
 
 
 def test_callback_success_creates_session(client, monkeypatch):
@@ -128,35 +39,21 @@ def test_callback_success_creates_session(client, monkeypatch):
     monkeypatch.setattr(settings, "oidc_tenant_id", "tenant")
     monkeypatch.setattr(settings, "oidc_client_id", "client-123")
 
-    with patch("app.api.ihm.auth.oidc.build_authorization_url", return_value="https://login.example/authorize?state=state-1"):
-        login_response = client.get("/api/ihm/auth/login", follow_redirects=False)
-    assert "router_oidc_state" in login_response.cookies
-
-    # Le state réellement stashé est généré côté serveur (jwt.encode aléatoire) ; on le
-    # récupère depuis le cookie plutôt que de le deviner.
-    import jwt as pyjwt_mod
-
-    from app.auth.session import JWT_ALGORITHM
-
-    stashed = pyjwt_mod.decode(
-        login_response.cookies["router_oidc_state"], settings.jwt_secret, algorithms=[JWT_ALGORITHM]
-    )
-    real_state = stashed["state"]
-
-    with (
-        patch("app.api.ihm.auth.oidc.exchange_code_for_id_token", return_value="id-token-value"),
-        patch(
-            "app.api.ihm.auth.oidc.validate_id_token",
-            return_value={
-                "sub": "entra-subject-42",
-                "email": "callback@example.com",
-                "name": "Callback User",
-            },
-        ),
+    fake_token = {
+        "access_token": "irrelevant",
+        "userinfo": {
+            "sub": "entra-subject-42",
+            "email": "callback@example.com",
+            "name": "Callback User",
+        },
+    }
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_access_token",
+        new=AsyncMock(return_value=fake_token),
     ):
         response = client.get(
             "/api/ihm/auth/callback",
-            params={"code": "auth-code", "state": real_state},
+            params={"code": "auth-code", "state": "whatever-authlib-manages-this"},
             follow_redirects=False,
         )
 
@@ -167,19 +64,60 @@ def test_callback_success_creates_session(client, monkeypatch):
     body = me.json()
     assert body["authenticated"] is True
     assert body["user"]["email"] == "callback@example.com"
+    assert body["user"]["name"] == "Callback User"
 
 
-def test_callback_rejects_state_mismatch(client, monkeypatch):
+def test_callback_reuses_existing_user_by_subject(client, db_session, monkeypatch):
     monkeypatch.setattr(settings, "oidc_mode", "entra_id")
     monkeypatch.setattr(settings, "oidc_tenant_id", "tenant")
     monkeypatch.setattr(settings, "oidc_client_id", "client-123")
 
-    with patch("app.api.ihm.auth.oidc.build_authorization_url", return_value="https://login.example/authorize"):
-        client.get("/api/ihm/auth/login", follow_redirects=False)
+    fake_token = {
+        "userinfo": {"sub": "entra-subject-99", "email": "repeat@example.com", "name": "Repeat"}
+    }
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_access_token",
+        new=AsyncMock(return_value=fake_token),
+    ):
+        client.get(
+            "/api/ihm/auth/callback",
+            params={"code": "auth-code-1", "state": "s1"},
+            follow_redirects=False,
+        )
+        client.get(
+            "/api/ihm/auth/callback",
+            params={"code": "auth-code-2", "state": "s2"},
+            follow_redirects=False,
+        )
 
+    from app.models.referential import User
+
+    users = db_session.query(User).filter(User.oidc_subject == "entra-subject-99").all()
+    assert len(users) == 1
+
+
+def test_callback_oauth_error_returns_400(client, monkeypatch):
+    monkeypatch.setattr(settings, "oidc_mode", "entra_id")
+    monkeypatch.setattr(settings, "oidc_tenant_id", "tenant")
+    monkeypatch.setattr(settings, "oidc_client_id", "client-123")
+
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_access_token",
+        new=AsyncMock(side_effect=OAuthError(description="mismatching_state")),
+    ):
+        response = client.get(
+            "/api/ihm/auth/callback",
+            params={"code": "auth-code", "state": "bad-state"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 400
+
+
+def test_callback_disabled_when_not_entra_id_mode(client):
     response = client.get(
         "/api/ihm/auth/callback",
-        params={"code": "auth-code", "state": "wrong-state"},
+        params={"code": "x", "state": "y"},
         follow_redirects=False,
     )
-    assert response.status_code == 400
+    assert response.status_code == 404

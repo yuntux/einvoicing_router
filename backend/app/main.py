@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 import app.api.afnor.v1  # noqa: F401  (s'enregistre auprès du registre de versions)
 import app.api.afnor.v2  # noqa: F401  (idem — cf. app/afnor/versioning/registry.py)
@@ -43,6 +44,9 @@ def create_app() -> FastAPI:
     )
     if settings.ip_allowlist_enabled:
         app.add_middleware(IPAllowlistMiddleware)
+    # Requis par Authlib (authlib.integrations.starlette_client) pour stocker le
+    # state/nonce OIDC côté serveur pendant le flux Entra ID (§ NF3, app/auth/oidc.py).
+    app.add_middleware(SessionMiddleware, secret_key=settings.jwt_secret)
 
     # Authentification requise sur toutes les routes IHM (NF3) dès que
     # `settings.oidc_mode != "disabled"` — `require_current_user` ne bloque jamais
