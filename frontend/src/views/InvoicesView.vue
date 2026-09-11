@@ -51,6 +51,10 @@ async function refreshSelected() {
   }
 }
 
+function scheduleRefreshSelected() {
+  setTimeout(refreshSelected, 500)
+}
+
 async function onLifecycleEventCreated() {
   if (selected.value) {
     selected.value = await getInvoice(selected.value.id)
@@ -155,7 +159,7 @@ onMounted(async () => {
         <a
           :href="invoiceDownloadUrl(selected.id)"
           data-testid="invoice-download-link"
-          @click="() => setTimeout(refreshSelected, 500)"
+          @click="scheduleRefreshSelected"
         >
           Télécharger le fichier
         </a>

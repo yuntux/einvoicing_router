@@ -27,12 +27,16 @@ dependencies = [
     # Authlib (authlib.integrations.starlette_client) pour stocker state/nonce OIDC
     # côté serveur pendant le flux Entra ID.
     "itsdangerous>=2.2",
+    # Requis au runtime par authlib.integrations.starlette_client (import transitif
+    # via httpx_client, même quand seul le flux OIDC Entra ID est utilisé) — pas
+    # seulement un outil de test, malgré son usage principal comme TestClient HTTP
+    # dans la suite pytest (cf. dev ci-dessous).
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3",
-    "httpx>=0.27",
 ]
 
 [tool.pytest.ini_options]
