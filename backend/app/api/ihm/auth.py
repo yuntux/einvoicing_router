@@ -39,6 +39,18 @@ def _set_session_cookie(response: Response, user: User) -> None:
     )
 
 
+def _safe_next_path(next_path: str | None) -> str:
+    """Restreint `next` à un chemin relatif interne au frontend (`/invoices`, etc.) —
+    jamais une URL absolue ni un chemin protocol-relative (`//evil.example`), pour ne
+    pas transformer ce paramètre, transmis en clair dans l'URL de login, en redirection
+    ouverte vers un site arbitraire."""
+    if not next_path or not next_path.startswith("/") or next_path.startswith("//"):
+        return "/"
+    if "://" in next_path:
+        return "/"
+    return next_path
+
+
 @router.get("/me", response_model=CurrentUserStatus)
 def me(user: User | None = Depends(get_current_user)):
     return CurrentUserStatus(
@@ -53,19 +65,25 @@ async def login(
     request: Request,
     email: str = Query(default="dev@example.com"),
     name: str = Query(default="Dev User"),
+    next: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
     if settings.oidc_mode == "disabled":
         raise HTTPException(status_code=404, detail="Authentication is disabled")
 
+    next_path = _safe_next_path(next)
+
     if settings.oidc_mode == "dev":
         user = get_or_create_user(db, oidc_subject=f"dev:{email}", email=email, name=name)
-        response = RedirectResponse(url=settings.frontend_base_url)
+        response = RedirectResponse(url=f"{settings.frontend_base_url}{next_path}")
         _set_session_cookie(response, user)
         return response
 
     # entra_id : Authlib gère la découverte OIDC, PKCE et le state/nonce (stockés
-    # côté serveur via SessionMiddleware, cf. app.main) — cf. app.auth.oidc.
+    # côté serveur via SessionMiddleware, cf. app.main) — on y range aussi `next_path`
+    # le temps de l'aller-retour vers Entra ID, pour rediriger vers la bonne page une
+    # fois `callback` atteint.
+    request.session["post_login_next"] = next_path
     client = entra_id_client()
     return await client.authorize_redirect(request, settings.oidc_redirect_uri)
 
@@ -92,7 +110,8 @@ async def callback(request: Request, db: Session = Depends(get_db)):
         name=claims.get("name", claims.get("email", "")),
     )
 
-    response = RedirectResponse(url=settings.frontend_base_url)
+    next_path = _safe_next_path(request.session.pop("post_login_next", None))
+    response = RedirectResponse(url=f"{settings.frontend_base_url}{next_path}")
     _set_session_cookie(response, user)
     return response
 
