@@ -183,7 +183,7 @@ Cette méthode couvre le cas Odoo (§ 4.4) et tout futur consommateur de l'API A
 | NF7 | Le client de l'API AFNOR XP Z12-013 s'appuie sur la librairie Python **pyfrctc** (https://pypi.org/project/pyfrctc/). Le module doit supporter **plusieurs versions** de la norme XP Z12-013 simultanément, tant en client (vers SuperPDP) qu'en serveur (vers Odoo) — cf. § 4.8. |
 | NF8 | Les fichiers de factures sont stockés sur le **système de fichiers** ; ils sont **indexés en base de données** (métadonnées + chemin). **Aucune purge/rétention limitée n'est appliquée à ce stade** (ni fichiers, ni métadonnées) — une politique de purge pourra être introduite ultérieurement sans remise en cause du modèle de stockage. |
 | NF9 | Des **logs techniques** tracent avec précision toutes les actions des utilisateurs sur l'IHM (audit applicatif, distinct du traçage des flux NF1). |
-| NF10 | Deux suites de tests automatisés (**pytest** backoffice, **Playwright** frontoffice), déclenchées par la **CI GitHub**, avec base **SQLite en mémoire** pour les tests ; surveillance des CVE des dépendances via GitHub (Dependabot/Advisory Database) — cf. § 9. |
+| NF10 | Deux suites de tests automatisés (**pytest** backoffice, **Playwright** frontoffice), déclenchées par la **CI GitHub**, avec base **SQLite en mémoire** pour les tests ; surveillance des CVE des dépendances via GitHub (Dependabot/Advisory Database) — cf. § 10. |
 
 ## 6. Modèle de données (esquisse)
 
@@ -216,16 +216,284 @@ Reprise du découpage éprouvé par le module OCA/Akretion `l10n_fr_einvoicing` 
 
 Cette séparation **Invoice / LifecycleEvent / AfnorFlow / TechnicalLog** est à conserver dans le routeur : la facture porte l'état métier courant, l'événement de cycle de vie porte le détail d'un changement d'état, le flux AFNOR porte le suivi technique de la transmission (génération, envoi, statut de dépôt côté PDP), et le journal technique trace le déroulé des traitements batch.
 
-## 7. API exposées / consommées
+## 7. Diagrammes
 
-### 7.1 Consommée : API SuperPDP (norme AFNOR XP Z12-013)
+### 7.1 Modèle de données (diagramme de classes UML)
+
+Reprend les entités décrites au § 6, avec leurs attributs principaux (non exhaustifs) et les cardinalités entre elles.
+
+```mermaid
+classDiagram
+    class Company {
+        +int id
+        +string siren
+        +string name
+    }
+    class OAuthApplication {
+        +int id
+        +string client_id
+        +string client_secret
+        +string app_type
+        +string scope
+        +string redirect_urls
+        +string preferred_conversion_format
+    }
+    class PartnerDirectory {
+        +int id
+        +string siren
+        +string siret
+        +string name
+        +date first_seen_at
+    }
+    class TargetApplication {
+        +int id
+        +string name
+        +string routing_method
+        +json parameters
+    }
+    class RoutingRule {
+        +int id
+        +date start_date
+        +date end_date
+        +bool active
+    }
+    class Invoice {
+        +int id
+        +string lifecycle_status
+        +string file_path
+        +json afnor_metadata
+        +string afnor_api_version
+        +datetime received_at
+    }
+    class InvoiceRouting {
+        +int id
+        +string transfer_status
+        +int attempt_count
+        +datetime next_attempt_at
+    }
+    class LifecycleEvent {
+        +int id
+        +datetime event_datetime
+        +string status
+        +string direction
+        +decimal amount
+        +string currency
+    }
+    class LifecycleEventDetail {
+        +int id
+        +string reason
+        +string action
+        +string comment
+    }
+    class LifecycleEventPayment {
+        +int id
+        +decimal amount
+        +string currency
+        +date payment_date
+    }
+    class LifecycleEventAttachment {
+        +int id
+        +string filename
+    }
+    class AfnorFlow {
+        +int id
+        +string flow_id
+        +string direction
+        +string flow_type
+        +string syntax
+        +string processing_rule
+        +string state
+        +binary file_bin
+        +json data_dict
+    }
+    class FlowTrace {
+        +int id
+        +string correlation_id
+        +string direction
+        +string afnor_api_version
+        +json request
+        +json response
+        +int http_status
+        +datetime created_at
+    }
+    class TechnicalLog {
+        +int id
+        +string log_type
+        +string origin
+        +string status
+        +text details
+    }
+    class BillingManagerContact {
+        +int id
+        +string email
+    }
+    class AuditLog {
+        +int id
+        +string action
+        +string target
+        +string ip_address
+        +datetime created_at
+    }
+    class User {
+        +int id
+        +string oidc_subject
+        +string email
+        +string role
+    }
+
+    Company "1" --> "0..*" Invoice : reçoit
+    Company "1" --> "0..*" OAuthApplication : possède
+    Company "0..1" --> "0..*" TargetApplication : rattache (méthode API)
+    Company "1" --> "0..*" FlowTrace : concerne
+    Company "0..*" -- "0..*" User : périmètre d'accès
+
+    PartnerDirectory "1" --> "0..*" RoutingRule : émetteur ciblé par
+    PartnerDirectory "0..1" --> "0..*" Invoice : émet
+
+    TargetApplication "1" --> "0..*" RoutingRule : ciblée par
+    TargetApplication "1" --> "0..*" InvoiceRouting : reçoit
+
+    Invoice "1" --> "0..*" InvoiceRouting : routée vers
+    Invoice "1" --> "0..*" LifecycleEvent : historique
+    Invoice "1" --> "0..*" AfnorFlow : flux liés
+
+    LifecycleEvent "1" --> "0..*" LifecycleEventDetail : détails
+    LifecycleEvent "1" --> "0..*" LifecycleEventPayment : paiements
+    LifecycleEvent "1" --> "0..*" LifecycleEventAttachment : pièces jointes
+    LifecycleEvent "0..1" --> "0..1" AfnorFlow : généré via
+
+    AuditLog "0..*" --> "1" User : auteur
+```
+
+### 7.2 Diagramme de composants
+
+Vue d'ensemble de l'architecture applicative du routeur et de ses interactions avec les systèmes externes (cf. § 2 et § 3).
+
+```mermaid
+flowchart LR
+    subgraph Externes["Systèmes externes"]
+        SuperPDP[("SuperPDP\n(PDP agréée)")]
+        Odoo["Connecteur Odoo\n(module OCA)"]
+        Spendesk["Spendesk (SaaS)"]
+        Comptable["Comptable"]
+        EntraID["Entra ID / Office 365\n(OIDC)"]
+        Admins["Dirigeant / utilisateurs habilités"]
+    end
+
+    subgraph Routeur["Routeur de factures"]
+        FE["Frontend Vue.js\n(IHM)"]
+
+        subgraph API["Backend FastAPI"]
+            Auth["Module Authentification\n(OIDC + tokens API)"]
+            RoutingEngine["Moteur de routage\n(résolution des règles)"]
+            AfnorClient["Client AFNOR XP Z12-013\n(multi-version, pyfrctc)"]
+            AfnorServer["Serveur AFNOR XP Z12-013\n(exposé à Odoo, multi-version)"]
+            MailConnector["Connecteur mail\n(Spendesk / Comptable)"]
+            Lifecycle["Module Cycle de vie"]
+            Scheduler["Scheduler / Cron\n(polling, retry, alerting)"]
+            Tracing["Traçabilité & Audit\n(FlowTrace, AuditLog, TechnicalLog)"]
+        end
+
+        DB[("Base de données\nSQLAlchemy / SQLite-PostgreSQL")]
+        FS[("Système de fichiers\n(factures)")]
+    end
+
+    Admins -->|HTTPS| FE
+    FE -->|REST/JSON| API
+    Auth -->|OIDC| EntraID
+
+    AfnorClient <-->|API AFNOR XP Z12-013| SuperPDP
+    Odoo <-->|API AFNOR XP Z12-013| AfnorServer
+    MailConnector -->|SMTP| Spendesk
+    MailConnector -->|SMTP| Comptable
+
+    Scheduler --> AfnorClient
+    Scheduler --> MailConnector
+    Scheduler --> AfnorServer
+
+    RoutingEngine --> DB
+    AfnorClient --> DB
+    AfnorClient --> FS
+    AfnorServer --> DB
+    AfnorServer --> FS
+    MailConnector --> DB
+    Lifecycle --> DB
+    Tracing --> DB
+```
+
+### 7.3 Diagramme de classes applicatif
+
+Classes de service/orchestration du backend et leurs relations avec les classes du modèle de données (§ 7.1) — les attributs des classes de modèle ne sont pas répétés ici, seules leurs relations avec les services sont représentées.
+
+```mermaid
+classDiagram
+    class RoutingRuleService
+    class DirectoryService
+    class InvoiceIngestionService
+    class AfnorClientAdapter
+    class AfnorServerController
+    class MailRouterService
+    class LifecycleService
+    class RetrySchedulerService
+    class AuditTraceService
+
+    class TargetApplication
+    class RoutingRule
+    class Invoice
+    class InvoiceRouting
+    class PartnerDirectory
+    class LifecycleEvent
+    class AfnorFlow
+    class OAuthApplication
+    class FlowTrace
+    class TechnicalLog
+    class BillingManagerContact
+
+    RoutingRuleService --> RoutingRule : gère
+    RoutingRuleService --> TargetApplication : gère
+    RoutingRuleService --> PartnerDirectory : consulte
+
+    DirectoryService --> PartnerDirectory : synchronise
+
+    InvoiceIngestionService --> Invoice : crée / met à jour
+    InvoiceIngestionService --> AfnorClientAdapter : utilise
+    InvoiceIngestionService --> RoutingRuleService : résout le routage
+    InvoiceIngestionService --> InvoiceRouting : crée
+
+    AfnorClientAdapter --> FlowTrace : trace
+    AfnorClientAdapter --> OAuthApplication : s'authentifie via
+
+    AfnorServerController --> Invoice : filtre / expose
+    AfnorServerController --> RoutingRuleService : applique les règles
+    AfnorServerController --> AfnorClientAdapter : proxy vers SuperPDP
+    AfnorServerController --> OAuthApplication : authentifie
+
+    MailRouterService --> InvoiceRouting : envoie
+    MailRouterService --> TargetApplication : lit les paramètres
+
+    LifecycleService --> LifecycleEvent : crée
+    LifecycleService --> AfnorFlow : génère / consulte
+    LifecycleService --> AfnorClientAdapter : transmet à SuperPDP
+
+    RetrySchedulerService --> InvoiceRouting : rejoue
+    RetrySchedulerService --> MailRouterService : déclenche
+    RetrySchedulerService --> AfnorClientAdapter : déclenche
+    RetrySchedulerService --> BillingManagerContact : alerte
+
+    AuditTraceService --> FlowTrace : enregistre
+    AuditTraceService --> TechnicalLog : enregistre
+```
+
+## 8. API exposées / consommées
+
+### 8.1 Consommée : API SuperPDP (norme AFNOR XP Z12-013)
 
 - Authentification par clé API, une par entreprise gérée.
 - Endpoints de consultation des factures reçues, endpoints de cycle de vie, endpoints d'émission facture/e-reporting, endpoints d'annuaire.
 - Référence : Swagger/documentation en bas de https://www.superpdp.tech/documentation/9.
 - Client Python basé sur **pyfrctc**.
 
-### 7.2 Exposée : API à destination d'Odoo (norme AFNOR XP Z12-013)
+### 8.2 Exposée : API à destination d'Odoo (norme AFNOR XP Z12-013)
 
 - Authentification par clé API (une par entreprise / connecteur).
 - Comportement spécifique par rapport à une PDP "réelle" :
@@ -233,7 +501,7 @@ Cette séparation **Invoice / LifecycleEvent / AfnorFlow / TechnicalLog** est à
   - **Consultation annuaire** : création à la volée d'une règle de routage implicite "vers Odoo" pour toute entreprise nouvellement interrogée.
   - **Émission facture / e-reporting** : proxy transparent vers SuperPDP (requête et réponse tracées avec correlationID commun).
 
-### 7.3 IHM (interne)
+### 8.3 IHM (interne)
 
 - CRUD des règles de routage (SIREN, entreprise, application cible, période).
 - CRUD des applications cibles (méthode de routage + paramètres).
@@ -241,7 +509,7 @@ Cette séparation **Invoice / LifecycleEvent / AfnorFlow / TechnicalLog** est à
 - Génération de messages de cycle de vie.
 - Gestion des accès (périmètre entreprises par utilisateur).
 
-## 8. Sécurité
+## 9. Sécurité
 
 - Authentification IHM : OIDC / Entra ID (Office 365).
 - Autorisation IHM : périmètre par entreprise réceptrice (RBAC minimal : au moins un rôle "accès à un périmètre d'entreprises").
@@ -250,19 +518,19 @@ Cette séparation **Invoice / LifecycleEvent / AfnorFlow / TechnicalLog** est à
 - Filtrage réseau : allowlist IPv4/IPv6 configurable.
 - Traçabilité complète des flux (NF1) et des actions utilisateur (NF9) à des fins d'audit et de conformité.
 
-## 9. Stratégie de tests et intégration continue
+## 10. Stratégie de tests et intégration continue
 
-### 9.1 Deux niveaux de tests automatisés
+### 10.1 Deux niveaux de tests automatisés
 
 - **Tests backoffice (backend)** : suite **pytest** couvrant l'API FastAPI, la logique de routage, le client/serveur AFNOR XP Z12-013, les intégrations SuperPDP/Odoo (mockées), la logique de retry/alerting, etc.
 - **Tests frontoffice (IHM)** : suite **Playwright** couvrant les parcours utilisateurs de l'IHM Vue.js (consultation des factures, gestion des règles de routage, génération de messages de cycle de vie, gestion des applications cibles, rejeu manuel — cf. § 4.7).
 - Les deux suites sont indépendantes mais complémentaires : pytest valide la logique métier et les contrats d'API, Playwright valide les parcours de bout en bout au travers de l'IHM réellement rendue dans un navigateur.
 
-### 9.2 Base de données de test
+### 10.2 Base de données de test
 
 - Lors de l'exécution des tests (pytest comme Playwright, quand ce dernier a besoin d'un backend actif), la base **SQLite est en mémoire** (`:memory:` ou équivalent) : elle n'est **jamais écrite sur le disque**, garantissant des tests isolés, rapides et sans effet de bord entre exécutions ou entre environnements de CI.
 
-### 9.3 Intégration continue GitHub
+### 10.3 Intégration continue GitHub
 
 - Les deux suites de tests (pytest et Playwright) sont **déclenchées automatiquement par la CI GitHub** (GitHub Actions), a minima sur chaque pull request et sur la branche principale.
 - **Surveillance des vulnérabilités (CVE)** des composants et dépendances (Python/pip, JavaScript/npm) via les outils natifs GitHub :
@@ -271,11 +539,11 @@ Cette séparation **Invoice / LifecycleEvent / AfnorFlow / TechnicalLog** est à
   - une analyse de type **Dependency Review** (ou équivalent) peut être ajoutée sur les pull requests pour bloquer l'introduction d'une dépendance vulnérable.
 - Ces contrôles CI (tests + veille CVE) constituent des **gates obligatoires** avant fusion sur la branche principale.
 
-## 10. Points ouverts / à clarifier
+## 11. Points ouverts / à clarifier
 
 Tous les points ouverts identifiés à ce stade ont été tranchés (cf. § 4.1, 4.7, 4.9, 4.10 et NF8).
 
-## 11. Hors périmètre (à ce stade)
+## 12. Hors périmètre (à ce stade)
 
 - Validation métier des factures (circuit d'approbation) : reste géré par Spendesk / Odoo, pas par le routeur.
 - Comptabilisation : reste gérée par Odoo / le comptable.
