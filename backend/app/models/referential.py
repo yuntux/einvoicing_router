@@ -136,14 +136,22 @@ class User(Base):
     """Utilisateur OIDC (spec.md § 6.1/NF3/NF4). `role` ("admin" voit toutes les
     entreprises, "user" est restreint à son périmètre) et `companies` (via
     `company_users`) forment ensemble l'"AccessScope" du § 6.1 — pas de table dédiée,
-    ce couple suffit à représenter le périmètre de consultation d'un utilisateur."""
+    ce couple suffit à représenter le périmètre de consultation d'un utilisateur.
+
+    Un compte est **pré-provisionné** par un administrateur depuis l'IHM (email seul,
+    `oidc_subject` nul, `name` nul) avant la première connexion de son titulaire — cf.
+    `app.services.user_service.resolve_login_user`, qui rattache `oidc_subject` à la
+    ligne existante lors de cette première connexion plutôt que d'en créer une
+    nouvelle. `is_active` permet de révoquer un accès sans supprimer l'historique
+    (audit, factures consultées) attaché à l'utilisateur."""
 
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     oidc_subject: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     email: Mapped[str] = mapped_column(String(255), unique=True)
-    name: Mapped[str] = mapped_column(String(255))
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     role: Mapped[str] = mapped_column(String(50), default="user")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
 
     companies: Mapped[list[Company]] = relationship(secondary=company_users)

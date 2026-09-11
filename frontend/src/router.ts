@@ -3,6 +3,7 @@ import { ensureAuthStatus, loginUrl } from './api/auth'
 import CompaniesView from './views/CompaniesView.vue'
 import FailedRoutingsView from './views/FailedRoutingsView.vue'
 import InvoicesView from './views/InvoicesView.vue'
+import LoginErrorView from './views/LoginErrorView.vue'
 import RoutingRulesView from './views/RoutingRulesView.vue'
 import SettingsView from './views/SettingsView.vue'
 import TargetApplicationsView from './views/TargetApplicationsView.vue'
@@ -12,6 +13,7 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', redirect: '/invoices' },
+    { path: '/login-error', name: 'login-error', component: LoginErrorView, meta: { public: true } },
     { path: '/companies', name: 'companies', component: CompaniesView },
     { path: '/target-applications', name: 'target-applications', component: TargetApplicationsView },
     { path: '/routing-rules', name: 'routing-rules', component: RoutingRulesView },
@@ -26,6 +28,7 @@ export const router = createRouter({
 // et qu'aucune session n'est présente — puis, une fois connecté, ramène l'utilisateur
 // sur la page initialement demandée (paramètre `next`, cf. app/api/ihm/auth.py).
 router.beforeEach(async (to) => {
+  if (to.meta.public) return true
   const status = await ensureAuthStatus()
   if (status.oidc_mode !== 'disabled' && !status.authenticated) {
     window.location.href = loginUrl(to.fullPath)
