@@ -2,6 +2,81 @@
 
 ## 1. Contexte et objectifs
 
+### La réforme de la facturation électronique en France
+
+La réforme française de la facturation électronique impose progressivement à toutes les entreprises assujetties à la TVA :
+
+- de **recevoir** leurs factures fournisseurs au format électronique, quelle que soit leur taille, dès l'entrée en vigueur de l'obligation ;
+- d'**émettre** leurs factures clients au format électronique pour leurs opérations B2B domestiques (entre entreprises assujetties en France) ;
+- de transmettre du **e-reporting** (données de transaction et, le cas échéant, de paiement) à l'administration fiscale pour les opérations hors du champ de la facturation électronique obligatoire (ventes aux particuliers B2C, opérations internationales) ;
+- le tout via des **plateformes de dématérialisation partenaires (PDP)** agréées, interconnectées entre elles et avec l'annuaire central de facturation électronique (et Peppol).
+
+Au-delà du simple envoi/réception de la facture, la réforme impose également le suivi d'un **cycle de vie normalisé** : chaque étape du traitement d'une facture (dépôt, mise à disposition, prise en charge, approbation, litige, paiement…) doit être transmise sous forme de statuts normalisés entre la plateforme du vendeur et celle de l'acheteur, afin que l'administration fiscale dispose d'une vision fiable de l'état réel de chaque facture à des fins de contrôle de la TVA. Le schéma suivant illustre ce cycle de vie standard (statuts **obligatoires** en rouge, **recommandés** en bleu-vert, **autres** en blanc) ; les clés techniques entre parenthèses sont celles utilisées dans le catalogue de statuts détaillé au § 4.2 :
+
+```mermaid
+flowchart LR
+    subgraph P1["Préparation émission"]
+        direction TB
+        submitted["Déposée<br/>(submitted)"]
+        ap_sent["Émise par la plateforme<br/>(ap_sent)"]
+        ap_received["Reçue par la plateforme<br/>(ap_received)"]
+        ap_available["Mise à disposition<br/>(ap_available)"]
+    end
+
+    subgraph P2["Réception"]
+        direction TB
+        rejected["Rejetée<br/>(raison technique)<br/>(rejected)"]
+        in_hand["Prise en charge<br/>(in_hand)"]
+    end
+
+    subgraph P3["Validation / Renvoi"]
+        direction TB
+        completed["Complétée<br/>(completed)"]
+        suspended["Suspendue<br/>(suspended)"]
+        dispute["En litige<br/>(dispute)"]
+        approved["Approuvée<br/>(approved)"]
+        partially_approved["Partiellement approuvée<br/>(partially_approved)"]
+        refused["Refusée<br/>(refused)"]
+    end
+
+    subgraph P4["Paiement"]
+        direction TB
+        payment_sent["Paiement transmis<br/>(payment_sent)"]
+        payment_received["Encaissée<br/>(payment_received)"]
+    end
+
+    submitted --> ap_sent --> ap_received --> ap_available
+    ap_available --> rejected
+    rejected -.->|renvoi| submitted
+    ap_available --> in_hand
+
+    in_hand --> suspended
+    in_hand --> dispute
+    in_hand --> approved
+    in_hand --> partially_approved
+    in_hand --> refused
+
+    dispute --> refused
+    partially_approved --> refused
+
+    completed --> approved
+    approved --> payment_sent
+    completed --> payment_sent
+    payment_sent --> payment_received
+
+    classDef obligatoire fill:#e0455f,stroke:#c22233,color:#ffffff
+    classDef recommande fill:#1a9ba1,stroke:#0e6b70,color:#ffffff
+    classDef autre fill:#ffffff,stroke:#333333,color:#000000
+
+    class submitted,rejected,refused,payment_received obligatoire
+    class ap_available,in_hand,approved,partially_approved,payment_sent recommande
+    class ap_sent,ap_received,completed,suspended,dispute autre
+```
+
+C'est ce cycle de vie — repris intégralement, avec l'ensemble de ses statuts (y compris ceux non représentés dans ce schéma simplifié : `stamped`, `cancelled`, `routing_error`, `direct_payment_query`, `factored`, `undisclosed_factored`, `payment_entity_change`, `not_factored`, `unacceptable`) et mappé aux codes techniques de la norme AFNOR XP Z12-013 — que le routeur doit permettre de consulter et, pour le sous-ensemble saisissable manuellement, de générer (§ 4.2).
+
+### Le besoin du Dirigeant
+
 L'utilisateur (le "Dirigeant") dirige deux entreprises françaises assujetties à la TVA. À ce titre, il doit recevoir et émettre des factures électroniques, ainsi que produire du e-reporting selon la nature des opérations.
 
 Les deux entreprises s'appuient sur une plateforme de dématérialisation partenaire (PDP) agréée, **SuperPDP** (https://www.superpdp.tech/), qui envoie et reçoit les factures pour leur compte.
