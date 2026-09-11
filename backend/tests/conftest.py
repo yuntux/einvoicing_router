@@ -19,6 +19,14 @@ def _tmp_invoice_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "invoice_storage_root", str(tmp_path))
 
 
+@pytest.fixture(autouse=True)
+def _disable_scheduler(monkeypatch):
+    """Le scheduler définitif (§ 4.7) ne doit jamais démarrer pendant les tests : il
+    tournerait dans un thread de fond contre la base réelle (`SessionLocal`), pas
+    contre la base SQLite en mémoire propre à chaque test."""
+    monkeypatch.setattr(settings, "scheduler_enabled", False)
+
+
 @pytest.fixture()
 def db_session():
     engine = create_engine(

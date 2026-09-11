@@ -12,6 +12,7 @@ dependencies = [
     "pydantic-settings>=2.5",
     "pyjwt>=2.9",
     "python-multipart>=0.0.12",
+    "apscheduler>=3.10",
 ]
 
 [project.optional-dependencies]
