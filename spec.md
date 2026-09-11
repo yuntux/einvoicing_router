@@ -93,7 +93,7 @@ Le routeur agit comme émulation de PDP vis-à-vis du connecteur Odoo :
 
 ### 4.6 Routage vers le comptable
 
-- Cf. § 9 (mécanisme à préciser — a priori un canal de type "routage mail" comme Spendesk, réutilisant le mécanisme générique du § 4.7).
+- Pour le moment, le canal "comptable" utilise le même mécanisme générique de **transfert par email** que Spendesk (cf. § 4.5) : c'est une instance à part entière du connecteur "routage mail" (application cible distincte, avec sa/ses propre(s) adresse(s) destinataire(s) et adresse(s) en copie), et non une variante spécifique du connecteur Spendesk.
 
 ### 4.7 Gestion multi-versions de l'API AFNOR XP Z12-013
 
@@ -182,7 +182,6 @@ Le routeur agit comme émulation de PDP vis-à-vis du connecteur Odoo :
 
 ## 9. Points ouverts / à clarifier
 
-- **Canal comptable** : le mécanisme de transmission des factures au comptable n'est pas précisé (email comme Spendesk ? dépôt sur un espace partagé ? autre méthode de routage à créer ?). À confirmer — probablement une instance du connecteur "routage mail" générique, mais à valider.
 - **Contenu de l'email Spendesk / comptable** : format attendu (facture en pièce jointe uniquement ? métadonnées dans le corps du mail ?).
 - **Gestion des erreurs de routage** : que se passe-t-il si une facture n'a aucune règle de routage active à sa date de réception (0 destinataire) ? Simple archivage en base, avec alerte à l'administrateur ?
 - **Rejeu / ré-émission** : en cas d'échec d'un envoi (mail ou API), mécanisme de retry et de ré-émission manuelle depuis l'IHM ?
