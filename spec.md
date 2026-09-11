@@ -50,7 +50,7 @@ Développer un **routeur de factures** qui :
 ```
 Fournisseurs ──► SuperPDP ──(API AFNOR XP Z12-013)──► Routeur ──┬─► Odoo (API AFNOR XP Z12-013, tiré par Odoo)
                                                                   ├─► Spendesk (email)
-                                                                  └─► Comptable (canal à définir)
+                                                                  └─► Comptable (email)
 
 Odoo ──(API AFNOR XP Z12-013, émission facture/e-reporting)──► Routeur ──(proxy)──► SuperPDP
 ```
@@ -193,10 +193,10 @@ Cette méthode couvre le cas Odoo (§ 4.4) et tout futur consommateur de l'API A
 
 ### 6.1 Entités générales
 
-- **Company** (entreprise gérée) : SIREN, raison sociale, clé API SuperPDP (par version d'API, cf. § 4.8).
+- **Company** (entreprise gérée) : SIREN, raison sociale. (La clé/le jeton d'accès à SuperPDP n'est **pas** un attribut de `Company` : il est porté par `OAuthApplication`, à portée Router→SuperPDP, cf. ci-dessous et § 4.10 — évite de dupliquer la notion de jeton à deux endroits du modèle.)
 - **PartnerDirectory** (annuaire des émetteurs/tiers connus du routeur) : SIREN/SIRET, raison sociale, date de première apparition.
 - **TargetApplication** (application cible) : nom, méthode de routage (enum extensible), entreprise gérée de rattachement (pour la méthode API AFNOR), paramètres (JSON typé selon la méthode — cf. § 4.9.1/4.9.2).
-- **OAuthApplication** (jeton d'accès par entreprise, cf. § 4.10) : entreprise gérée, `client_id`/`client_secret` (ou token), type d'application (confidentielle/publique), portée (Router→SuperPDP, ou Odoo/consommateur→Router), URLs de redirection, format préféré de conversion AFNOR.
+- **OAuthApplication** (jeton d'accès par entreprise, cf. § 4.10) : entreprise gérée, `client_id`/`client_secret` (ou token), type d'application (confidentielle/publique), **portée** (`Router→SuperPDP` ou `Odoo/consommateur→Router`), URLs de redirection, format préféré de conversion AFNOR, **version d'API AFNOR cible** (pour la portée `Router→SuperPDP` : permet la bascule progressive par entreprise décrite au § 4.8).
 - **RoutingRule** : **classe d'association** entre `PartnerDirectory` (émetteur) et `TargetApplication` (application cible), porteuse de la période de validité du routage (date début, date fin — nullable = sans fin) et d'un indicateur actif/inactif. C'est parce que cette période de validité n'a de sens que pour un couple (émetteur, application cible) donné que la relation ne peut pas être une simple association N-N sans attributs : elle doit être portée par une entité propre (cf. § 7.1.1, où mermaid ne disposant pas de la notation UML stricte de classe d'association, `RoutingRule` est représentée comme une classe reliée par deux associations dirigées).
 - **Invoice** : identifiant, entreprise réceptrice, émetteur (SIREN/SIRET), statut cycle de vie courant, chemin fichier, métadonnées AFNOR, version d'API AFNOR d'origine, date de réception.
 - **InvoiceRouting** (table de routage effective par facture/cible) : facture, application cible, statut de transfert (à faire / envoyé / échec / en retry / échec définitif), nombre de tentatives, horodatage de la prochaine tentative (cf. § 4.7).
@@ -214,7 +214,7 @@ Reprise du découpage éprouvé par le module OCA/Akretion `l10n_fr_einvoicing` 
   - **LifecycleEventPayment** (≈ `fr.einvoicing.event.payment`) : événement lié (statut `payment_sent`), montant, devise, date.
   - **LifecycleEventAttachment** : pièces jointes associées à un événement (le cas échéant).
 - **AfnorFlow** (≈ `fr.einvoicing.flow`) : représentation générique d'un flux AFNOR XP Z12-013 (facture, e-reporting ou message de cycle de vie), avec son propre cycle de vie **technique** distinct du cycle de vie métier de la facture : `created` → `generated` → `sent`/`downloaded` → `done` (ou `error`/`cancel`). Porte : identifiant de flux (`flowId`), sens, type (`CustomerInvoiceLC`, `SupplierInvoiceLC`, e-reporting…), syntaxe (`CDAR`, `UBL`, `CII`, `Factur-X`…), règle de traitement (`B2B`, `B2G`, `B2C`, `OutOfScope`…), fichier binaire généré/téléchargé, données JSON structurées extraites.
-- **TechnicalLog** (≈ `fr.einvoicing.log`) : journal technique des opérations d'import/génération/envoi/synchronisation d'annuaire (type d'opération, origine, entreprise, statut succès/avertissement/échec, compteurs, détail HTML) — complémentaire du `FlowTrace` (§ 6.1) qui trace les requêtes/réponses HTTP brutes ; ce journal trace plutôt le **résultat métier** de chaque exécution (ex. cron de récupération), avec une politique de rétention/purge automatique configurable (le module de référence utilise un `autovacuum` avec une durée par défaut de 600 jours — à reprendre comme valeur de configuration pour NF9).
+- **TechnicalLog** (≈ `fr.einvoicing.log`) : journal technique des opérations d'import/génération/envoi/synchronisation d'annuaire (type d'opération, origine, entreprise, statut succès/avertissement/échec, compteurs, détail HTML) — complémentaire du `FlowTrace` (§ 6.1) qui trace les requêtes/réponses HTTP brutes ; ce journal trace plutôt le **résultat métier** de chaque exécution (ex. cron de récupération). Le module de référence (`l10n_fr_einvoicing`) purge automatiquement ces journaux au bout de 600 jours par défaut (`autovacuum`) ; **dans le routeur, cette purge automatique reste désactivée par défaut, par cohérence avec NF8** (aucune purge appliquée à ce stade, ni sur les factures ni sur les journaux) — le mécanisme de purge configurable est prévu dans le modèle, pour être activé ultérieurement sans changement structurel si une politique de rétention est décidée.
 
 Cette séparation **Invoice / LifecycleEvent / AfnorFlow / TechnicalLog** est à conserver dans le routeur : la facture porte l'état métier courant, l'événement de cycle de vie porte le détail d'un changement d'état, le flux AFNOR porte le suivi technique de la transmission (génération, envoi, statut de dépôt côté PDP), et le journal technique trace le déroulé des traitements batch.
 
@@ -241,6 +241,7 @@ classDiagram
         +string scope
         +string redirect_urls
         +string preferred_conversion_format
+        +string afnor_api_version
     }
     class PartnerDirectory {
         +int id
@@ -539,14 +540,14 @@ classDiagram
 
 ### 8.1 Consommée : API SuperPDP (norme AFNOR XP Z12-013)
 
-- Authentification par clé API, une par entreprise gérée.
+- Authentification par clé API/jeton (application OAuth `Router→SuperPDP`, cf. § 4.9.2/§ 4.10), une par entreprise gérée.
 - Endpoints de consultation des factures reçues, endpoints de cycle de vie, endpoints d'émission facture/e-reporting, endpoints d'annuaire.
 - Référence : Swagger/documentation en bas de https://www.superpdp.tech/documentation/9.
 - Client Python basé sur **pyfrctc**.
 
 ### 8.2 Exposée : API à destination d'Odoo (norme AFNOR XP Z12-013)
 
-- Authentification par clé API (une par entreprise / connecteur).
+- Authentification par clé API/jeton (application OAuth `Odoo/consommateur→Router`, cf. § 4.9.2/§ 4.10), une par entreprise / connecteur.
 - Comportement spécifique par rapport à une PDP "réelle" :
   - **Consultation factures** : filtrage par règles de routage (uniquement les factures flaggées "Odoo").
   - **Consultation annuaire** : création à la volée d'une règle de routage implicite "vers Odoo" pour toute entreprise nouvellement interrogée.
@@ -564,8 +565,8 @@ classDiagram
 
 - Authentification IHM : OIDC / Entra ID (Office 365).
 - Autorisation IHM : périmètre par entreprise réceptrice (RBAC minimal : au moins un rôle "accès à un périmètre d'entreprises").
-- Authentification API (Odoo → Routeur) : clé API par entreprise/consommateur.
-- Authentification API (Routeur → SuperPDP) : clé API par entreprise gérée.
+- Authentification API (Odoo → Routeur) : clé API/jeton (application OAuth) par entreprise/consommateur.
+- Authentification API (Routeur → SuperPDP) : clé API/jeton (application OAuth) par entreprise gérée.
 - Filtrage réseau : allowlist IPv4/IPv6 configurable.
 - Traçabilité complète des flux (NF1) et des actions utilisateur (NF9) à des fins d'audit et de conformité.
 
