@@ -112,7 +112,7 @@ Le routeur agit comme émulation de PDP vis-à-vis du connecteur Odoo :
 
 ### 4.7 Erreurs de routage, échecs d'envoi et alerting
 
-- **Le "Gestionnaire de facturation"** : rôle non applicatif (pas un compte OIDC), représenté par une ou plusieurs **adresses email** paramétrées dans l'IHM d'administration (configuration générale du routeur, ou par entreprise gérée — à trancher en conception détaillée). Ces adresses sont les destinataires des alertes suivantes.
+- **Le "Gestionnaire de facturation"** : rôle non applicatif (pas un compte OIDC), représenté par une ou plusieurs **adresses email** paramétrées **globalement** dans la configuration générale du routeur (les Gestionnaires de facturation ont une vue sur l'ensemble des factures, toutes entreprises gérées confondues — pas de paramétrage par entreprise). Ces adresses sont les destinataires des alertes suivantes.
 - **Facture sans règle de routage active** (0 application cible à la date de réception) : la facture est archivée normalement (aucun blocage du flux de récupération), et une **alerte email est envoyée au(x) Gestionnaire(s) de facturation** pour signaler la facture non routée et permettre une action corrective (création d'une règle, routage manuel).
 - **Échec d'un envoi vers une application cible** (méthode mail ou méthode API) :
   - le routeur **retente automatiquement l'envoi toutes les 30 minutes, pendant 3 heures** (soit au maximum 6 tentatives après l'échec initial) ;
@@ -193,7 +193,7 @@ Cette méthode couvre le cas Odoo (§ 4.4) et tout futur consommateur de l'API A
 - **RoutingRule** : SIREN/SIRET émetteur (ou entrée d'annuaire), application cible, date début, date fin (nullable = sans fin), actif/inactif.
 - **Invoice** : identifiant, entreprise réceptrice, émetteur (SIREN/SIRET), statut cycle de vie courant, chemin fichier, métadonnées AFNOR, version d'API AFNOR d'origine, date de réception.
 - **InvoiceRouting** (table de routage effective par facture/cible) : facture, application cible, statut de transfert (à faire / envoyé / échec / en retry / échec définitif), nombre de tentatives, horodatage de la prochaine tentative (cf. § 4.7).
-- **BillingManagerContact** : adresse(s) email du/des "Gestionnaire(s) de facturation" (destinataires des alertes de routage sans cible et d'échec définitif d'envoi, cf. § 4.7), paramétrées globalement ou par entreprise gérée.
+- **BillingManagerContact** : adresse(s) email du/des "Gestionnaire(s) de facturation" (destinataires des alertes de routage sans cible et d'échec définitif d'envoi, cf. § 4.7), paramétrées **globalement** dans la configuration générale du routeur — les Gestionnaires de facturation ont une vue sur l'ensemble des factures, toutes entreprises gérées confondues, il n'y a donc pas lieu de distinguer ces adresses par entreprise.
 - **FlowTrace** (traçabilité NF1) : correlationID, sens (Odoo→Routeur, Routeur→SuperPDP, etc.), version d'API AFNOR utilisée, requête, réponse, horodatage, statut HTTP.
 - **AuditLog** (NF9) : utilisateur, action, cible, horodatage, IP.
 - **User / AccessScope** : utilisateur OIDC, liste des entreprises réceptrices autorisées, rôle.
@@ -247,10 +247,7 @@ Cette séparation **Invoice / LifecycleEvent / AfnorFlow / TechnicalLog** est à
 
 ## 9. Points ouverts / à clarifier
 
-Tous les points ouverts identifiés à ce stade ont été tranchés (cf. § 4.1, 4.7, 4.9, 4.10 et NF8). Reste à confirmer en conception détaillée, sans bloquer la spécification fonctionnelle :
-
-- **Rejeu manuel depuis l'IHM** : au-delà du retry automatique décrit au § 4.7, l'IHM doit offrir un moyen de déclencher manuellement un nouvel essai d'envoi sur une facture en échec définitif (bouton "Rejouer") — le principe est acquis, l'ergonomie précise reste à concevoir.
-- **Granularité du paramétrage des adresses "Gestionnaire de facturation"** (§ 4.7, entité `BillingManagerContact`) : liste globale au routeur, ou paramétrable par entreprise gérée ? Les deux besoins semblent légitimes (ex. deux comptables différents) ; à confirmer lors de la conception détaillée de l'IHM d'administration.
+Tous les points ouverts identifiés à ce stade ont été tranchés (cf. § 4.1, 4.7, 4.9, 4.10 et NF8).
 
 ## 10. Hors périmètre (à ce stade)
 
