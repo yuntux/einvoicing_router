@@ -68,10 +68,19 @@ Le routeur joue donc un double rôle vis-à-vis de la norme AFNOR XP Z12-013 :
   - le **fichier** de la facture sur le système de fichiers ;
   - les **métadonnées** (dont le chemin du fichier) indexées en base de données.
 
-### 4.2 IHM de consultation des factures
+### 4.2 IHM de consultation des factures et gestion du cycle de vie
 
 - Liste et consultation des factures reçues.
 - Génération de messages de type **cycle de vie** de la facture (accusé de réception, prise en charge, rejet, paiement, etc. — statuts définis par la norme AFNOR XP Z12-013), transmis à SuperPDP.
+
+**Inspiration** : le module OCA/Akretion [`l10n_fr_einvoicing`](https://github.com/akretion/fr-einvoicing/tree/18.0/l10n_fr_einvoicing) (Odoo 18) propose une implémentation de référence du cycle de vie AFNOR XP Z12-013 dont la structure de données peut être reprise pour l'IHM du routeur (cf. modèle de données § 6.2) :
+
+- **Catalogue de statuts fermé et typé**, chacun mappé à un code numérique CDAR et, pour les statuts émis manuellement, à un code métier `MDT-88` (cf. XP Z12-012, Annexe A, colonne "Règles de gestion entre PA") : `submitted`, `ap_sent`, `ap_received`, `ap_available` (statuts techniques, émis par la plateforme), `in_hand`, `approved`, `partially_approved`, `dispute`, `suspended`, `completed`, `refused`, `payment_sent`, `payment_received` (statuts métier, saisissables manuellement), `rejected`, `stamped`, `cancelled`, `routing_error`, `direct_payment_query`, `factored`, `undisclosed_factored`, `payment_entity_change`, `not_factored`, `unacceptable`.
+- Seul un **sous-ensemble de statuts est saisissable manuellement** dans l'IHM, et ce sous-ensemble dépend du sens de la facture (vente ou achat) — ex. `approved`/`dispute`/`suspended`/`partially_approved`/`refused` sont réservés aux factures d'achat (côté acheteur), `completed` aux factures de vente.
+- Certains statuts (`partially_approved`, `dispute`, `suspended`, `refused`, …) **exigent un détail** : un **motif** (`reason`, liste fermée de codes normalisés — ex. `NON_CONFORME`, `SIRET_ERR`, `DOUBLON`, `TX_TVA_ERR`…), optionnellement une **action attendue** (`action` — ex. `NIN` "créer une facture rectificative", `CNF`/`CNP` "créer un avoir total/partiel", `PIN` "information complémentaire requise") et un **commentaire libre**. `refused` requiert en outre une confirmation explicite avant émission.
+- Le statut `payment_sent` peut porter une ou plusieurs **lignes de paiement** (montant, devise, date), et un message de cycle de vie peut porter des **pièces jointes**.
+- Chaque message de cycle de vie généré depuis l'IHM du routeur doit être transformé en flux **CDAR** (Cross Domain Acknowledgement and Response) conforme XP Z12-013 avant transmission à SuperPDP — cette génération/validation XML (avec contrôle schématron) s'appuie sur **pyfrctc** (fonctions `generate_cdar`/`parse_cdar_raw`/`parse_cdar_from_raw`, cf. NF7).
+- À la réception (Odoo → SuperPDP), le routeur agit en proxy transparent (cf. § 4.4) : il ne réinterprète pas les messages de cycle de vie qu'Odoo émet lui-même, mais il doit néanmoins pouvoir **afficher/consulter** dans son IHM les messages de cycle de vie liés aux factures qu'il héberge, qu'ils aient été émis manuellement depuis son IHM propre ou reçus de SuperPDP.
 
 ### 4.3 IHM de gestion des règles de routage
 
@@ -133,18 +142,32 @@ Le routeur agit comme émulation de PDP vis-à-vis du connecteur Odoo :
 
 ## 6. Modèle de données (esquisse)
 
-À affiner en phase de conception détaillée, mais la spécification fonctionnelle implique a minima les entités suivantes :
+À affiner en phase de conception détaillée, mais la spécification fonctionnelle implique a minima les entités suivantes.
 
-- **Company** (entreprise gérée) : SIREN, raison sociale, clé API SuperPDP.
+### 6.1 Entités générales
+
+- **Company** (entreprise gérée) : SIREN, raison sociale, clé API SuperPDP (par version d'API, cf. § 4.7).
 - **PartnerDirectory** (annuaire des émetteurs/tiers connus du routeur) : SIREN/SIRET, raison sociale, date de première apparition.
 - **TargetApplication** (application cible) : nom, méthode de routage (enum extensible), paramètres (JSON typé selon la méthode).
 - **RoutingRule** : SIREN/SIRET émetteur (ou entrée d'annuaire), application cible, date début, date fin (nullable = sans fin), actif/inactif.
-- **Invoice** : identifiant, entreprise réceptrice, émetteur (SIREN/SIRET), statut cycle de vie, chemin fichier, métadonnées AFNOR, date de réception.
+- **Invoice** : identifiant, entreprise réceptrice, émetteur (SIREN/SIRET), statut cycle de vie courant, chemin fichier, métadonnées AFNOR, version d'API AFNOR d'origine, date de réception.
 - **InvoiceRouting** (table de routage effective par facture/cible) : facture, application cible, statut de transfert (à faire / fait / erreur), horodatage.
-- **LifecycleMessage** : facture, type de message, date d'émission, statut de transmission à SuperPDP.
-- **FlowTrace** (traçabilité NF1) : correlationID, sens (Odoo→Routeur, Routeur→SuperPDP, etc.), requête, réponse, horodatage, statut HTTP.
+- **FlowTrace** (traçabilité NF1) : correlationID, sens (Odoo→Routeur, Routeur→SuperPDP, etc.), version d'API AFNOR utilisée, requête, réponse, horodatage, statut HTTP.
 - **AuditLog** (NF9) : utilisateur, action, cible, horodatage, IP.
 - **User / AccessScope** : utilisateur OIDC, liste des entreprises réceptrices autorisées, rôle.
+
+### 6.2 Cycle de vie de la facture (inspiré de `l10n_fr_einvoicing`)
+
+Reprise du découpage éprouvé par le module OCA/Akretion `l10n_fr_einvoicing` (cf. § 4.2), adapté au fait que le routeur n'est pas Odoo mais un intermédiaire générique :
+
+- **LifecycleEvent** (≈ `fr.einvoicing.event`) : facture liée, entreprise, date/heure d'émission, **statut** (catalogue fermé décrit au § 4.2, avec code CDAR et code `MDT-88` associés), sens (entrant depuis SuperPDP / sortant généré par l'IHM du routeur), flux AFNOR associé (`AfnorFlow`), montant/devise agrégés (si paiement).
+  - **LifecycleEventDetail** (≈ `fr.einvoicing.event.detail`) : événement lié, motif (`reason`, liste fermée), action attendue (`action`, liste fermée), commentaire libre — un ou plusieurs par événement pour les statuts qui l'exigent (`dispute`, `suspended`, `partially_approved`, `refused`…).
+  - **LifecycleEventPayment** (≈ `fr.einvoicing.event.payment`) : événement lié (statut `payment_sent`), montant, devise, date.
+  - **LifecycleEventAttachment** : pièces jointes associées à un événement (le cas échéant).
+- **AfnorFlow** (≈ `fr.einvoicing.flow`) : représentation générique d'un flux AFNOR XP Z12-013 (facture, e-reporting ou message de cycle de vie), avec son propre cycle de vie **technique** distinct du cycle de vie métier de la facture : `created` → `generated` → `sent`/`downloaded` → `done` (ou `error`/`cancel`). Porte : identifiant de flux (`flowId`), sens, type (`CustomerInvoiceLC`, `SupplierInvoiceLC`, e-reporting…), syntaxe (`CDAR`, `UBL`, `CII`, `Factur-X`…), règle de traitement (`B2B`, `B2G`, `B2C`, `OutOfScope`…), fichier binaire généré/téléchargé, données JSON structurées extraites.
+- **TechnicalLog** (≈ `fr.einvoicing.log`) : journal technique des opérations d'import/génération/envoi/synchronisation d'annuaire (type d'opération, origine, entreprise, statut succès/avertissement/échec, compteurs, détail HTML) — complémentaire du `FlowTrace` (§ 6.1) qui trace les requêtes/réponses HTTP brutes ; ce journal trace plutôt le **résultat métier** de chaque exécution (ex. cron de récupération), avec une politique de rétention/purge automatique configurable (le module de référence utilise un `autovacuum` avec une durée par défaut de 600 jours — à reprendre comme valeur de configuration pour NF9).
+
+Cette séparation **Invoice / LifecycleEvent / AfnorFlow / TechnicalLog** est à conserver dans le routeur : la facture porte l'état métier courant, l'événement de cycle de vie porte le détail d'un changement d'état, le flux AFNOR porte le suivi technique de la transmission (génération, envoi, statut de dépôt côté PDP), et le journal technique trace le déroulé des traitements batch.
 
 ## 7. API exposées / consommées
 
