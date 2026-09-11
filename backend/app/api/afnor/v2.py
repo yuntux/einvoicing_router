@@ -10,13 +10,14 @@ matérialise le point d'extension plutôt qu'un changement de comportement réel
 
 from fastapi import APIRouter, Depends, Query
 
+from app.afnor.server import afnor_server_controller
 from app.afnor.versioning.registry import register_version
 from app.auth.oauth import get_current_oauth_application
 from app.db.session import get_db
 from app.models.referential import OAuthApplication
 from app.schemas.invoice import InvoiceRead
 from app.schemas.oauth import DirectoryLookupRead
-from app.services import afnor_server_controller, audit_trace_service
+from app.services import audit_trace_service
 from sqlalchemy.orm import Session
 
 AFNOR_API_VERSION = "v2"
