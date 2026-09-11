@@ -132,6 +132,93 @@ def test_callback_reuses_existing_user_by_subject(client, db_session, monkeypatc
     assert len(users) == 1
 
 
+def test_callback_resyncs_name_and_email_on_subject_match(client, monkeypatch):
+    """name/email reflètent toujours la dernière connexion (source de vérité IdP,
+    cf. resolve_login_user) — un nom ou une adresse peut changer dans le temps pour
+    un même compte (mariage, changement de raison sociale...)."""
+    monkeypatch.setattr(settings, "oidc_mode", "entra_id")
+    monkeypatch.setattr(settings, "oidc_tenant_id", "tenant")
+    monkeypatch.setattr(settings, "oidc_client_id", "client-123")
+
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_access_token",
+        new=AsyncMock(
+            return_value={
+                "userinfo": {"sub": "same-sub", "email": "old@example.com", "name": "Ancien Nom"}
+            }
+        ),
+    ):
+        client.get("/api/ihm/auth/callback", params={"code": "c1", "state": "s1"}, follow_redirects=False)
+
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_access_token",
+        new=AsyncMock(
+            return_value={
+                "userinfo": {"sub": "same-sub", "email": "new@example.com", "name": "Nouveau Nom"}
+            }
+        ),
+    ):
+        client.get("/api/ihm/auth/callback", params={"code": "c2", "state": "s2"}, follow_redirects=False)
+
+    body = client.get("/api/ihm/auth/me").json()
+    assert body["user"]["email"] == "new@example.com"
+    assert body["user"]["name"] == "Nouveau Nom"
+
+
+def test_callback_email_conflict_redirects_to_login_error(client, db_session, monkeypatch):
+    """Resynchroniser l'email d'un compte déjà lié vers une valeur déjà prise par un
+    AUTRE compte doit être refusé (unicité de `email`), pas échouer silencieusement
+    ni écraser l'autre compte."""
+    monkeypatch.setattr(settings, "oidc_mode", "entra_id")
+    monkeypatch.setattr(settings, "oidc_tenant_id", "tenant")
+    monkeypatch.setattr(settings, "oidc_client_id", "client-123")
+    monkeypatch.setattr(settings, "frontend_base_url", "https://router.example.com")
+
+    # Amorce l'admin (premier compte).
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_access_token",
+        new=AsyncMock(
+            return_value={"userinfo": {"sub": "admin-sub", "email": "admin@example.com"}}
+        ),
+    ):
+        client.get("/api/ihm/auth/callback", params={"code": "c0", "state": "s0"}, follow_redirects=False)
+    client.post("/api/ihm/auth/logout")
+
+    # Ré-authentifie l'admin (même sub) et pré-provisionne un second compte dont
+    # l'email va entrer en conflit à la connexion suivante.
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_access_token",
+        new=AsyncMock(
+            return_value={"userinfo": {"sub": "admin-sub", "email": "admin@example.com"}}
+        ),
+    ):
+        client.get("/api/ihm/auth/callback", params={"code": "c1", "state": "s1"}, follow_redirects=False)
+    client.post("/api/ihm/users", json={"email": "taken@example.com"})
+    client.post("/api/ihm/auth/logout")
+
+    # L'admin se reconnecte (même sub) mais l'IdP retourne désormais l'email du
+    # second compte -> conflit, resynchronisation refusée.
+    with patch(
+        "authlib.integrations.starlette_client.StarletteOAuth2App.authorize_access_token",
+        new=AsyncMock(
+            return_value={"userinfo": {"sub": "admin-sub", "email": "taken@example.com"}}
+        ),
+    ):
+        response = client.get(
+            "/api/ihm/auth/callback",
+            params={"code": "c2", "state": "s2"},
+            follow_redirects=False,
+        )
+
+    assert response.headers["location"] == "https://router.example.com/login-error?reason=conflict"
+    assert "router_session" not in response.cookies
+
+    from app.models.referential import User
+
+    admin = db_session.query(User).filter(User.oidc_subject == "admin-sub").one()
+    assert admin.email == "admin@example.com"  # inchangé malgré la tentative de conflit
+
+
 def test_callback_oauth_error_returns_400(client, monkeypatch):
     monkeypatch.setattr(settings, "oidc_mode", "entra_id")
     monkeypatch.setattr(settings, "oidc_tenant_id", "tenant")
