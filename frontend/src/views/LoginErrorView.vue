@@ -11,6 +11,9 @@ const message = computed(() => {
   if (reason.value === 'inactive') {
     return 'Votre compte a été désactivé. Contactez un administrateur du routeur pour le réactiver.'
   }
+  if (reason.value === 'conflict') {
+    return "Votre adresse email a changé côté fournisseur d'identité, mais la nouvelle valeur est déjà utilisée par un autre compte du routeur. Contactez un administrateur pour résoudre ce conflit."
+  }
   return "Aucun compte n'est pré-provisionné pour votre adresse email. Contactez un administrateur du routeur pour qu'il crée votre accès."
 })
 </script>
