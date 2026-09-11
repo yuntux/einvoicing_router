@@ -222,7 +222,9 @@ Cette séparation **Invoice / LifecycleEvent / AfnorFlow / TechnicalLog** est à
 
 ### 7.1 Modèle de données (diagramme de classes UML)
 
-Reprend les entités décrites au § 6, avec leurs attributs principaux (non exhaustifs) et les cardinalités entre elles.
+Reprend les entités décrites au § 6, avec leurs attributs principaux (non exhaustifs) et les cardinalités entre elles. Pour rester lisible, le modèle est découpé en trois sous-diagrammes par domaine fonctionnel ; une classe déjà détaillée (attributs) dans un sous-diagramme n'est reprise sans attributs dans les suivants que pour porter ses relations avec les classes de ce sous-diagramme.
+
+#### 7.1.1 Référentiel, applications cibles et accès
 
 ```mermaid
 classDiagram
@@ -258,6 +260,44 @@ classDiagram
         +date start_date
         +date end_date
         +bool active
+    }
+    class User {
+        +int id
+        +string oidc_subject
+        +string email
+        +string name
+        +string role
+    }
+
+    Company "1" --> "0..*" OAuthApplication : possède
+    Company "0..1" --> "0..*" TargetApplication : rattache (méthode API)
+    Company "0..*" -- "0..*" User : périmètre d'accès
+
+    PartnerDirectory "1" --> "0..*" RoutingRule : émetteur ciblé par
+    TargetApplication "1" --> "0..*" RoutingRule : ciblée par
+```
+
+#### 7.1.2 Facture, routage effectif et cycle de vie
+
+```mermaid
+classDiagram
+    class Company {
+        +int id
+        +string siren
+        +string name
+    }
+    class PartnerDirectory {
+        +int id
+        +string siren
+        +string siret
+        +string name
+        +date first_seen_at
+    }
+    class TargetApplication {
+        +int id
+        +string name
+        +string routing_method
+        +json parameters
     }
     class Invoice {
         +int id
@@ -308,6 +348,37 @@ classDiagram
         +binary file_bin
         +json data_dict
     }
+
+    Company "1" --> "0..*" Invoice : reçoit
+    PartnerDirectory "0..1" --> "0..*" Invoice : émet
+    TargetApplication "1" --> "0..*" InvoiceRouting : reçoit
+
+    Invoice "1" --> "0..*" InvoiceRouting : routée vers
+    Invoice "1" --> "0..*" LifecycleEvent : historique
+    Invoice "1" --> "0..*" AfnorFlow : flux liés
+
+    LifecycleEvent "1" --> "0..*" LifecycleEventDetail : détails
+    LifecycleEvent "1" --> "0..*" LifecycleEventPayment : paiements
+    LifecycleEvent "1" --> "0..*" LifecycleEventAttachment : pièces jointes
+    LifecycleEvent "0..1" --> "0..1" AfnorFlow : généré via
+```
+
+#### 7.1.3 Traçabilité, audit et alerting
+
+```mermaid
+classDiagram
+    class Company {
+        +int id
+        +string siren
+        +string name
+    }
+    class User {
+        +int id
+        +string oidc_subject
+        +string email
+        +string name
+        +string role
+    }
     class FlowTrace {
         +int id
         +string correlation_id
@@ -336,35 +407,9 @@ classDiagram
         +string ip_address
         +datetime created_at
     }
-    class User {
-        +int id
-        +string oidc_subject
-        +string email
-        +string name
-        +string role
-    }
 
-    Company "1" --> "0..*" Invoice : reçoit
-    Company "1" --> "0..*" OAuthApplication : possède
-    Company "0..1" --> "0..*" TargetApplication : rattache (méthode API)
     Company "1" --> "0..*" FlowTrace : concerne
-    Company "0..*" -- "0..*" User : périmètre d'accès
-
-    PartnerDirectory "1" --> "0..*" RoutingRule : émetteur ciblé par
-    PartnerDirectory "0..1" --> "0..*" Invoice : émet
-
-    TargetApplication "1" --> "0..*" RoutingRule : ciblée par
-    TargetApplication "1" --> "0..*" InvoiceRouting : reçoit
-
-    Invoice "1" --> "0..*" InvoiceRouting : routée vers
-    Invoice "1" --> "0..*" LifecycleEvent : historique
-    Invoice "1" --> "0..*" AfnorFlow : flux liés
-
-    LifecycleEvent "1" --> "0..*" LifecycleEventDetail : détails
-    LifecycleEvent "1" --> "0..*" LifecycleEventPayment : paiements
-    LifecycleEvent "1" --> "0..*" LifecycleEventAttachment : pièces jointes
-    LifecycleEvent "0..1" --> "0..1" AfnorFlow : généré via
-
+    Company "1" --> "0..*" TechnicalLog : concerne
     AuditLog "0..*" --> "1" User : auteur
 ```
 
