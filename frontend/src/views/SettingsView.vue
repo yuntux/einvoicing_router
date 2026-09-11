@@ -17,6 +17,8 @@ const smtpUsername = ref('')
 const smtpPassword = ref('')
 const smtpFromAddress = ref('')
 const smtpUseTls = ref(true)
+const ihmIpAllowlist = ref('')
+const afnorApiIpAllowlist = ref('')
 
 const contacts = ref<BillingManagerContact[]>([])
 const newContactEmail = ref('')
@@ -30,6 +32,8 @@ async function refreshSettings() {
   smtpUsername.value = settings.value.smtp_username ?? ''
   smtpFromAddress.value = settings.value.smtp_from_address ?? ''
   smtpUseTls.value = settings.value.smtp_use_tls
+  ihmIpAllowlist.value = settings.value.ihm_ip_allowlist ?? ''
+  afnorApiIpAllowlist.value = settings.value.afnor_api_ip_allowlist ?? ''
 }
 
 async function refreshContacts() {
@@ -46,6 +50,8 @@ async function submitSettings() {
       smtp_password: smtpPassword.value || null,
       smtp_from_address: smtpFromAddress.value || null,
       smtp_use_tls: smtpUseTls.value,
+      ihm_ip_allowlist: ihmIpAllowlist.value || null,
+      afnor_api_ip_allowlist: afnorApiIpAllowlist.value || null,
     })
     smtpPassword.value = ''
   } catch (e) {
@@ -98,6 +104,30 @@ onMounted(async () => {
         />
         <label><input v-model="smtpUseTls" type="checkbox" /> TLS</label>
         <button type="submit" data-testid="settings-submit-button">Enregistrer</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>Allowlist IP (§ NF6)</h2>
+      <p>Adresses ou CIDR IPv4/IPv6 séparés par des virgules. Vide = aucune restriction.</p>
+      <form @submit.prevent="submitSettings">
+        <label>
+          IHM
+          <input
+            v-model="ihmIpAllowlist"
+            placeholder="ex. 203.0.113.0/24, 2001:db8::1"
+            data-testid="ihm-ip-allowlist-input"
+          />
+        </label>
+        <label>
+          API AFNOR
+          <input
+            v-model="afnorApiIpAllowlist"
+            placeholder="ex. 203.0.113.0/24"
+            data-testid="afnor-api-ip-allowlist-input"
+          />
+        </label>
+        <button type="submit" data-testid="ip-allowlist-submit-button">Enregistrer</button>
       </form>
     </section>
 

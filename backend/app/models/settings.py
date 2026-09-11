@@ -1,6 +1,6 @@
 """Configuration générale du routeur (spec.md § 6.1, § 4.7, § 4.9.1)."""
 
-from sqlalchemy import Boolean, Integer, String
+from sqlalchemy import Boolean, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -24,6 +24,12 @@ class RouterSettings(Base):
     smtp_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     smtp_use_tls: Mapped[bool] = mapped_column(Boolean, default=True)
     smtp_from_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Allowlist IPv4/IPv6 (NF6, lot 7) — adresses ou CIDR séparés par des virgules,
+    # configurables séparément pour les deux surfaces exposées (§ 3) : `None`/vide =
+    # aucune restriction (comportement par défaut, dev/tests).
+    ihm_ip_allowlist: Mapped[str | None] = mapped_column(Text, nullable=True)
+    afnor_api_ip_allowlist: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class BillingManagerContact(Base):

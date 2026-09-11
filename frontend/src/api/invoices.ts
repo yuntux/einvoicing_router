@@ -64,19 +64,20 @@ export async function listInvoices(filters: InvoiceFilters = {}): Promise<Invoic
   for (const [key, value] of Object.entries(filters)) {
     if (value !== undefined && value !== '') params.set(key, String(value))
   }
-  const response = await fetch(`${API_BASE}/api/ihm/invoices?${params.toString()}`)
+  const response = await fetch(`${API_BASE}/api/ihm/invoices?${params.toString()}`, { credentials: 'include' })
   if (!response.ok) throw new Error(`Failed to list invoices: ${response.status}`)
   return response.json()
 }
 
 export async function getInvoice(id: number): Promise<InvoiceDetail> {
-  const response = await fetch(`${API_BASE}/api/ihm/invoices/${id}`)
+  const response = await fetch(`${API_BASE}/api/ihm/invoices/${id}`, { credentials: 'include' })
   if (!response.ok) throw new Error(`Failed to get invoice: ${response.status}`)
   return response.json()
 }
 
 export async function simulateInvoiceReception(payload: SimulateInvoicePayload): Promise<Invoice> {
   const response = await fetch(`${API_BASE}/api/ihm/invoices/simulate`, {
+    credentials: 'include',
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

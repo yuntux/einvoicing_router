@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.afnor.client.base import RawInvoice
 from app.afnor.client.fake import FakeSuperPDPClient
+from app.auth.perimeter import apply_company_scope, ensure_company_in_scope
+from app.auth.session import get_current_user
 from app.db.session import get_db
-from app.models.referential import Company, PartnerDirectory
+from app.models.referential import Company, PartnerDirectory, User
 from app.models.invoicing import Invoice
 from app.models.lifecycle import LifecycleEvent
 from app.schemas.invoice import InvoiceDetailRead, InvoiceRead, SimulateInvoiceReception
@@ -29,9 +31,11 @@ def list_invoices(
     invoice_date_from: date | None = None,
     invoice_date_to: date | None = None,
     db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
 ):
-    """Consultation des factures avec filtrage riche (§ 8.3)."""
-    query = db.query(Invoice)
+    """Consultation des factures avec filtrage riche (§ 8.3) — restreinte au périmètre
+    entreprises de l'utilisateur (§ NF4)."""
+    query = apply_company_scope(db.query(Invoice), user=user, company_id_column=Invoice.company_id)
     if company_id is not None:
         query = query.filter(Invoice.company_id == company_id)
     if emitter_siren is not None:
@@ -52,10 +56,13 @@ def list_invoices(
 
 
 @router.get("/{invoice_id}", response_model=InvoiceDetailRead)
-def get_invoice(invoice_id: int, db: Session = Depends(get_db)):
+def get_invoice(
+    invoice_id: int, db: Session = Depends(get_db), user: User | None = Depends(get_current_user)
+):
     invoice = db.get(Invoice, invoice_id)
     if invoice is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
+    ensure_company_in_scope(user, invoice.company_id)
 
     emitter_name = None
     if invoice.partner_directory_id is not None:
@@ -69,10 +76,13 @@ def get_invoice(invoice_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{invoice_id}/lifecycle-events", response_model=list[LifecycleEventRead])
-def list_lifecycle_events(invoice_id: int, db: Session = Depends(get_db)):
+def list_lifecycle_events(
+    invoice_id: int, db: Session = Depends(get_db), user: User | None = Depends(get_current_user)
+):
     invoice = db.get(Invoice, invoice_id)
     if invoice is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
+    ensure_company_in_scope(user, invoice.company_id)
     return (
         db.query(LifecycleEvent)
         .filter(LifecycleEvent.invoice_id == invoice_id)
@@ -83,13 +93,17 @@ def list_lifecycle_events(invoice_id: int, db: Session = Depends(get_db)):
 
 @router.post("/{invoice_id}/lifecycle-events", response_model=LifecycleEventRead, status_code=201)
 def create_lifecycle_event(
-    invoice_id: int, payload: CreateManualLifecycleEvent, db: Session = Depends(get_db)
+    invoice_id: int,
+    payload: CreateManualLifecycleEvent,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
 ):
     """Saisie manuelle d'un statut de cycle de vie (§ 4.2). Toujours côté achat : seule
     la fiche d'une facture reçue existe comme point d'entrée IHM (cf. LifecycleService)."""
     invoice = db.get(Invoice, invoice_id)
     if invoice is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
+    ensure_company_in_scope(user, invoice.company_id)
 
     try:
         return create_manual_event(
@@ -110,10 +124,13 @@ def create_lifecycle_event(
 
 @router.post("/simulate", response_model=InvoiceRead, status_code=201)
 def simulate_invoice_reception(
-    payload: SimulateInvoiceReception, db: Session = Depends(get_db)
+    payload: SimulateInvoiceReception,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
 ):
     """Simule la réception d'une facture (dev/tests) via le client AFNOR fake, en
     attendant le vrai polling SuperPDP (§ 4.1, lot 5/6)."""
+    ensure_company_in_scope(user, payload.company_id)
     company = db.get(Company, payload.company_id)
     if company is None:
         raise HTTPException(status_code=404, detail="Company not found")
