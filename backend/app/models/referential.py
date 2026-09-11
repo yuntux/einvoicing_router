@@ -133,7 +133,10 @@ company_users = Table(
 
 
 class User(Base):
-    """Utilisateur OIDC (spec.md § 6.1) — stub de dev, OIDC réel au lot 7."""
+    """Utilisateur OIDC (spec.md § 6.1/NF3/NF4). `role` ("admin" voit toutes les
+    entreprises, "user" est restreint à son périmètre) et `companies` (via
+    `company_users`) forment ensemble l'"AccessScope" du § 6.1 — pas de table dédiée,
+    ce couple suffit à représenter le périmètre de consultation d'un utilisateur."""
 
     __tablename__ = "users"
 

@@ -40,13 +40,13 @@ export interface CreateLifecycleEventPayload {
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
 export async function getLifecycleCatalog(): Promise<LifecycleCatalog> {
-  const response = await fetch(`${API_BASE}/api/ihm/lifecycle-catalog`)
+  const response = await fetch(`${API_BASE}/api/ihm/lifecycle-catalog`, { credentials: 'include' })
   if (!response.ok) throw new Error(`Failed to load lifecycle catalog: ${response.status}`)
   return response.json()
 }
 
 export async function listLifecycleEvents(invoiceId: number): Promise<LifecycleEvent[]> {
-  const response = await fetch(`${API_BASE}/api/ihm/invoices/${invoiceId}/lifecycle-events`)
+  const response = await fetch(`${API_BASE}/api/ihm/invoices/${invoiceId}/lifecycle-events`, { credentials: 'include' })
   if (!response.ok) throw new Error(`Failed to list lifecycle events: ${response.status}`)
   return response.json()
 }
@@ -56,6 +56,7 @@ export async function createLifecycleEvent(
   payload: CreateLifecycleEventPayload,
 ): Promise<LifecycleEvent> {
   const response = await fetch(`${API_BASE}/api/ihm/invoices/${invoiceId}/lifecycle-events`, {
+    credentials: 'include',
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

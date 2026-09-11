@@ -28,6 +28,15 @@ def _disable_scheduler(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _disable_ip_allowlist_middleware(monkeypatch):
+    """Le middleware d'allowlist IP (NF6, lot 7) interroge la base réelle
+    (`SessionLocal`) à chaque requête, hors du mécanisme de substitution `get_db`
+    propre aux routes FastAPI — désactivé par défaut dans les tests, qui l'exercent
+    directement (cf. test_ip_allowlist.py)."""
+    monkeypatch.setattr(settings, "ip_allowlist_enabled", False)
+
+
+@pytest.fixture(autouse=True)
 def _reset_afnor_client_adapter_session_cache():
     """`AfnorClientAdapter` (lot 6) est un singleton process-lifetime qui met en cache
     ses sessions pyfrctc par `company.id` — sans ce nettoyage, une session mise en

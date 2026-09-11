@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.auth.perimeter import apply_company_scope, ensure_company_in_scope
+from app.auth.session import get_current_user
 from app.db.session import get_db
-from app.models.invoicing import InvoiceRouting, TransferStatus
+from app.models.invoicing import Invoice, InvoiceRouting, TransferStatus
+from app.models.referential import User
 from app.schemas.invoice_routing import (
     FailedInvoiceRoutingRead,
     ReplayRoutingResult,
@@ -18,13 +21,16 @@ FAILURE_STATUSES = (TransferStatus.RETRYING, TransferStatus.FAILED_FINAL)
 
 
 @router.get("/failed", response_model=list[FailedInvoiceRoutingRead])
-def list_failed_routings(db: Session = Depends(get_db)):
-    rows = (
+def list_failed_routings(
+    db: Session = Depends(get_db), user: User | None = Depends(get_current_user)
+):
+    query = (
         db.query(InvoiceRouting)
+        .join(Invoice, InvoiceRouting.invoice_id == Invoice.id)
         .filter(InvoiceRouting.transfer_status.in_(FAILURE_STATUSES))
-        .order_by(InvoiceRouting.id)
-        .all()
     )
+    query = apply_company_scope(query, user=user, company_id_column=Invoice.company_id)
+    rows = query.order_by(InvoiceRouting.id).all()
     return [
         FailedInvoiceRoutingRead(
             id=row.id,
@@ -42,12 +48,17 @@ def list_failed_routings(db: Session = Depends(get_db)):
 
 
 @router.post("/replay", response_model=list[ReplayRoutingResult])
-def replay_routings(payload: ReplayRoutingsRequest, db: Session = Depends(get_db)):
+def replay_routings(
+    payload: ReplayRoutingsRequest,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
     results = []
     for routing_id in payload.routing_ids:
         routing = db.get(InvoiceRouting, routing_id)
         if routing is None:
             raise HTTPException(status_code=404, detail=f"InvoiceRouting {routing_id} not found")
+        ensure_company_in_scope(user, routing.invoice.company_id)
         success = retry_scheduler_service.replay_manual(db, routing=routing)
         results.append(ReplayRoutingResult(routing_id=routing_id, success=success))
     return results

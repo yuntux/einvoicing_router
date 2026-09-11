@@ -5,6 +5,8 @@ export interface RouterSettings {
   smtp_username: string | null
   smtp_use_tls: boolean
   smtp_from_address: string | null
+  ihm_ip_allowlist: string | null
+  afnor_api_ip_allowlist: string | null
 }
 
 export interface RouterSettingsUpdate {
@@ -15,6 +17,8 @@ export interface RouterSettingsUpdate {
   smtp_password?: string | null
   smtp_use_tls?: boolean | null
   smtp_from_address?: string | null
+  ihm_ip_allowlist?: string | null
+  afnor_api_ip_allowlist?: string | null
 }
 
 export interface BillingManagerContact {
@@ -25,7 +29,7 @@ export interface BillingManagerContact {
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
 
 export async function getRouterSettings(): Promise<RouterSettings> {
-  const response = await fetch(`${API_BASE}/api/ihm/settings`)
+  const response = await fetch(`${API_BASE}/api/ihm/settings`, { credentials: 'include' })
   if (!response.ok) throw new Error(`Failed to get router settings: ${response.status}`)
   return response.json()
 }
@@ -34,6 +38,7 @@ export async function updateRouterSettings(
   payload: RouterSettingsUpdate,
 ): Promise<RouterSettings> {
   const response = await fetch(`${API_BASE}/api/ihm/settings`, {
+    credentials: 'include',
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -43,13 +48,14 @@ export async function updateRouterSettings(
 }
 
 export async function listBillingManagerContacts(): Promise<BillingManagerContact[]> {
-  const response = await fetch(`${API_BASE}/api/ihm/settings/billing-manager-contacts`)
+  const response = await fetch(`${API_BASE}/api/ihm/settings/billing-manager-contacts`, { credentials: 'include' })
   if (!response.ok) throw new Error(`Failed to list billing manager contacts: ${response.status}`)
   return response.json()
 }
 
 export async function createBillingManagerContact(email: string): Promise<BillingManagerContact> {
   const response = await fetch(`${API_BASE}/api/ihm/settings/billing-manager-contacts`, {
+    credentials: 'include',
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
@@ -60,6 +66,7 @@ export async function createBillingManagerContact(email: string): Promise<Billin
 
 export async function deleteBillingManagerContact(id: number): Promise<void> {
   const response = await fetch(`${API_BASE}/api/ihm/settings/billing-manager-contacts/${id}`, {
+    credentials: 'include',
     method: 'DELETE',
   })
   if (!response.ok) throw new Error(`Failed to delete billing manager contact: ${response.status}`)

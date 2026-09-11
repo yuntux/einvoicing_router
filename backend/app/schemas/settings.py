@@ -10,6 +10,8 @@ class RouterSettingsRead(BaseModel):
     smtp_username: str | None
     smtp_use_tls: bool
     smtp_from_address: str | None
+    ihm_ip_allowlist: str | None
+    afnor_api_ip_allowlist: str | None
 
 
 class RouterSettingsUpdate(BaseModel):
@@ -20,6 +22,8 @@ class RouterSettingsUpdate(BaseModel):
     smtp_password: str | None = None
     smtp_use_tls: bool | None = None
     smtp_from_address: str | None = None
+    ihm_ip_allowlist: str | None = None
+    afnor_api_ip_allowlist: str | None = None
 
 
 class BillingManagerContactCreate(BaseModel):
