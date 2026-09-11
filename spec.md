@@ -268,7 +268,9 @@ Cette méthode couvre le cas Odoo (§ 4.4) et tout futur consommateur de l'API A
 - **TargetApplication** (application cible) : nom, méthode de routage (enum extensible), entreprise gérée de rattachement (pour la méthode API AFNOR), paramètres (JSON typé selon la méthode — cf. § 4.9.1/4.9.2).
 - **OAuthApplication** (jeton d'accès par entreprise, cf. § 4.10) : entreprise gérée, `client_id`/`client_secret` (ou token), type d'application (confidentielle/publique), **portée** (`Router→SuperPDP` ou `Odoo/consommateur→Router`), URLs de redirection, format préféré de conversion AFNOR, **version d'API AFNOR cible** (pour la portée `Router→SuperPDP` : permet la bascule progressive par entreprise décrite au § 4.8).
 - **RoutingRule** : **classe d'association** entre `PartnerDirectory` (émetteur) et `TargetApplication` (application cible), porteuse de la période de validité du routage (date début, date fin — nullable = sans fin) et d'un indicateur actif/inactif. C'est parce que cette période de validité n'a de sens que pour un couple (émetteur, application cible) donné que la relation ne peut pas être une simple association N-N sans attributs : elle doit être portée par une entité propre (cf. § 7.1.1, où mermaid ne disposant pas de la notation UML stricte de classe d'association, `RoutingRule` est représentée comme une classe reliée par deux associations dirigées).
-- **Invoice** (facture **reçue** uniquement — les factures émises ne sont pas indexées ici, cf. § 4.1) : identifiant, entreprise réceptrice, émetteur (SIREN/SIRET), statut cycle de vie courant, chemin fichier, `superpdp_flow_id` (identifiant du flux côté SuperPDP), horodatages SuperPDP (dépôt, dernière mise à jour) en plus de la date de réception côté routeur, métadonnées AFNOR complètes (JSON brut, pour l'audit intégral au-delà des champs structurés), version d'API AFNOR d'origine. Le SIREN/SIRET de l'émetteur est toujours présent (porté par les métadonnées AFNOR de la facture), mais le **lien vers l'entrée `PartnerDirectory` correspondante peut être absent** (cardinalité `0..1` au § 7.1.2) si cet émetteur n'a encore jamais été vu par le routeur — l'entrée d'annuaire est alors créée a posteriori (typiquement lors d'une consultation d'annuaire par Odoo, § 4.4). Une facture dont l'émetteur n'a pas d'entrée `PartnerDirectory` ne peut mécaniquement correspondre à aucune `RoutingRule` : c'est l'un des cas concrets couverts par l'alerte "facture sans règle de routage active" du § 4.7.
+- **Invoice** (facture **reçue** uniquement — les factures émises ne sont pas indexées ici, cf. § 4.1) : identifiant, entreprise réceptrice, émetteur (SIREN/SIRET — brut, indépendant du lien optionnel vers `PartnerDirectory`, cf. ci-dessous), statut cycle de vie courant, chemin fichier, `superpdp_flow_id` (identifiant du flux côté SuperPDP), horodatages SuperPDP (dépôt, dernière mise à jour) en plus de la date de réception côté routeur, métadonnées AFNOR complètes (JSON brut, pour l'audit intégral au-delà des champs structurés), version d'API AFNOR d'origine. Le SIREN/SIRET de l'émetteur est toujours présent (porté par les métadonnées AFNOR de la facture elle-même — ce n'est pas une donnée dupliquée depuis `PartnerDirectory`), mais le **lien vers l'entrée `PartnerDirectory` correspondante peut être absent** (cardinalité `0..1` au § 7.1.2) si cet émetteur n'a encore jamais été vu par le routeur — l'entrée d'annuaire est alors créée a posteriori (typiquement lors d'une consultation d'annuaire par Odoo, § 4.4). Une facture dont l'émetteur n'a pas d'entrée `PartnerDirectory` ne peut mécaniquement correspondre à aucune `RoutingRule` : c'est l'un des cas concrets couverts par l'alerte "facture sans règle de routage active" du § 4.7.
+  - **Attributs additionnels pour le filtrage/recherche dans l'IHM** : `invoice_number` (numéro de facture), `invoice_date` (date d'émission par l'émetteur, distincte de `received_at`/`superpdp_submitted_at`), `due_date` (date d'échéance, si présente), `invoice_type` (facture / avoir), `amount_total`, `amount_excl_tax`, `currency`, `syntax` (Factur-X / UBL / CII), `processing_rule` (B2B / B2G / B2C / OutOfScope). **La raison sociale de l'émetteur n'est pas dénormalisée sur `Invoice`** : elle s'obtient par jointure sur `PartnerDirectory` (absente/`NULL` si l'émetteur n'a pas encore d'entrée d'annuaire) — de même, le **statut de routage par cible** reste obtenu par jointure sur `InvoiceRouting`, jamais dupliqué sur `Invoice`.
+  - **Téléchargement du fichier** : l'IHM permet de télécharger le fichier de la facture (§ 4.2/§ 8.3). Chaque téléchargement génère une entrée dans `AuditLog` (action de type téléchargement, utilisateur, horodatage, cible = la facture). La **date et l'utilisateur du dernier téléchargement**, affichés sur la fiche facture, sont obtenus par **jointure** sur `AuditLog` (la ligne la plus récente de type téléchargement pour cette facture) — **aucune dénormalisation** de ces informations sur `Invoice`.
 - **InvoiceRouting** (table de routage effective par facture/cible) : facture, application cible, statut de transfert (à faire / envoyé / échec / en retry / échec définitif), nombre de tentatives, horodatage de la prochaine tentative (cf. § 4.7).
 - **BillingManagerContact** : adresse(s) email du/des "Gestionnaire(s) de facturation" (destinataires des alertes de routage sans cible et d'échec définitif d'envoi, cf. § 4.7), paramétrées **globalement** dans la configuration générale du routeur — les Gestionnaires de facturation ont une vue sur l'ensemble des factures, toutes entreprises gérées confondues, il n'y a donc pas lieu de distinguer ces adresses par entreprise.
 - **FlowTrace** (traçabilité NF1) : correlationID, sens (Odoo→Routeur, Routeur→SuperPDP, etc.), version d'API AFNOR utilisée, requête, réponse, horodatage, statut HTTP.
@@ -373,11 +375,22 @@ classDiagram
     }
     class Invoice {
         +int id
+        +string emitter_siren
+        +string emitter_siret
+        +string invoice_number
+        +date invoice_date
+        +date due_date
+        +string invoice_type
         +string lifecycle_status
         +string file_path
         +string superpdp_flow_id
         +datetime superpdp_submitted_at
         +datetime superpdp_updated_at
+        +decimal amount_total
+        +decimal amount_excl_tax
+        +string currency
+        +string syntax
+        +string processing_rule
         +json afnor_metadata
         +string afnor_api_version
         +datetime received_at
@@ -647,7 +660,8 @@ classDiagram
 
 - CRUD des règles de routage (SIREN, entreprise, application cible, période).
 - CRUD des applications cibles (méthode de routage + paramètres).
-- Consultation des factures et de leur statut de routage.
+- Consultation des factures et de leur statut de routage, avec **filtrage riche** (numéro, dates, montants, devise, syntaxe, règle de traitement, émetteur — via jointure `PartnerDirectory` — cf. § 6.1).
+- **Téléchargement du fichier** de la facture, avec traçabilité (chaque téléchargement génère une entrée `AuditLog` ; date/utilisateur du dernier téléchargement affichés par jointure sur `AuditLog`, cf. § 6.1).
 - Génération de messages de cycle de vie.
 - Gestion des accès (périmètre entreprises par utilisateur).
 
