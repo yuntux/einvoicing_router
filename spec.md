@@ -338,6 +338,7 @@ classDiagram
         +int id
         +string oidc_subject
         +string email
+        +string name
         +string role
     }
 
