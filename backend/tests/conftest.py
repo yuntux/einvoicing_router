@@ -6,9 +6,17 @@ from sqlalchemy import StaticPool, create_engine
 from sqlalchemy.orm import sessionmaker
 
 import app.models  # noqa: F401  (registers all ORM models on Base.metadata)
+from app.config import settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import create_app
+
+
+@pytest.fixture(autouse=True)
+def _tmp_invoice_storage(tmp_path, monkeypatch):
+    """Toutes les factures écrites par les tests vont dans un répertoire temporaire,
+    jamais dans le répertoire de stockage réel du projet."""
+    monkeypatch.setattr(settings, "invoice_storage_root", str(tmp_path))
 
 
 @pytest.fixture()

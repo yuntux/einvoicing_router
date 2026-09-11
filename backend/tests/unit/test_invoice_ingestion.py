@@ -1,0 +1,93 @@
+from datetime import date
+from pathlib import Path
+
+from app.afnor.client.base import RawInvoice
+from app.afnor.client.fake import FakeSuperPDPClient
+from app.models.referential import Company, PartnerDirectory, RoutingMethod, TargetApplication
+from app.services import routing_rule_service
+from app.services.invoice_ingestion_service import ingest_from_client
+
+
+def _make_company(db, siren="111111111"):
+    company = Company(siren=siren, name="Ma Société")
+    db.add(company)
+    db.commit()
+    db.refresh(company)
+    return company
+
+
+def _raw_invoice(**overrides):
+    defaults = dict(
+        superpdp_flow_id="flow-1",
+        emitter_siren="222222222",
+        invoice_number="F-2026-001",
+        invoice_date=date(2026, 1, 15),
+        file_name="F-2026-001.pdf",
+        file_content=b"%PDF-fake-content",
+    )
+    defaults.update(overrides)
+    return RawInvoice(**defaults)
+
+
+def test_ingest_stores_file_and_creates_invoice(db_session, tmp_path):
+    company = _make_company(db_session)
+    client = FakeSuperPDPClient([_raw_invoice()])
+
+    result = ingest_from_client(db_session, company=company, client=client)
+
+    assert len(result.created) == 1
+    invoice = result.created[0]
+    assert invoice.emitter_siren == "222222222"
+    assert invoice.invoice_number == "F-2026-001"
+    assert invoice.superpdp_flow_id == "flow-1"
+    assert Path(invoice.file_path).exists()
+    assert Path(invoice.file_path).read_bytes() == b"%PDF-fake-content"
+
+
+def test_ingest_is_idempotent_on_flow_id(db_session):
+    company = _make_company(db_session)
+    client = FakeSuperPDPClient([_raw_invoice()])
+
+    first = ingest_from_client(db_session, company=company, client=client)
+    second = ingest_from_client(db_session, company=company, client=client)
+
+    assert len(first.created) == 1
+    assert len(second.created) == 0
+    assert len(second.updated) == 1
+    assert first.created[0].id == second.updated[0].id
+
+
+def test_ingest_flags_invoice_with_no_routing_rule(db_session):
+    company = _make_company(db_session)
+    client = FakeSuperPDPClient([_raw_invoice()])
+
+    result = ingest_from_client(db_session, company=company, client=client)
+
+    assert result.unrouted_invoice_ids == [result.created[0].id]
+    assert result.created[0].routings == []
+
+
+def test_ingest_creates_routing_when_rule_matches(db_session):
+    company = _make_company(db_session)
+
+    partner = PartnerDirectory(siren="222222222", name="Fournisseur")
+    db_session.add(partner)
+    target = TargetApplication(
+        name="Spendesk", routing_method=RoutingMethod.MAIL, parameters={"to": ["a@b.com"]}
+    )
+    db_session.add(target)
+    db_session.commit()
+    db_session.refresh(partner)
+    db_session.refresh(target)
+    routing_rule_service.create_rule(
+        db_session, partner_directory_id=partner.id, target_application_id=target.id
+    )
+
+    client = FakeSuperPDPClient([_raw_invoice()])
+    result = ingest_from_client(db_session, company=company, client=client)
+
+    assert result.unrouted_invoice_ids == []
+    invoice = result.created[0]
+    assert len(invoice.routings) == 1
+    assert invoice.routings[0].target_application_id == target.id
+    assert invoice.routings[0].transfer_status == "to_send"
