@@ -88,6 +88,13 @@ sudo -u router git clone https://github.com/<votre-fork>/einvoicing_router.git /
 sudo -u router mkdir -p /opt/einvoicing_router/data/invoices
 ```
 
+> **Si vous déployez plutôt sous le home d'un utilisateur existant** (ex. `ubuntu`) au lieu de créer `router` sous `/opt` comme ci-dessus : vérifiez que ce home reste traversable par l'utilisateur système de Caddy, faute de quoi `caddy` reçoit un **403** sur tous les fichiers du frontend (`dist/`), même si leurs permissions individuelles sont correctes — c'est le dossier parent qui bloque. Les home directories Ubuntu récents sont souvent en `750` (accessibles au seul propriétaire) :
+> ```bash
+> stat -c "%a %U:%G" /home/ubuntu
+> sudo -u caddy ls /home/ubuntu/einvoicing_router/frontend/dist   # doit lister les fichiers, pas "Permission denied"
+> sudo chmod o+x /home/ubuntu   # donne le droit de *traverser* le dossier, pas d'en lister le contenu
+> ```
+
 ### 3. Backend — environnement virtuel et dépendances
 
 ```bash
