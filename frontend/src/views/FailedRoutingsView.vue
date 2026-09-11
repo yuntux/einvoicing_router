@@ -17,6 +17,8 @@ async function refresh() {
   selected.value = new Set()
 }
 
+onMounted(refresh)
+
 function toggle(id: number) {
   if (selected.value.has(id)) {
     selected.value.delete(id)
