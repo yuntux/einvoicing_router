@@ -83,23 +83,6 @@
     z-index:20;
     pointer-events:none;
   }
-  .heading .eyebrow{
-    display:inline-block;
-    font-size:13px;
-    font-weight:700;
-    letter-spacing:0.14em;
-    text-transform:uppercase;
-    color:var(--ink-dim);
-    background:var(--surface-tint);
-    border:1px solid var(--border);
-    border-radius:999px;
-    padding:6px 16px;
-    margin-bottom:10px;
-    opacity:0;
-    transform:translateY(-6px);
-    transition:opacity .5s ease, transform .5s ease;
-  }
-  .heading .eyebrow.show{opacity:1; transform:translateY(0);}
   .heading h1{
     margin:0;
     font-family:'Manrope', 'Inter', system-ui, sans-serif;
@@ -229,7 +212,7 @@
   .pill.addr{color:var(--ink-dim);}
   .pill.proto-api{color:var(--primary); border-color:rgba(44,59,87,0.25); background:var(--surface-tint);}
   .pill.proto-mail{color:var(--warning); border-color:rgba(177,114,12,0.3); background:var(--warning-bg);}
-  .pill.ok{color:var(--success); border-color:rgba(30,138,95,0.3); background:var(--success-bg); font-weight:700;}
+  .pill.ok{color:var(--success); border-color:rgba(30,138,95,0.3); background:var(--success-bg); font-weight:700; font-size:16px; padding:10px 20px;}
 
   .invoice{
     position:absolute;
@@ -296,9 +279,9 @@
   @keyframes draw{ to{ stroke-dashoffset:0; } }
   path.wire.chaos{stroke:var(--accent);}
   path.wire.chaos.show{opacity:.5;}
-  path.wire.api{stroke:url(#gradApi);}
   path.wire.mail{stroke:var(--warning); stroke-dasharray:8 8 !important; animation:none !important; stroke-dashoffset:0 !important;}
   path.wire.mail.show{opacity:.85;}
+  path.wire.mail.odoo{stroke:#2c3b57;}
   path.wire.trunk{stroke:url(#gradApi);}
   #arrowHead path{fill:var(--accent-dark);}
 
@@ -338,26 +321,26 @@
     transition:opacity .5s ease, transform .5s ease;
     display:flex;
     align-items:center;
-    gap:8px;
+    gap:10px;
     background:var(--surface);
     border:1px solid var(--border);
     border-radius:999px;
-    padding:9px 16px 9px 10px;
-    font-size:12.5px;
+    padding:13px 22px 13px 14px;
+    font-size:15px;
     font-weight:600;
     color:var(--ink);
-    box-shadow:0 8px 18px rgba(44,59,87,0.10);
-    max-width:270px;
+    box-shadow:0 10px 22px rgba(44,59,87,0.12);
+    max-width:340px;
   }
   .benefit.show{opacity:1; transform:translateY(0);}
   .benefit .check{
     flex:0 0 auto;
-    width:20px;height:20px;
+    width:24px;height:24px;
     border-radius:50%;
     background:var(--success);
     display:flex;align-items:center;justify-content:center;
   }
-  .benefit .check svg{width:12px;height:12px;stroke:#fff;stroke-width:3;fill:none;}
+  .benefit .check svg{width:14px;height:14px;stroke:#fff;stroke-width:3;fill:none;}
 </style>
 </head>
 <body>
@@ -368,7 +351,6 @@
 
   <div class="frame">
     <div class="heading">
-      <span class="eyebrow" id="eyebrow">einvoicing router</span>
       <h1 id="headline">&nbsp;</h1>
     </div>
 
@@ -391,7 +373,7 @@
 
         <!-- Stage 2: trunk + branches through the router -->
         <path id="wireTrunk" class="wire trunk" d="M800,270 L800,355" marker-end="url(#arrowHead)"/>
-        <path id="wireApiOdoo" class="wire api" d="M800,540 C 800,570 800,590 800,608" marker-end="url(#arrowHead)"/>
+        <path id="wireApiOdoo" class="wire mail odoo" d="M800,540 C 800,570 800,590 800,608"/>
         <path id="wireMailSpendesk" class="wire mail" d="M800,540 C 620,580 430,595 330,608"/>
         <path id="wireMailComptable" class="wire mail" d="M800,540 C 980,580 1170,595 1270,608"/>
       </svg>
@@ -484,21 +466,17 @@
       </div>
 
       <!-- single official address (final state) -->
-      <div class="pill ok" id="finalAddress" style="left:50%; top:35%;">Une seule adresse publiée : SIREN_ROUTEUR@annuaire</div>
+      <div class="pill ok" id="finalAddress" style="left:50%; top:35%;">Une seule adresse publiée : SIREN@annuaire</div>
     </div>
 
     <div class="benefits" id="benefits">
-      <div class="benefit" id="benefit1">
-        <span class="check"><svg viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></svg></span>
-        Une seule adresse dans l'annuaire public
-      </div>
       <div class="benefit" id="benefit2">
         <span class="check"><svg viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></svg></span>
         Plus aucun risque d'erreur côté fournisseur
       </div>
       <div class="benefit" id="benefit3">
         <span class="check"><svg viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></svg></span>
-        La répartition des flux évolue sans jamais prévenir vos fournisseurs
+        Évolution de la répartition interne des factures sans impacter vos fournisseurs
       </div>
     </div>
   </div>
@@ -512,7 +490,6 @@
   const draw = (el) => { el.classList.remove('draw'); el.classList.add('show'); void el.offsetWidth; el.classList.add('draw'); };
 
   const headline = $('headline');
-  const eyebrow = $('eyebrow');
   function setHeadline(html){
     headline.style.opacity = 0;
     setTimeout(() => { headline.innerHTML = html; headline.style.transition='opacity .4s ease'; headline.style.opacity = 1; }, 220);
@@ -524,7 +501,6 @@
     $('routerCard').classList.remove('glow');
     const inv = $('invoiceCard');
     inv.style.left = '38%'; inv.style.top = '23%';
-    eyebrow.classList.remove('show');
     headline.innerHTML = '&nbsp;';
   }
 
@@ -533,8 +509,7 @@
     await sleep(150);
 
     // Stage 0 — SuperPDP
-    show(eyebrow);
-    setHeadline('Vos outils de gestion parlent chacun <span class="grad">leur propre protocole</span>');
+    setHeadline('Toutes vos factures ne sont pas <span class="grad">traitées dans le même outil</span> ?');
     show($('nodeSuperpdp'));
     await sleep(900);
 
@@ -593,20 +568,11 @@
     $('protoComptable').querySelectorAll('.proto-icon, .pill').forEach(show);
     await sleep(1200);
 
-    show($('benefit1')); await sleep(450);
     show($('benefit2')); await sleep(450);
     show($('benefit3')); await sleep(600);
-
-    await sleep(2600);
   }
 
-  async function loopForever(){
-    while(true){
-      await runStages();
-    }
-  }
-
-  loopForever();
+  runStages();
 })();
 </script>
 </body>
