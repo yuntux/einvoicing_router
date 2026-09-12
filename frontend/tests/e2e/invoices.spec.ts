@@ -30,6 +30,7 @@ test('simulates an invoice reception and sees it routed', async ({ page }) => {
     .locator('[data-testid^="routing-rule-row-"]', { hasText: `Fournisseur ${unique}` })
     .filter({ hasText: `Comptable ${unique}` })
   await expect(rrow).toBeVisible()
+  await rrow.locator('input[type="date"]').first().fill('2026-01-01')
   await rrow.getByRole('button', { name: 'Enregistrer' }).click()
   await expect(page.getByTestId('routing-rules-list')).toContainText(`Fournisseur ${unique}`)
 

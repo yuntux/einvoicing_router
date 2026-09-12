@@ -39,10 +39,39 @@ function initEdits() {
   }
 }
 
+function isRuleValidToday(rule: RoutingRule): boolean {
+  const today = new Date().toISOString().slice(0, 10)
+  if (!rule.active) return false
+  if (rule.start_date > today) return false
+  if (rule.end_date && rule.end_date < today) return false
+  return true
+}
+
+function partnerHasValidRule(partnerId: number): boolean {
+  return rules.value.some((r) => r.partner_directory_id === partnerId && isRuleValidToday(r))
+}
+
 const rows = computed(() =>
-  partners.value.flatMap((partner) =>
-    targetApplications.value.map((target) => ({ partner, target })),
-  ),
+  partners.value
+    .flatMap((partner) =>
+      targetApplications.value.map((target) => {
+        const rule = rules.value.find(
+          (r) => r.partner_directory_id === partner.id && r.target_application_id === target.id,
+        )
+        return { partner, target, rule }
+      }),
+    )
+    .sort((a, b) => {
+      const aHasNoRule = partnerHasValidRule(a.partner.id) ? 1 : 0
+      const bHasNoRule = partnerHasValidRule(b.partner.id) ? 1 : 0
+      if (aHasNoRule !== bHasNoRule) return aHasNoRule - bHasNoRule
+      if (a.partner.siren !== b.partner.siren) return a.partner.siren < b.partner.siren ? -1 : 1
+      if (a.target.name !== b.target.name) return a.target.name < b.target.name ? -1 : 1
+      const aStart = a.rule?.start_date ?? ''
+      const bStart = b.rule?.start_date ?? ''
+      if (aStart !== bStart) return aStart < bStart ? -1 : 1
+      return 0
+    }),
 )
 
 function recipientLabel(target: TargetApplication): string {
@@ -76,9 +105,13 @@ async function submitPartner() {
 async function saveCell(partnerId: number, targetId: number) {
   error.value = ''
   const cell = edits[cellKey(partnerId, targetId)]
+  if (!cell.start_date) {
+    error.value = 'La date de début est requise.'
+    return
+  }
   try {
     await upsertRoutingRule(partnerId, targetId, {
-      start_date: cell.start_date || null,
+      start_date: cell.start_date,
       end_date: cell.end_date || null,
     })
     await refresh()
@@ -109,7 +142,7 @@ onMounted(refresh)
     <p v-if="error" role="alert">{{ error }}</p>
 
     <section class="card">
-      <h2>Règles existantes</h2>
+      <h2>Règles de routage</h2>
       <table data-testid="routing-rules-list">
         <thead>
           <tr>
@@ -125,6 +158,7 @@ onMounted(refresh)
           <tr
             v-for="row in rows"
             :key="cellKey(row.partner.id, row.target.id)"
+            :class="{ 'row-danger': !partnerHasValidRule(row.partner.id) }"
             :data-testid="`routing-rule-row-${row.partner.id}-${row.target.id}`"
           >
             <td>{{ row.partner.siren }} — {{ row.partner.name }}</td>

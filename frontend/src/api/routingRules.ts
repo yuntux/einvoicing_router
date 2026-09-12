@@ -2,7 +2,7 @@ export interface RoutingRule {
   id: number
   partner_directory_id: number
   target_application_id: number
-  start_date: string | null
+  start_date: string
   end_date: string | null
   active: boolean
 }
@@ -10,7 +10,7 @@ export interface RoutingRule {
 export interface RoutingRuleCreate {
   partner_directory_id: number
   target_application_id: number
-  start_date?: string | null
+  start_date: string
   end_date?: string | null
   active?: boolean
 }
@@ -37,7 +37,7 @@ export async function createRoutingRule(payload: RoutingRuleCreate): Promise<Rou
 export async function upsertRoutingRule(
   partnerDirectoryId: number,
   targetApplicationId: number,
-  payload: { start_date: string | null; end_date: string | null },
+  payload: { start_date: string; end_date: string | null },
 ): Promise<RoutingRule> {
   const response = await fetch(
     `${API_BASE}/api/ihm/routing-rules/${partnerDirectoryId}/${targetApplicationId}`,

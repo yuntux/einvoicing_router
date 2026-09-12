@@ -85,18 +85,12 @@ class TargetApplicationCreated(TargetApplicationRead):
 
 
 class RoutingRuleDatesMixin(BaseModel):
-    start_date: date | None = None
+    start_date: date
     end_date: date | None = None
 
     @model_validator(mode="after")
     def _validate_dates(self):
-        if self.end_date is not None and self.start_date is None:
-            raise ValueError("end_date ne peut pas être renseignée sans start_date")
-        if (
-            self.start_date is not None
-            and self.end_date is not None
-            and self.end_date < self.start_date
-        ):
+        if self.end_date is not None and self.end_date < self.start_date:
             raise ValueError("end_date ne peut pas être antérieure à start_date")
         return self
 
@@ -119,6 +113,6 @@ class RoutingRuleRead(BaseModel):
     id: int
     partner_directory_id: int
     target_application_id: int
-    start_date: date | None
+    start_date: date
     end_date: date | None
     active: bool

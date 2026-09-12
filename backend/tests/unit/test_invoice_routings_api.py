@@ -35,7 +35,10 @@ def _make_failed_routing(db, *, status: TransferStatus, siren: str, flow_id: str
     db.commit()
     db.refresh(partner)
     routing_rule_service.create_rule(
-        db, partner_directory_id=partner.id, target_application_id=target.id
+        db,
+        partner_directory_id=partner.id,
+        target_application_id=target.id,
+        start_date=date(2026, 1, 1),
     )
 
     raw = RawInvoice(
@@ -132,7 +135,10 @@ def test_run_send_cycle_moves_to_send_routing_to_retrying(client, db_session):
     db_session.commit()
     db_session.refresh(partner)
     routing_rule_service.create_rule(
-        db_session, partner_directory_id=partner.id, target_application_id=target.id
+        db_session,
+        partner_directory_id=partner.id,
+        target_application_id=target.id,
+        start_date=date(2026, 1, 1),
     )
 
     raw = RawInvoice(
