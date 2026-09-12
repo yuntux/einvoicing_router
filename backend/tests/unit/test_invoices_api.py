@@ -146,6 +146,51 @@ def test_list_invoices_includes_routings_for_badges(client, db_session):
     assert row["routings"][0]["attempt_count"] == 2
 
 
+def test_list_invoices_includes_emitter_and_company_names(client, db_session):
+    """La colonne Émetteur/Destinataire de la liste (§ 8.3) a besoin de la raison
+    sociale de l'émetteur (PartnerDirectory) et de celle de l'entreprise réceptrice
+    (Company), pas seulement de leurs SIREN — jointures faites côté liste, jamais
+    dénormalisées sur Invoice."""
+    from datetime import date
+
+    from app.models.invoicing import Invoice
+    from app.models.referential import Company, PartnerDirectory
+
+    company = Company(siren=_valid_siren("38111111"), name="Tricatel")
+    db_session.add(company)
+    partner = PartnerDirectory(siren=_valid_siren("39111111"), name="Fournisseur Connu")
+    db_session.add(partner)
+    db_session.commit()
+    db_session.refresh(company)
+    db_session.refresh(partner)
+
+    invoice = Invoice(
+        company_id=company.id,
+        partner_directory_id=partner.id,
+        emitter_siren=partner.siren,
+        invoice_number="F-NAMES-1",
+        invoice_date=date(2026, 1, 1),
+        file_path="/tmp/names.pdf",
+        certified_platform_flow_id="flow-names-1",
+    )
+    db_session.add(invoice)
+    db_session.commit()
+
+    response = client.get("/api/ihm/invoices", params={"invoice_number": "F-NAMES-1"})
+    assert response.status_code == 200
+    [row] = response.json()
+    assert row["emitter_name"] == "Fournisseur Connu"
+    assert row["company_name"] == "Tricatel"
+    assert row["company_siren"] == company.siren
+
+    detail_response = client.get(f"/api/ihm/invoices/{row['id']}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["emitter_name"] == "Fournisseur Connu"
+    assert detail["company_name"] == "Tricatel"
+    assert detail["company_siren"] == company.siren
+
+
 def test_list_invoices_routings_empty_when_unrouted(client, db_session):
     """Aucune règle n'a résolu de cible pour cette facture : `routings` doit être
     vide (l'IHM en déduit le badge "Facture non routée")."""

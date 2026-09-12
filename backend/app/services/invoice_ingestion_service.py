@@ -7,7 +7,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.afnor.client.base import RawInvoice, CertifiedPlatformClientProtocol
-from app.models.referential import Company, PartnerDirectory
+from app.models.referential import Company, PartnerDirectory, TargetApplication
 from app.models.invoicing import Invoice, InvoiceRouting
 from app.services import directory_service, retry_scheduler_service, routing_rule_service
 from app.storage.filesystem import save_invoice_file
@@ -151,10 +151,26 @@ def reroute_unrouted_invoices_for_partner(
     pas attendre le prochain cycle de polling. Scopé à cette seule cible : une
     facture déjà routée vers une autre application n'est pas ignorée pour autant,
     seul le manque vis-à-vis de `target_application_id` est comblé.
+
+    `PartnerDirectory` n'est pas propre à une entreprise (un même fournisseur peut
+    être connu de plusieurs entreprises gérées, § 6.1) : sans le filtre explicite
+    sur `TargetApplication.company_id` ci-dessous, une facture reçue par une AUTRE
+    entreprise que celle de `target_application_id` serait routée à tort vers une
+    boîte mail/application qui n'est pas la sienne — exactement le bug corrigé ici
+    (symétrique du filtre déjà appliqué par `routing_rule_service.resolve` sur le
+    chemin d'ingestion normal, `_route_invoice` ci-dessus).
+
     Retourne le nombre de factures nouvellement routées."""
+    target_application = db.get(TargetApplication, target_application_id)
+    if target_application is None:
+        return 0
+
     candidates = (
         db.query(Invoice)
-        .filter(Invoice.partner_directory_id == partner_directory_id)
+        .filter(
+            Invoice.partner_directory_id == partner_directory_id,
+            Invoice.company_id == target_application.company_id,
+        )
         .all()
     )
     rerouted = 0

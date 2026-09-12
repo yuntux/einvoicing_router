@@ -13,6 +13,7 @@ from app.schemas.referential import (
     TargetApplicationRead,
     TargetApplicationStatusUpdate,
     TargetApplicationUpdate,
+    validate_target_application_parameters,
 )
 from app.services import audit_trace_service
 from app.services.url_validation import UnsafeWebhookUrlError, validate_webhook_url
@@ -120,6 +121,12 @@ def update_target_application(
     if target_application is None:
         raise HTTPException(status_code=404, detail="Target application not found")
     ensure_company_in_scope(user, target_application.company_id)
+    # `routing_method` est figé après création (jamais dans `TargetApplicationUpdate`, cf. sa
+    # docstring) — c'est donc l'objet existant, pas le payload, qui porte la méthode à valider ici.
+    try:
+        validate_target_application_parameters(target_application.routing_method, payload.parameters)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     actor_id = user.id if user else None
     target_application.name = payload.name

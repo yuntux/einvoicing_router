@@ -5,6 +5,7 @@ from datetime import date
 
 from app.afnor.client.base import RawInvoice
 from app.afnor.client.fake import FakeCertifiedPlatformClient
+from app.config import settings
 from app.models.audit import AuditLog
 from app.models.referential import Company
 from app.services.invoice_ingestion_service import ingest_from_client
@@ -63,6 +64,29 @@ def test_invoice_detail_shows_last_download_via_join(client, db_session):
 def test_download_missing_invoice_returns_404(client, db_session):
     response = client.get("/api/ihm/invoices/999999/download")
     assert response.status_code == 404
+
+
+def test_last_download_shows_user_name_not_email(client, db_session, monkeypatch):
+    """§ 8.3 : la colonne "Dernier téléchargement" doit afficher le nom de
+    l'utilisateur, pas son email — en liste comme en détail."""
+    monkeypatch.setattr(settings, "oidc_mode", "dev")
+    client.get(
+        "/api/ihm/auth/login",
+        params={"email": "admin@example.com", "name": "Alice Admin"},
+        follow_redirects=False,
+    )
+
+    company_id = _make_company(client)
+    company = db_session.get(Company, company_id)
+    invoice = _make_invoice(db_session, company)
+
+    client.get(f"/api/ihm/invoices/{invoice.id}/download")
+
+    detail = client.get(f"/api/ihm/invoices/{invoice.id}").json()
+    assert detail["last_download_by"] == "Alice Admin"
+
+    [row] = client.get("/api/ihm/invoices", params={"invoice_number": invoice.invoice_number}).json()
+    assert row["last_download_by"] == "Alice Admin"
 
 
 def test_download_records_ip_address(client, db_session):

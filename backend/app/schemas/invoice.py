@@ -57,10 +57,16 @@ class InvoiceRead(BaseModel):
     # des factures pour afficher un badge par application de l'entreprise, sans
     # nécessiter un aller-retour par facture vers le détail.
     routings: list[InvoiceRoutingRead] = Field(default_factory=list)
+    # Raison sociale de l'émetteur (PartnerDirectory) et de l'entreprise réceptrice
+    # (Company) — obtenues par jointure, jamais dénormalisées sur Invoice (§ 6.1).
+    # Renseignées explicitement par les endpoints ci-dessous, pas par
+    # `from_attributes` automatique.
+    emitter_name: str | None = None
+    company_name: str | None = None
+    company_siren: str | None = None
 
 
 class InvoiceDetailRead(InvoiceRead):
-    emitter_name: str | None = None
     # Renseigné explicitement par l'endpoint (§ 6.2) — `has_file` dérivé, pas de
     # conversion `from_attributes` automatique possible pour ce sous-schéma.
     afnor_flows: list[AfnorFlowRead] = Field(default_factory=list)

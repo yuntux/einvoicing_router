@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { isReadOnly } from '../api/auth'
+import { afnorFlowDownloadUrl } from '../api/invoices'
 import {
   createLifecycleEvent,
   getLifecycleCatalog,
@@ -95,10 +96,16 @@ onMounted(async () => {
     </div>
 
     <div>
-      <h4>Historique</h4>
-      <ul class="entity-list" data-testid="lifecycle-events-list">
-        <li v-if="events.length === 0" class="entity-list-empty">Aucun événement de cycle de vie.</li>
-        <li v-for="ev in events" :key="ev.id">
+      <h4>Cycle de vie</h4>
+      <p class="entity-sub" style="margin: -4px 0 8px">
+        Chaque ligne fusionne le statut métier et son flux CDAR technique associé.
+      </p>
+      <ul v-if="events.length === 0" class="entity-list" data-testid="lifecycle-events-list">
+        <li class="entity-list-empty">Aucun événement de cycle de vie.</li>
+      </ul>
+      <ul v-else class="timeline" data-testid="lifecycle-events-list">
+        <li v-for="ev in events" :key="ev.id" class="timeline-item">
+          <span class="timeline-dot" :class="ev.direction === 'in' ? 'timeline-dot-in' : 'timeline-dot-out'"></span>
           <div>
             <span class="cluster">
               <StatusBadge :value="ev.status" />
@@ -109,9 +116,13 @@ onMounted(async () => {
               >
                 {{ ev.direction === 'in' ? 'Reçu de SuperPDP' : 'Saisi manuellement' }}
               </span>
-              <span v-if="ev.details.length && ev.details[0].reason" class="entity-sub">— {{ ev.details[0].reason }}</span>
-              <span v-if="ev.amount != null" class="entity-sub">{{ ev.amount }} {{ ev.currency }}</span>
+              <StatusBadge v-if="ev.afnor_flow" :value="ev.afnor_flow.state" />
             </span>
+            <p class="entity-sub" style="margin: 4px 0 0">
+              <template v-if="ev.details.length && ev.details[0].reason">Motif : {{ ev.details[0].reason }} — </template>
+              <template v-if="ev.amount != null">{{ ev.amount }} {{ ev.currency }} — </template>
+              {{ ev.event_datetime }}
+            </p>
             <div v-if="ev.payments.length" class="entity-sub">
               Paiements :
               <span v-for="payment in ev.payments" :key="payment.id">
@@ -128,6 +139,13 @@ onMounted(async () => {
                 {{ attachment.filename }}
               </a>
             </div>
+            <a
+              v-if="ev.afnor_flow?.has_file"
+              :href="afnorFlowDownloadUrl(invoiceId, ev.afnor_flow.id)"
+              :data-testid="`afnor-flow-download-${ev.afnor_flow.id}`"
+            >
+              Voir le CDAR {{ ev.direction === 'in' ? 'reçu' : 'transmis' }}
+            </a>
           </div>
         </li>
       </ul>

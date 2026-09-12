@@ -55,7 +55,8 @@ test('simulates an invoice reception and sees it routed', async ({ page }) => {
 
   await expect(page.getByTestId('invoice-detail')).toContainText(invoiceNumber)
   await expect(page.getByTestId('invoice-routings-list')).toContainText('to_send')
-  await expect(page.getByTestId('invoice-no-afnor-flow')).toBeVisible()
+  await expect(page.getByTestId('lifecycle-events-list')).toContainText('Aucun événement de cycle de vie.')
+  await page.getByTestId('invoice-detail-close').click()
 
   // Filtre par raison sociale émetteur (jointure PartnerDirectory).
   await page.getByTestId('filter-invoice-number').fill('')
