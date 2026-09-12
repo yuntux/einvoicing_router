@@ -12,9 +12,11 @@ def list_partners(db: Session) -> list[PartnerDirectory]:
 
 
 def create_partner(
-    db: Session, *, siren: str, name: str, siret: str | None = None
+    db: Session, *, siren: str, name: str, siret: str | None = None, actor_user_id: int | None = None
 ) -> PartnerDirectory:
-    partner = PartnerDirectory(siren=siren, siret=siret, name=name)
+    partner = PartnerDirectory(
+        siren=siren, siret=siret, name=name, create_user_id=actor_user_id, write_user_id=actor_user_id
+    )
     db.add(partner)
     db.commit()
     db.refresh(partner)

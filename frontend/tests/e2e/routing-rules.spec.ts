@@ -27,13 +27,15 @@ test('creates a mail target application and a routing rule for a new emitter', a
   await page.getByTestId('partner-name-input').fill(`Fournisseur ${unique}`)
   await page.getByTestId('partner-submit-button').click()
 
-  const row = page
-    .locator('[data-testid^="routing-rule-row-"]', { hasText: `Fournisseur ${unique}` })
-    .filter({ hasText: `Spendesk ${unique}` })
-  await expect(row).toBeVisible()
-  await row.locator('input[type="date"]').first().fill('2026-01-01')
-  await row.getByRole('button', { name: 'Enregistrer' }).click()
+  const table = page.getByTestId('routing-rules-list')
+  await expect(table).toContainText(`Fournisseur ${unique}`)
+  await expect(table).toContainText(`Spendesk ${unique}`)
 
-  await expect(page.getByTestId('routing-rules-list')).toContainText(`Fournisseur ${unique}`)
-  await expect(page.getByTestId('routing-rules-list')).toContainText(`Spendesk ${unique}`)
+  const columnIndex = await table
+    .locator('thead th')
+    .evaluateAll((ths, name) => ths.findIndex((th) => th.textContent?.includes(name)), `Spendesk ${unique}`)
+  const row = table.locator('tbody tr').filter({ hasText: `Fournisseur ${unique}` })
+  const checkbox = row.locator('td').nth(columnIndex).locator('input[type="checkbox"]')
+  await checkbox.check()
+  await expect(checkbox).toBeChecked()
 })

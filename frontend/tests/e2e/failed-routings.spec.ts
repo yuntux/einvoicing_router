@@ -23,13 +23,14 @@ test('forces a send cycle, sees a failed routing, and replays it manually', asyn
   await page.getByTestId('partner-siren-input').fill(unique)
   await page.getByTestId('partner-name-input').fill(`Fournisseur ${unique}`)
   await page.getByTestId('partner-submit-button').click()
-  const rrow = page
-    .locator('[data-testid^="routing-rule-row-"]', { hasText: `Fournisseur ${unique}` })
-    .filter({ hasText: `Comptable ${unique}` })
-  await expect(rrow).toBeVisible()
-  await rrow.locator('input[type="date"]').first().fill('2026-01-01')
-  await rrow.getByRole('button', { name: 'Enregistrer' }).click()
-  await expect(page.getByTestId('routing-rules-list')).toContainText(`Fournisseur ${unique}`)
+  const rulesTable = page.getByTestId('routing-rules-list')
+  await expect(rulesTable).toContainText(`Fournisseur ${unique}`)
+  await expect(rulesTable).toContainText(`Comptable ${unique}`)
+  const columnIndex = await rulesTable
+    .locator('thead th')
+    .evaluateAll((ths, name) => ths.findIndex((th) => th.textContent?.includes(name)), `Comptable ${unique}`)
+  const rrow = rulesTable.locator('tbody tr').filter({ hasText: `Fournisseur ${unique}` })
+  await rrow.locator('td').nth(columnIndex).locator('input[type="checkbox"]').check()
 
   await simulateInvoiceReception(page, {
     companySiren: unique,

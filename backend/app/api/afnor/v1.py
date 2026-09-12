@@ -6,7 +6,7 @@ celui-ci ni aux services qu'il appelle."""
 
 import uuid
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from app.afnor.client.adapter import afnor_client_adapter
@@ -16,7 +16,6 @@ from app.auth.oauth import get_current_oauth_application, issue_token_response
 from app.db.session import get_db
 from app.models.referential import Company, OAuthApplication
 from app.schemas.invoice import InvoiceRead
-from app.schemas.oauth import DirectoryLookupRead
 from app.services import audit_trace_service
 
 AFNOR_API_VERSION = "v1"
@@ -73,22 +72,32 @@ def list_invoices(
     return invoices
 
 
-@router.get("/directory/{siren}", response_model=DirectoryLookupRead)
+@router.get("/directory/{siren}")
 def lookup_directory(
     siren: str,
-    name: str | None = Query(default=None),
     oauth_app: OAuthApplication = Depends(get_current_oauth_application),
     db: Session = Depends(get_db),
 ):
-    result = afnor_server_controller.lookup_or_create_directory_entry(
-        db, oauth_app=oauth_app, siren=siren, name=name
-    )
+    """Proxy transparent de consultation d'annuaire (§ 4.4) : la réponse de SuperPDP est
+    retransmise telle quelle à Odoo. Contrairement à l'ancien comportement, cette
+    consultation ne crée plus de `PartnerDirectory` ni de règle de routage implicite —
+    l'annuaire consulté par Odoo concerne ses propres clients, pas les fournisseurs dont
+    le routeur gère le routage (§ 4.3)."""
+    company = _company_for(db, oauth_app)
+
+    try:
+        result = afnor_client_adapter.lookup_directory_siren(
+            db, company=company, siren=siren, afnor_api_version=AFNOR_API_VERSION
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"SuperPDP unreachable: {exc}") from exc
+
     audit_trace_service.record_flow_trace(
         db,
         direction="odoo_to_router",
         afnor_api_version=AFNOR_API_VERSION,
         request={"endpoint": "GET /directory/{siren}", "siren": siren, "client_id": oauth_app.client_id},
-        response={"created": result.created},
+        response=result,
         http_status=200,
     )
     return result

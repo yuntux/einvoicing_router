@@ -1,7 +1,9 @@
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.mixins import AuditColumnsRead
 
-class RouterSettingsRead(BaseModel):
+
+class RouterSettingsRead(AuditColumnsRead):
     model_config = ConfigDict(from_attributes=True)
 
     technical_log_retention_days: int
@@ -30,7 +32,7 @@ class BillingManagerContactCreate(BaseModel):
     email: str = Field(min_length=3, max_length=255)
 
 
-class BillingManagerContactRead(BaseModel):
+class BillingManagerContactRead(AuditColumnsRead):
     model_config = ConfigDict(from_attributes=True)
 
     id: int

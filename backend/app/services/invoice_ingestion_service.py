@@ -2,6 +2,7 @@
 reçues (spec.md § 4.1, § 4.3)."""
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -31,11 +32,13 @@ def _upsert_invoice(db: Session, company: Company, raw: RawInvoice) -> tuple[Inv
     if existing is not None:
         return existing, False
 
+    received_at = datetime.utcnow()
     file_path = save_invoice_file(
         company_siren=company.siren,
         flow_id=raw.superpdp_flow_id,
         file_name=raw.file_name,
         content=raw.file_content,
+        received_at=received_at,
     )
 
     invoice = Invoice(
@@ -57,6 +60,7 @@ def _upsert_invoice(db: Session, company: Company, raw: RawInvoice) -> tuple[Inv
         processing_rule=raw.processing_rule,
         afnor_metadata=raw.raw_metadata,
         afnor_api_version=raw.afnor_api_version,
+        received_at=received_at,
     )
     db.add(invoice)
     db.commit()
@@ -72,7 +76,6 @@ def _route_invoice(db: Session, invoice: Invoice) -> bool:
     targets = routing_rule_service.resolve(
         db,
         siren=invoice.emitter_siren,
-        reference_date=invoice.invoice_date,
         company_id=invoice.company_id,
     )
     existing_target_ids = {r.target_application_id for r in invoice.routings}

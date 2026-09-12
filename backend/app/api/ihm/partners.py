@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
+from app.auth.session import get_current_user
 from app.db.session import get_db
+from app.models.referential import User
 from app.schemas.referential import PartnerDirectoryCreate, PartnerDirectoryRead
-from app.services import directory_service
+from app.services import audit_trace_service, directory_service
 
 router = APIRouter()
 
@@ -14,7 +16,24 @@ def list_partners(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=PartnerDirectoryRead, status_code=201)
-def create_partner(payload: PartnerDirectoryCreate, db: Session = Depends(get_db)):
-    return directory_service.create_partner(
-        db, siren=payload.siren, name=payload.name, siret=payload.siret
+def create_partner(
+    payload: PartnerDirectoryCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    partner = directory_service.create_partner(
+        db,
+        siren=payload.siren,
+        name=payload.name,
+        siret=payload.siret,
+        actor_user_id=user.id if user else None,
     )
+    audit_trace_service.record_audit_log(
+        db,
+        action="partner_create",
+        target=str(partner.id),
+        user_id=user.id if user else None,
+        ip_address=request.client.host if request.client else None,
+    )
+    return partner

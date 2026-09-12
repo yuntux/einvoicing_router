@@ -14,6 +14,7 @@ from app.config import settings
 from app.db.session import get_db
 from app.models.referential import User
 from app.schemas.auth import CurrentUserRead, CurrentUserStatus
+from app.services import audit_trace_service
 from app.services.user_service import (
     EmailConflictError,
     InactiveUserError,
@@ -95,6 +96,13 @@ async def login(
             return _login_error_redirect("inactive")
         except EmailConflictError:
             return _login_error_redirect("conflict")
+        audit_trace_service.record_audit_log(
+            db,
+            action="login",
+            target=str(user.id),
+            user_id=user.id,
+            ip_address=request.client.host if request.client else None,
+        )
         response = RedirectResponse(url=f"{settings.frontend_base_url}{next_path}")
         _set_session_cookie(response, user)
         return response
@@ -137,6 +145,13 @@ async def callback(request: Request, db: Session = Depends(get_db)):
     except EmailConflictError:
         return _login_error_redirect("conflict")
 
+    audit_trace_service.record_audit_log(
+        db,
+        action="login",
+        target=str(user.id),
+        user_id=user.id,
+        ip_address=request.client.host if request.client else None,
+    )
     next_path = _safe_next_path(request.session.pop("post_login_next", None))
     response = RedirectResponse(url=f"{settings.frontend_base_url}{next_path}")
     _set_session_cookie(response, user)
@@ -144,5 +159,18 @@ async def callback(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/logout", status_code=204)
-def logout(response: Response):
+def logout(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    if user is not None:
+        audit_trace_service.record_audit_log(
+            db,
+            action="logout",
+            target=str(user.id),
+            user_id=user.id,
+            ip_address=request.client.host if request.client else None,
+        )
     response.delete_cookie(settings.session_cookie_name)

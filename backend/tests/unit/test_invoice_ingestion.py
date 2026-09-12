@@ -82,11 +82,11 @@ def test_ingest_creates_routing_when_rule_matches(db_session):
     db_session.commit()
     db_session.refresh(partner)
     db_session.refresh(target)
-    routing_rule_service.create_rule(
+    routing_rule_service.set_rule_active(
         db_session,
         partner_directory_id=partner.id,
         target_application_id=target.id,
-        start_date=date(2026, 1, 1),
+        active=True,
     )
 
     client = FakeSuperPDPClient([_raw_invoice()])
@@ -115,11 +115,11 @@ def test_ingest_does_not_leak_invoice_to_other_company_afnor_target(db_session):
     db_session.commit()
     db_session.refresh(partner)
     db_session.refresh(target_a)
-    routing_rule_service.create_rule(
+    routing_rule_service.set_rule_active(
         db_session,
         partner_directory_id=partner.id,
         target_application_id=target_a.id,
-        start_date=date(2026, 1, 1),
+        active=True,
     )
 
     # Le même fournisseur envoie aussi une facture à l'entreprise B.

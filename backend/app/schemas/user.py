@@ -1,7 +1,9 @@
 from pydantic import BaseModel, Field
 
+from app.schemas.mixins import AuditColumnsRead
 
-class UserRead(BaseModel):
+
+class UserRead(AuditColumnsRead):
     id: int
     email: str
     name: str | None

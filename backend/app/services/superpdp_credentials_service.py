@@ -63,11 +63,14 @@ def set_credentials(
     client_id: str,
     client_secret: str,
     platform: str | None = None,
+    actor_user_id: int | None = None,
 ) -> OAuthApplication:
     """Enregistre (ou remplace) les identifiants fournis par SuperPDP pour cette
     entreprise. Le secret n'est jamais journalisé ni renvoyé en clair ensuite.
     `platform` : `None`/vide = plateforme par défaut du serveur (`settings.
-    superpdp_platform`), sinon une clé de `pyfrctc.pyfrctc.PLATFORMS` (§ 4.10)."""
+    superpdp_platform`), sinon une clé de `pyfrctc.pyfrctc.PLATFORMS` (§ 4.10).
+    `actor_user_id` : utilisateur à l'origine de l'appel (§ NF9), pour
+    `create_user_id`/`write_user_id` (`AuditColumnsMixin`)."""
     if platform and platform not in PLATFORMS:
         raise ValueError(f"Plateforme AFNOR inconnue : {platform!r}")
 
@@ -77,12 +80,14 @@ def set_credentials(
             company_id=company_id,
             app_type=OAuthAppType.CONFIDENTIAL,
             scope=OAuthScope.ROUTER_TO_SUPERPDP,
+            create_user_id=actor_user_id,
         )
         db.add(application)
 
     application.client_id = client_id
     application.client_secret_encrypted = encrypt_secret(client_secret)
     application.platform = platform or None
+    application.write_user_id = actor_user_id
     # Un changement d'identifiants invalide le jeton précédemment mis en cache.
     application.token_cache = None
     db.commit()
