@@ -251,7 +251,7 @@ script_segments = [
     {
         "id": "00_value_prop",
         "text": (
-            "Toutes vos factures ne sont pas traitées dans la même application de gestion ? Vous n'avez pas envie de multiplier les adresses de facturation électroniques déclarées dans l'annuaire public ?  einvoicing Router masque cette complexité une fois pour toutes : vis-à-vis de vos "
+            "Toutes vos factures ne sont pas traitées dans la même application de gestion ? Vous n'avez pas envie de multiplier les adresses de facturation électroniques déclarées dans l'annuaire public ?  einvoicing routeur masque cette complexité une fois pour toutes : vis-à-vis de vos "
             "fournisseurs, une seule adresse de facturation électronique par entreprise suffit, quel que "
             "soit le nombre d'applications en aval."
         ),
@@ -563,8 +563,15 @@ async def check_routing_cell(page, partner_text, target_name, reroute_existing=T
     await table.locator("thead th", has_text=target_name).first.wait_for(state="visible", timeout=8000)
     headers = table.locator("thead th")
     col_index = None
+    # `has_text` ci-dessus fait une comparaison insensible à la casse (piège découvert en testant
+    # ce script : les <th> de ce tableau sont rendus en CAPITALES par une règle CSS globale,
+    # `text-transform: uppercase` sur `th`, cf. frontend/src/style.css — Playwright `inner_text()`
+    # reflète le texte RENDU, donc une comparaison Python sensible à la casse comme
+    # `target_name in header_text` échoue toujours ici, alors que `has_text` juste au-dessus,
+    # insensible à la casse, avait bien trouvé la colonne).
+    target_lower = target_name.lower()
     for i in range(1, await headers.count()):
-        if target_name in (await headers.nth(i).inner_text()):
+        if target_lower in (await headers.nth(i).inner_text()).lower():
             col_index = i
             break
     if col_index is None:
@@ -707,7 +714,10 @@ async def capture(durations):
                 await page.wait_for_selector('[data-testid="ta-app-type-select"]', timeout=5000)
                 await page.locator('[data-testid="ta-company-select"]').select_option(label=company_name)
                 await click_with_cursor(page, page.locator('[data-testid="ta-submit-button"]'))
-                await page.wait_for_selector('[data-testid="ta-oauth-credentials"]', timeout=12000)
+                # 20s (plutôt que 12s) : marge pour l'enregistrement vidéo Playwright + la liste
+                # d'applications cibles désormais bien plus longue (seed_demo_data.py), qui
+                # ralentissent le rendu par rapport à une page vierge.
+                await page.wait_for_selector('[data-testid="ta-oauth-credentials"]', timeout=20000)
                 print("  ✅ Application cible AFNOR API créée (Odoo), identifiants affichés")
                 await asyncio.sleep(1.5)
             except Exception as e:
@@ -944,6 +954,7 @@ async def main():
     meta_path = BASE_DIR / "last_meta.json"
 
     if not assemble_only:
+        kill_stale_demo_services()
         demo_seed.reset_demo_database(db_path=DEMO_DB_PATH, invoice_storage_root=DEMO_INVOICE_STORAGE_ROOT)
         write_vite_proxy_config()
         for svc in APP_SETTINGS["services"]:

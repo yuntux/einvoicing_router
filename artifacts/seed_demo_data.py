@@ -148,13 +148,33 @@ def seed_demo_data(*, backend_url: str, admin_email: str, admin_name: str) -> No
         return resp.json() if resp.content else None
 
     # --- Connexion admin (amorce le compte si la base est vierge, § docstring) ---
+    # `allow_redirects=False` : on n'a besoin QUE du Set-Cookie porté par la redirection
+    # elle-même, pas de suivre vers `frontend_base_url` (qui ne tourne pas forcément dans
+    # cette exécution autonome, § docstring du module). Mais ne PAS vérifier le statut ici a
+    # déjà produit un faux succès silencieux en testant ce script : un login rejeté (ex. par le
+    # rate limiter `ihm_login`, § app/auth/rate_limit.py — atteint après plusieurs exécutions
+    # rapprochées pendant le débogage) répond par un statut d'erreur SANS Set-Cookie ; comme
+    # rien ne vérifiait ce statut, le message "✅ Connecté" s'affichait quand même, et tous les
+    # appels suivants échouaient ensuite en 401 sans explication. On vérifie donc explicitement
+    # via `/auth/me` que la session posée est bien authentifiée avant de continuer.
     try:
-        session.get(
+        login_resp = session.get(
             f"{backend_url}/api/ihm/auth/login",
             params={"email": admin_email, "name": admin_name},
             allow_redirects=False,
             timeout=15,
         )
+        me = session.get(f"{backend_url}/api/ihm/auth/me", timeout=15)
+        me.raise_for_status()
+        if not me.json().get("authenticated"):
+            print(
+                f"  ❌ Connexion admin refusée (statut login {login_resp.status_code}, "
+                f"pas de session authentifiée ensuite) — seed interrompu. Si le backend vient "
+                f"d'être relancé plusieurs fois de suite, le rate limiter 'ihm_login' "
+                f"(ROUTER_RATE_LIMIT_MAX_REQUESTS/WINDOW_SECONDS) peut être en cause : "
+                f"réessayer après quelques secondes."
+            )
+            return
         print(f"  ✅ Connecté en tant que {admin_name} ({admin_email})")
     except Exception as e:
         print(f"  ❌ Connexion admin échouée, seed interrompu : {e}")
