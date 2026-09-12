@@ -9,9 +9,11 @@ Ce script génère une vidéo de démonstration en combinant :
    absorbés par le routeur derrière une seule adresse de facturation par SIREN.
 3. Capture vidéo automatisée (Playwright) du parcours complet dans l'IHM réelle
    (Vue + Vite), contre un backend FastAPI de démonstration dédié, lancé avec
-   `ROUTER_OIDC_MODE=disabled` (§ NF3 — aucune authentification requise, comportement
-   déjà utilisé pour les tests/vérifications manuelles de ce projet) : pas de flux de
-   connexion à scripter.
+   `ROUTER_OIDC_MODE=dev` (§ NF3 — mode sans IdP réel, prévu justement pour ça) :
+   la capture se connecte via `GET /api/ihm/auth/login?email=...&name=...` (même
+   compte que celui utilisé pour le seed HTTP, § ci-dessous) avant toute navigation,
+   pour que la vidéo montre un admin réellement connecté (pied de sidebar, journal
+   d'audit attribué) plutôt qu'un accès anonyme.
 4. Montage automatique (MoviePy).
 
 Choix de voix testés à l'oreille :
@@ -28,14 +30,19 @@ Quota : edge-tts n'a pas de quota officiel publié (ce n'est pas un produit fact
 usage intensif/en rafale déconseillé (throttling possible). Notre usage (10 segments courts,
 générés ponctuellement) est très en dessous de tout seuil réaliste.
 
-Les données de démonstration (entreprise, applications cibles, règle de routage,
-facture) ne sont PAS pré-seedées séparément : elles sont créées EN DIRECT pendant la
-capture, via les vrais formulaires de l'IHM (ou, pour la réception de facture — qui en
-production ne peut venir que du polling SuperPDP, § 4.1 — via l'endpoint réservé aux
-tests `POST /api/test/invoices/simulate`, monté uniquement quand
-`certified_platform_client_mode == "fake"`, cf. `backend/app/api/testing/invoices.py`).
-La démo EST le seed : ce qui s'affiche à l'écran est le résultat réel des actions
-effectuées, pas un jeu de données injecté en base en amont.
+Avant la capture, `artifacts/seed_demo_data.py` (module séparé, importé ci-dessous)
+peuple la base de démo en masse via les vrais endpoints HTTP du backend (mêmes
+règles métier/validations qu'un usage réel, y compris la connexion admin — cf.
+docstring de ce module) : plusieurs entreprises/fournisseurs/factures/utilisateurs,
+pas seulement l'unique histoire scriptée ci-dessous, pour que chaque écran de l'IHM
+montre plusieurs lignes lors d'une navigation manuelle, pas seulement pendant la
+vidéo. La séquence scriptée de capture() (nouvelle société "Ma Société Demo",
+nouveau fournisseur "Fournisseur Demo", réception de facture via l'endpoint réservé
+aux tests `POST /api/test/invoices/simulate`, monté uniquement quand
+`certified_platform_client_mode == "fake"`, cf. `backend/app/api/testing/invoices.py`)
+s'ajoute ensuite par-dessus, sans collision ni dépendance à l'ordre : ce qui
+s'affiche à l'écran pendant la vidéo reste le résultat réel d'actions IHM
+effectuées, pas un jeu de données injecté directement en base.
 
 INSTALLATION DES DEPENDANCES :
 ------------------------------
@@ -78,6 +85,7 @@ import hashlib
 import json
 import math
 import socket
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 
@@ -118,6 +126,13 @@ DEMO_DB_PATH = DEMO_DB_DIR / "demo_router.db"
 # variable dédiée, les factures simulées pendant la démo (§ 04_invoices) s'écriraient dans les
 # données réelles. Isolée au même titre que ROUTER_DATABASE_URL ci-dessus.
 DEMO_INVOICE_STORAGE_ROOT = DEMO_DB_DIR / "invoices"
+# Identité admin unique utilisée à la fois pour le login HTTP du seed en masse
+# (artifacts/seed_demo_data.py) et pour la connexion Playwright de capture()
+# ci-dessous — même compte (`oidc_subject` = f"dev:{email}", § app/auth/oauth.py),
+# pour que la vidéo montre le même admin que celui qui apparaît déjà dans le journal
+# d'audit peuplé par le seed.
+DEMO_ADMIN_EMAIL = "alice.admin@example.com"
+DEMO_ADMIN_NAME = "Alice Administrateur"
 # DOIT être créé DANS frontend/ (pas dans artifacts/) : Vite résout les imports du fichier de
 # config (`@vitejs/plugin-vue`, `vite`) en remontant l'arborescence node_modules à partir de
 # l'EMPLACEMENT du fichier de config lui-même — artifacts/ et frontend/ sont des répertoires
@@ -159,13 +174,20 @@ APP_SETTINGS = {
                 # jetable en mode fixtures. ROUTER_CERTIFIED_PLATFORM_CLIENT_MODE=fake est aussi ce
                 # qui monte l'endpoint réservé aux tests /api/test/invoices/simulate (§ app/main.py).
                 f"cd {BACKEND_DIR} && "
-                f"ROUTER_OIDC_MODE=disabled ROUTER_DATABASE_URL=sqlite:///{DEMO_DB_PATH} "
+                f"ROUTER_OIDC_MODE=dev ROUTER_DATABASE_URL=sqlite:///{DEMO_DB_PATH} "
                 f"ROUTER_CERTIFIED_PLATFORM_CLIENT_MODE=fake "
                 f"ROUTER_INVOICE_STORAGE_ROOT={DEMO_INVOICE_STORAGE_ROOT} "
                 f".venv/bin/alembic upgrade head && "
-                f"ROUTER_OIDC_MODE=disabled ROUTER_DATABASE_URL=sqlite:///{DEMO_DB_PATH} "
+                # ROUTER_OIDC_MODE=dev (au lieu de disabled) : simule une connexion admin
+                # réelle (§ docstring du module) — sans identifiant IdP réel, juste un
+                # email/nom passés à /api/ihm/auth/login (cf. capture() et
+                # seed_demo_data.py). ROUTER_FRONTEND_BASE_URL doit pointer vers le
+                # frontend de démo (BASE_URL, pas le défaut :5173) : c'est là que
+                # `/api/ihm/auth/login` redirige une fois la session posée.
+                f"ROUTER_OIDC_MODE=dev ROUTER_DATABASE_URL=sqlite:///{DEMO_DB_PATH} "
                 f"ROUTER_CERTIFIED_PLATFORM_CLIENT_MODE=fake "
                 f"ROUTER_INVOICE_STORAGE_ROOT={DEMO_INVOICE_STORAGE_ROOT} "
+                f"ROUTER_FRONTEND_BASE_URL={BASE_URL} "
                 f".venv/bin/uvicorn app.main:app --host 127.0.0.1 --port {DEMO_BACKEND_PORT}",
             ],
             "cwd": BACKEND_DIR,
@@ -593,16 +615,29 @@ async def capture(durations):
         start_capture_time = time.time()
 
         try:
-            # --- 00. Proposition de valeur (recouvert par le schéma d'intro, cf. assemble()) ---
-            # Aucune connexion à scripter (ROUTER_OIDC_MODE=disabled, § NF3) : simple navigation.
+            # --- 00. Connexion + proposition de valeur (recouvertes par le schéma d'intro,
+            #     cf. assemble()) ---
+            # Connexion admin simulée (ROUTER_OIDC_MODE=dev, § NF3, DEMO_ADMIN_EMAIL/NAME
+            # ci-dessus — même compte que le seed HTTP de seed_demo_data.py) : navigue
+            # directement vers `/api/ihm/auth/login` au travers du proxy Vite de la démo
+            # (`{BASE_URL}/api/...`, PAS `{BACKEND_URL}/...` directement) pour que le cookie
+            # de session posé par la redirection soit bien associé à l'origine du frontend
+            # (celle que le navigateur utilise ensuite pour tous ses appels `/api/...`) —
+            # piège découvert en testant ce script : un login résolu directement contre
+            # BACKEND_URL pose le cookie sur le mauvais port, invisible du frontend.
             await narrator.start("00_value_prop")
-            print("🎬 Navigation vers l'IHM (silencieux, recouvert par le schéma d'intro)")
+            print("🎬 Connexion admin + navigation vers l'IHM (silencieux, recouvert par le schéma d'intro)")
+            login_url = (
+                f"{BASE_URL}/api/ihm/auth/login?"
+                f"email={urllib.parse.quote(DEMO_ADMIN_EMAIL)}&name={urllib.parse.quote(DEMO_ADMIN_NAME)}"
+                "&next=%2Fcompanies"
+            )
             try:
-                await page.goto(BASE_URL, wait_until="load", timeout=30000)
+                await page.goto(login_url, wait_until="load", timeout=30000)
                 await page.wait_for_selector(".sidebar", timeout=15000)
-                print("  ✅ IHM chargée")
+                print(f"  ✅ IHM chargée, connecté en tant que {DEMO_ADMIN_NAME}")
             except Exception as e:
-                print(f"  ⚠️  Navigation initiale : {e}")
+                print(f"  ⚠️  Connexion/navigation initiale : {e}")
             await narrator.end(padding=1.0)
 
             # --- 01. Entreprises ---
@@ -1040,7 +1075,7 @@ async def main():
             if not wait_for_service(svc):
                 print(f"❌ {svc['name']} n'a pas démarré à temps.")
                 return
-        demo_seed.seed_demo_data(backend_url=BACKEND_URL)
+        demo_seed.seed_demo_data(backend_url=BACKEND_URL, admin_email=DEMO_ADMIN_EMAIL, admin_name=DEMO_ADMIN_NAME)
         demo_seed.seed_technical_logs(
             backend_dir=BACKEND_DIR, db_path=DEMO_DB_PATH, invoice_storage_root=DEMO_INVOICE_STORAGE_ROOT
         )

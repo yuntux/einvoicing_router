@@ -218,7 +218,7 @@
     position:absolute;
     transform:translate(-50%,-50%) scale(0.6);
     opacity:0;
-    width:96px;
+    width:150px;
     padding:10px;
     border-radius:12px;
     background:var(--surface);
@@ -237,6 +237,7 @@
   .invoice .wrong-tag{
     margin-top:6px;
     display:inline-block;
+    white-space:nowrap;
     font-size:9px;
     font-weight:700;
     color:var(--danger);
@@ -306,13 +307,26 @@
   .proto-cluster .pill{position:static; transform:scale(0.7);}
   .proto-cluster .pill.show{transform:scale(1);}
 
+  .veil{
+    position:absolute;
+    inset:0;
+    background:rgba(255,255,255,0.86);
+    opacity:0;
+    transition:opacity .6s ease;
+    z-index:24;
+    pointer-events:none;
+  }
+  .veil.show{opacity:1;}
+
   .benefits{
     position:absolute;
     left:50%;
-    bottom:5%;
-    transform:translateX(-50%);
+    top:50%;
+    transform:translate(-50%,-50%);
     display:flex;
-    gap:16px;
+    flex-direction:column;
+    align-items:center;
+    gap:32px;
     z-index:25;
   }
   .benefit{
@@ -321,26 +335,26 @@
     transition:opacity .5s ease, transform .5s ease;
     display:flex;
     align-items:center;
-    gap:10px;
+    gap:20px;
     background:var(--surface);
     border:1px solid var(--border);
     border-radius:999px;
-    padding:13px 22px 13px 14px;
-    font-size:15px;
+    padding:26px 44px 26px 28px;
+    font-size:22px;
     font-weight:600;
     color:var(--ink);
-    box-shadow:0 10px 22px rgba(44,59,87,0.12);
-    max-width:340px;
+    box-shadow:0 16px 36px rgba(44,59,87,0.14);
+    max-width:680px;
   }
   .benefit.show{opacity:1; transform:translateY(0);}
   .benefit .check{
     flex:0 0 auto;
-    width:24px;height:24px;
+    width:48px;height:48px;
     border-radius:50%;
     background:var(--success);
     display:flex;align-items:center;justify-content:center;
   }
-  .benefit .check svg{width:14px;height:14px;stroke:#fff;stroke-width:3;fill:none;}
+  .benefit .check svg{width:32px;height:32px;stroke:#fff;stroke-width:3;fill:none;}
 </style>
 </head>
 <body>
@@ -469,6 +483,8 @@
       <div class="pill ok" id="finalAddress" style="left:50%; top:35%;">Une seule adresse publiée : SIREN@annuaire</div>
     </div>
 
+    <div class="veil" id="veil"></div>
+
     <div class="benefits" id="benefits">
       <div class="benefit" id="benefit2">
         <span class="check"><svg viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></svg></span>
@@ -498,6 +514,7 @@
   async function resetAll(){
     document.querySelectorAll('.node, .pill, .invoice, .error-badge, .proto-icon, .benefit, path.wire')
       .forEach(el => { el.classList.remove('show','draw','shake'); });
+    $('veil').classList.remove('show');
     $('routerCard').classList.remove('glow');
     const inv = $('invoiceCard');
     inv.style.left = '38%'; inv.style.top = '23%';
@@ -568,6 +585,8 @@
     $('protoComptable').querySelectorAll('.proto-icon, .pill').forEach(show);
     await sleep(1200);
 
+    show($('veil'));
+    await sleep(300);
     show($('benefit2')); await sleep(450);
     show($('benefit3')); await sleep(600);
   }
