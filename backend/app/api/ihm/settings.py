@@ -1,12 +1,10 @@
-"""Configuration générale du routeur (spec.md § 6.1) — lecture ouverte à tout
-utilisateur authentifié, écriture réservée aux administrateurs (§ NF4) : ces
-réglages (SMTP, allowlist IP, gestionnaires de facturation) s'appliquent à tout le
-routeur, jamais à une seule entreprise, donc pas de notion de périmètre ici.
+"""Configuration générale du routeur (spec.md § 6.1) — page et API réservées aux
+administrateurs (§ NF4/§ 5.1) : ces réglages (SMTP, allowlist IP, gestionnaires de
+facturation) s'appliquent à tout le routeur, jamais à une seule entreprise, et
+touchent des paramètres sensibles (identifiants SMTP) — pas d'accès en lecture pour
+un utilisateur restreint, contrairement à d'autres pages IHM.
 
-Deux routers distincts, montés au même préfixe dans `app/main.py` : `router` (lecture,
-`dependencies=ihm_auth`) et `admin_router` (écriture, `dependencies=ihm_auth +
-[Depends(require_admin)]`) — le contrôle d'accès se lit à l'endroit où les routes sont
-câblées, pas dispersé sur chaque décorateur."""
+Un seul router, monté dans `app/main.py` avec `dependencies=ihm_admin_only`."""
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
@@ -23,7 +21,6 @@ from app.schemas.settings import (
 from app.services import audit_trace_service, billing_manager_contact_service, router_settings_service
 
 router = APIRouter()
-admin_router = APIRouter()
 
 
 @router.get("", response_model=RouterSettingsRead)
@@ -36,7 +33,7 @@ def list_billing_manager_contacts(db: Session = Depends(get_db)):
     return billing_manager_contact_service.list_contacts(db)
 
 
-@admin_router.put("", response_model=RouterSettingsRead)
+@router.put("", response_model=RouterSettingsRead)
 def update_router_settings(
     payload: RouterSettingsUpdate,
     request: Request,
@@ -50,7 +47,7 @@ def update_router_settings(
     return result
 
 
-@admin_router.post(
+@router.post(
     "/billing-manager-contacts", response_model=BillingManagerContactRead, status_code=201
 )
 def create_billing_manager_contact(
@@ -68,7 +65,7 @@ def create_billing_manager_contact(
     return contact
 
 
-@admin_router.delete("/billing-manager-contacts/{contact_id}", status_code=204)
+@router.delete("/billing-manager-contacts/{contact_id}", status_code=204)
 def delete_billing_manager_contact(
     contact_id: int,
     request: Request,

@@ -4,10 +4,28 @@ from datetime import date
 
 from app.afnor.client.base import RawInvoice
 from app.afnor.client.fake import FakeSuperPDPClient
+from app.config import settings
 from app.models.invoicing import InvoiceRouting, TransferStatus
 from app.models.referential import Company, PartnerDirectory, RoutingMethod, TargetApplication
 from app.services import routing_rule_service
 from app.services.invoice_ingestion_service import ingest_from_client
+
+
+def _create_restricted_user_scoped_to(client, *, admin_email, user_email, company_id):
+    """Connecté en admin, pré-provisionne `user_email`, le cantonne à `company_id`,
+    puis se déconnecte et connecte ce compte restreint (spec.md § NF4)."""
+    client.get("/api/ihm/auth/login", params={"email": admin_email}, follow_redirects=False)
+    users = client.get("/api/ihm/users").json()
+    if not any(u["email"] == user_email for u in users):
+        client.post("/api/ihm/users", json={"email": user_email})
+    user_id = next(u["id"] for u in client.get("/api/ihm/users").json() if u["email"] == user_email)
+    response = client.put(
+        f"/api/ihm/users/{user_id}/access",
+        json={"role": "user", "company_ids": [company_id], "is_active": True},
+    )
+    assert response.status_code == 200
+    client.post("/api/ihm/auth/logout")
+    client.get("/api/ihm/auth/login", params={"email": user_email}, follow_redirects=False)
 
 
 def _make_company(db, siren="111111111"):
@@ -162,3 +180,40 @@ def test_run_send_cycle_moves_to_send_routing_to_retrying(client, db_session):
     assert len(body) == 1
     assert body[0]["transfer_status"] == "retrying"
     assert body[0]["attempt_count"] == 1
+
+
+def test_restricted_user_sees_only_failed_routings_of_their_company_scope(client, db_session, monkeypatch):
+    """§ NF4/§ 5.1 : un utilisateur restreint ne voit que les échecs de routage des
+    entreprises pour lesquelles il est habilité, et ne peut pas rejouer un routage
+    hors de son périmètre."""
+    monkeypatch.setattr(settings, "oidc_mode", "dev")
+
+    routing_own = _make_failed_routing(
+        db_session, status=TransferStatus.FAILED_FINAL, siren="777777771", flow_id="f-own"
+    )
+    routing_other = _make_failed_routing(
+        db_session, status=TransferStatus.FAILED_FINAL, siren="777777772", flow_id="f-other"
+    )
+
+    _create_restricted_user_scoped_to(
+        client,
+        admin_email="admin-fr@example.com",
+        user_email="user-fr@example.com",
+        company_id=routing_own.invoice.company_id,
+    )
+
+    response = client.get("/api/ihm/invoice-routings/failed")
+    assert response.status_code == 200
+    assert [row["id"] for row in response.json()] == [routing_own.id]
+
+    # Rejeu de son propre périmètre : autorisé.
+    response = client.post(
+        "/api/ihm/invoice-routings/replay", json={"routing_ids": [routing_own.id]}
+    )
+    assert response.status_code == 200
+
+    # Rejeu d'un routage hors périmètre : refusé, même si l'id est connu.
+    response = client.post(
+        "/api/ihm/invoice-routings/replay", json={"routing_ids": [routing_other.id]}
+    )
+    assert response.status_code == 403

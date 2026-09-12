@@ -37,12 +37,14 @@ class TargetApplicationCreate(BaseModel):
 
 
 class TargetApplicationOAuthRead(BaseModel):
-    """Paramètres OAuth éditables d'une application `afnor_api` (§ 4.9.2) — le
-    `client_id`/secret ne sont jamais renvoyés ici (générés une seule fois à la
-    création, cf. `TargetApplicationCreated`)."""
+    """Paramètres OAuth d'une application `afnor_api` (§ 4.9.2) — `client_id` reste
+    affiché en permanence (identifiant public, comme sur la fiche application de
+    SuperPDP), contrairement au secret, jamais renvoyé après sa création (une seule
+    fois, en clair, cf. `TargetApplicationCreated`)."""
 
     model_config = ConfigDict(from_attributes=True)
 
+    client_id: str
     app_type: OAuthAppType
     redirect_urls: str | None
     preferred_conversion_format: str | None
@@ -64,6 +66,21 @@ class TargetApplicationRead(AuditColumnsRead):
 
 class TargetApplicationStatusUpdate(BaseModel):
     is_active: bool
+
+
+class TargetApplicationLookup(BaseModel):
+    """Référence minimale (id + nom + entreprise) — pas de paramètres (destinataires
+    mail, webhook OAuth...) ni de colonnes d'audit. Exposée à tout utilisateur
+    authentifié (contrairement à `TargetApplicationRead`, admin-only) car des pages
+    non admin-only (ex. Règles de routage) ont besoin d'afficher le nom d'une
+    application cible et de son entreprise, sans donner accès à la page Applications
+    cibles elle-même (§ NF4)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    company_id: int
 
 
 class TargetApplicationUpdate(BaseModel):

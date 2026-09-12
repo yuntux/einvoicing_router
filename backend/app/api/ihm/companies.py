@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from app.auth.perimeter import apply_company_scope, ensure_company_in_scope
+from app.auth.perimeter import ensure_company_in_scope
 from app.auth.session import get_current_user
 from app.db.session import get_db
 from app.models.referential import Company, User
-from app.schemas.company import CompanyCreate, CompanyRead
+from app.schemas.company import CompanyCreate, CompanyLookup, CompanyRead
 from app.schemas.superpdp_credentials import (
     AfnorPlatform,
     SuperPDPCredentialsCreate,
@@ -13,27 +13,31 @@ from app.schemas.superpdp_credentials import (
 )
 from app.services import audit_trace_service, superpdp_credentials_service
 
-# `admin_router` : réservé aux administrateurs (§ NF4), monté au même préfixe dans
-# `app/main.py` avec `dependencies=ihm_auth + [Depends(require_admin)]` — créer une
-# entreprise gérée n'est pas une action qu'un utilisateur restreint à son propre
-# périmètre doit pouvoir déclencher. Le reste de ce router reste ouvert à tout
-# utilisateur authentifié, filtré par périmètre entreprise au cas par cas
-# (`ensure_company_in_scope`/`apply_company_scope`).
+# `router` : ouvert à tout utilisateur authentifié (`dependencies=ihm_auth` dans
+# `app/main.py`) — uniquement la référence minimale id+nom (`/lookup`), dont ont
+# besoin des pages non admin-only (ex. Règles de routage) pour afficher un nom
+# d'entreprise, sans exposer la page Entreprises elle-même (§ NF4).
+# `admin_router` : réservé aux administrateurs — la liste complète (SIREN, colonnes
+# d'audit), la création, et les identifiants SuperPDP (sensibles) de n'importe
+# quelle entreprise.
 router = APIRouter()
 admin_router = APIRouter()
 
 
-@router.get("", response_model=list[CompanyRead])
-def list_companies(
-    db: Session = Depends(get_db), user: User | None = Depends(get_current_user)
-) -> list[Company]:
-    """§ NF4 : un utilisateur restreint ne voit que les entreprises de son périmètre
-    (`user.companies`) — un admin, ou hors authentification, voit tout."""
-    query = apply_company_scope(db.query(Company), user=user, company_id_column=Company.id)
-    return list(query.order_by(Company.id).all())
+@router.get("/lookup", response_model=list[CompanyLookup])
+def list_company_lookups(db: Session = Depends(get_db)) -> list[Company]:
+    """Référence minimale (id + nom), toutes entreprises confondues, sans filtrage de
+    périmètre : c'est une donnée non sensible utilisée pour l'affichage croisé sur
+    des pages accessibles à un utilisateur restreint (ex. Règles de routage)."""
+    return list(db.query(Company).order_by(Company.id).all())
 
 
-@router.get("/afnor-platforms", response_model=list[AfnorPlatform])
+@admin_router.get("", response_model=list[CompanyRead])
+def list_companies(db: Session = Depends(get_db)) -> list[Company]:
+    return list(db.query(Company).order_by(Company.id).all())
+
+
+@admin_router.get("/afnor-platforms", response_model=list[AfnorPlatform])
 def list_afnor_platforms() -> list[dict[str, str]]:
     """Plateformes AFNOR connues de `pyfrctc` (§ 4.10) — alimente le sélecteur de
     plateforme par entreprise, plutôt qu'une URL libre non validée."""
@@ -62,7 +66,7 @@ def create_company(
     return company
 
 
-@router.get(
+@admin_router.get(
     "/{company_id}/superpdp-credentials", response_model=SuperPDPCredentialsStatus
 )
 def get_superpdp_credentials_status(
@@ -82,7 +86,7 @@ def get_superpdp_credentials_status(
     )
 
 
-@router.put(
+@admin_router.put(
     "/{company_id}/superpdp-credentials", response_model=SuperPDPCredentialsStatus
 )
 def set_superpdp_credentials(

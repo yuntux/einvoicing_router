@@ -1,4 +1,8 @@
-export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
+// Chaîne vide par défaut = chemin relatif (`/api/...` sur l'origine courante) —
+// fonctionne derrière Caddy en prod, quel que soit le domaine. `VITE_API_BASE_URL`
+// n'est nécessaire qu'en dev local (cf. .env.development), où le frontend et le
+// backend tournent sur des ports séparés sans proxy devant eux.
+export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
 
 export class ApiError extends Error {
   status: number

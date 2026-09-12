@@ -1,10 +1,45 @@
-"""Routes communes à toutes les versions de l'API AFNOR exposée à Odoo (§ 4.4/§ 4.8) :
-`GET /invoices` et `GET /directory/{siren}` sont identiques quelle que soit la version
-tant que XP Z12-013 n'a pas publié de v2 réelle — `v1.py` les enregistre en plus de ses
-routes propres (`/oauth/token`, `/invoices/emit`, `/lifecycle-events/emit`), `v2.py` les
-enregistre seules (§ 4.8, "point d'extension" du registre de versions)."""
+"""Routes communes à toutes les versions de l'API AFNOR exposée à Odoo (§ 4.4/§ 4.8).
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+Le routeur **émule un PDP** vis-à-vis d'Odoo (§ 4.4) : ces routes implémentent, avec
+une correspondance précise chemin/verbe/paramètres, les deux contrats officiels
+(`backend/docs/afnor-contracts/`) — "AFNOR Flow Service" (4 opérations, sous
+`/afnor-flow`, comme sur le vrai serveur SuperPDP `.../afnor-flow/v1/...`) et
+"AFNOR Directory Service" (9 opérations, sous `/afnor-directory`).
+
+Principe de conception (le seul filtrage/interprétation qui a du sens pour un
+routeur qui ne gère QUE les factures reçues, § 4.3) :
+- `POST /afnor-flow/flows/search` et `GET /afnor-flow/flows/{flowId}` : **parsés** —
+  restreints aux factures effectivement routées vers ce consommateur (NF2).
+- `POST /afnor-flow/flows` (émission) : le `flowSyntax` de `flowInfo` distingue une
+  facture (proxy transparent vers SuperPDP, jamais stockée, § 4.1) d'un message de
+  cycle de vie CDAR (idem, avec la limitation documentée sur `create_flow`).
+- **Tout le reste — healthchecks, annuaire (siren/siret/routing-code/directory-line)
+  — est un pur passe-plat vers SuperPDP** (`AfnorClientAdapter.raw_passthrough`),
+  statut HTTP et corps renvoyés tels quels, sans réinterprétation ni filtrage NF2 :
+  ces ressources ne concernent jamais les factures reçues par le routeur.
+
+Limites connues (documentées, pas silencieuses) :
+- `docType=Converted`/`ReadableView` sur `GET /flows/{flowId}` : 501 Not Implemented
+  (le routeur ne fait pas de conversion de format) ;
+- `GET /afnor-directory/{siren,siret}/code-insee:...` passent par les wrappers
+  `pyfrctc` existants (validation incluse) plutôt que par `raw_passthrough` : les
+  paramètres `fields`/`include` du contrat ne sont pas relayés (cf. docstrings) ;
+- **Webhooks (`/afnor-flow/flows/webhooks`)** : non implémentés — le fichier
+  `afnor-flow-openapi-v1.3.0.json` fourni déclare les schémas (`Webhook`,
+  `WebhookParams`...) mais les chemins `/v1/webhooks` et `/v1/webhooks/{webhookUid}`
+  sont des objets vides (`{}`, aucune opération HTTP définie) : le contrat ne fixe
+  donc ni verbes ni requêtes/réponses pour cette ressource dans cette version du
+  fichier. Inventer une forme REST plausible (POST/GET/DELETE à partir des seuls noms
+  de schémas) serait deviner un contrat non fourni — la notification webhook déjà
+  existante côté routeur (§ 4.4, format propre au routeur) reste donc en l'état tant
+  qu'une version plus complète du contrat n'est pas disponible."""
+
+import json
+import uuid
+
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.afnor.client.adapter import afnor_client_adapter
@@ -14,7 +49,7 @@ from app.auth.oauth import get_current_oauth_application
 from app.config import settings
 from app.db.session import get_db
 from app.models.referential import Company, OAuthApplication
-from app.schemas.invoice import InvoiceRead
+from app.schemas.afnor_flow import FlowInfoIn, SearchFlowContentOut, SearchFlowParamsIn
 from app.services import audit_trace_service
 
 _UPLOAD_CHUNK_SIZE = 64 * 1024
@@ -32,7 +67,7 @@ async def read_upload_capped(file: UploadFile, *, max_bytes: int | None = None) 
     max_upload_size_bytes`) et lève 413 dès que la limite est dépassée, sans jamais
     charger en mémoire plus que ce plafond — contrairement à `await file.read()`, qui
     tamponnerait la totalité d'un envoi disproportionné avant qu'on puisse seulement
-    en constater la taille (§ 4.4, proxy `/invoices/emit`/`/lifecycle-events/emit`)."""
+    en constater la taille (§ 4.4, `POST /afnor-flow/flows`)."""
     limit = max_bytes if max_bytes is not None else settings.max_upload_size_bytes
     chunks: list[bytes] = []
     total = 0
@@ -48,51 +83,392 @@ async def read_upload_capped(file: UploadFile, *, max_bytes: int | None = None) 
 
 
 def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
-    @router.get("/invoices", response_model=list[InvoiceRead])
-    def list_invoices(
+    def passthrough(
         request: Request,
-        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
-        db: Session = Depends(get_db),
-    ):
-        invoices = afnor_server_controller.list_invoices_for_consumer(db, oauth_app=oauth_app)
+        oauth_app: OAuthApplication,
+        db: Session,
+        *,
+        method: str,
+        service: str,
+        path: str,
+        endpoint_label: str,
+        json_body: dict | None = None,
+        params: dict | None = None,
+        extra_trace_fields: dict | None = None,
+    ) -> Response:
+        """Passe-plat générique (cf. docstring du module) : le statut et le corps
+        renvoyés par SuperPDP sont retransmis à l'identique, jamais réinterprétés."""
+        company = company_for(db, oauth_app)
+        status_code, body = afnor_client_adapter.raw_passthrough(
+            db,
+            company=company,
+            method=method,
+            service=service,
+            path=path,
+            json_body=json_body,
+            params=params,
+            afnor_api_version=afnor_api_version,
+        )
         audit_trace_service.record_odoo_flow_trace(
             db,
             request,
             afnor_api_version=afnor_api_version,
-            endpoint="GET /invoices",
+            endpoint=endpoint_label,
             client_id=oauth_app.client_id,
-            response={"count": len(invoices)},
+            response=body,
+            http_status=status_code,
+            **(extra_trace_fields or {}),
+        )
+        return Response(
+            content=json.dumps(body), media_type="application/json", status_code=status_code
+        )
+
+    # ---------------------------------------------------------------- Flow Service
+
+    @router.post("/afnor-flow/flows", status_code=202)
+    async def create_flow(
+        request: Request,
+        file: UploadFile,
+        flowInfo: str = Form(...),
+        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        db: Session = Depends(get_db),
+    ):
+        """Soumission d'un flux (§ 4.4) : proxy transparent vers SuperPDP, jamais
+        stocké côté routeur (§ 4.1, seules les factures *reçues* sont indexées) —
+        seul le `FlowTrace` de l'échange est conservé. Le `flowSyntax` déclaré dans
+        `flowInfo` détermine s'il s'agit d'une facture (`send_invoice`) ou d'un
+        message de cycle de vie CDAR (`send_cdar`, `flowSyntax="CDAR"`).
+
+        Limitation connue pour la branche CDAR : contrairement aux messages saisis
+        manuellement dans l'IHM du routeur (§ 4.2, sens achat uniquement), ce proxy ne
+        mémorise pas le message comme `LifecycleEvent` — il concerne potentiellement
+        des factures de vente qu'`Invoice` ne modélise pas (§ 6.1, factures reçues
+        uniquement), cf. note dans `lifecycle_service.py`."""
+        try:
+            flow_info = FlowInfoIn.model_validate_json(flowInfo)
+        except (ValidationError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid flowInfo: {exc}") from exc
+
+        company = company_for(db, oauth_app)
+        correlation_id = str(uuid.uuid4())
+        file_bin = await read_upload_capped(file)
+        filename = file.filename or flow_info.name
+
+        audit_trace_service.record_odoo_flow_trace(
+            db,
+            request,
+            afnor_api_version=afnor_api_version,
+            endpoint="POST /afnor-flow/flows",
+            filename=filename,
+            flow_syntax=flow_info.flowSyntax,
+            processing_rule=flow_info.processingRule,
+            client_id=oauth_app.client_id,
+            response={"status": "forwarding"},
+            http_status=202,
+            correlation_id=correlation_id,
+        )
+
+        if flow_info.flowSyntax == "CDAR":
+            return call_superpdp(
+                lambda: afnor_client_adapter.send_cdar(
+                    db,
+                    company=company,
+                    cdar_bytes=file_bin,
+                    filename=filename,
+                    correlation_id=correlation_id,
+                )
+            )
+        return call_superpdp(
+            lambda: afnor_client_adapter.send_invoice(
+                db,
+                company=company,
+                file_bin=file_bin,
+                filename=filename,
+                flow_syntax=flow_info.flowSyntax,
+                processing_rule=flow_info.processingRule or "B2B",
+                correlation_id=correlation_id,
+            )
+        )
+
+    @router.post(
+        "/afnor-flow/flows/search",
+        response_model=SearchFlowContentOut,
+        response_model_exclude_none=True,
+    )
+    def search_flows(
+        params: SearchFlowParamsIn,
+        request: Request,
+        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        db: Session = Depends(get_db),
+    ):
+        """Recherche de flux (§ 4.4) : ne retourne que les factures flaggées comme
+        destinées à ce consommateur (NF2) — seul `flowType=SupplierInvoice`/
+        `flowDirection=In` est réellement émulé à ce jour (factures reçues par le
+        routeur et routées vers Odoo) ; les autres critères de `where` sont acceptés
+        pour rester conformes au contrat mais n'ont pas d'effet filtrant tant qu'aucun
+        autre type de flux n'est exposé. Pas de pagination réelle (`nextCursor` toujours
+        `null`) : tous les résultats sont retournés en une page."""
+        invoices = afnor_server_controller.list_invoices_for_consumer(db, oauth_app=oauth_app)
+        results = [afnor_server_controller.flow_from_invoice(invoice) for invoice in invoices]
+
+        audit_trace_service.record_odoo_flow_trace(
+            db,
+            request,
+            afnor_api_version=afnor_api_version,
+            endpoint="POST /afnor-flow/flows/search",
+            client_id=oauth_app.client_id,
+            response={"count": len(results)},
             http_status=200,
         )
-        return invoices
+        return SearchFlowContentOut(results=results, filters=params.where, limit=params.limit)
 
-    @router.get("/directory/{siren}")
-    def lookup_directory(
+    @router.get("/afnor-flow/flows/{flow_id}")
+    def get_flow(
+        flow_id: str,
+        request: Request,
+        docType: str = "Metadata",
+        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        db: Session = Depends(get_db),
+    ):
+        """Téléchargement d'un flux par identifiant (§ 4.4) — `docType=Metadata`
+        (défaut) renvoie la ressource `Flow`, `docType=Original` le fichier reçu.
+        `Converted`/`ReadableView` ne sont pas supportés (le routeur ne fait pas de
+        conversion de format) : 501, conformément au contrat. Restreint aux factures
+        routées vers ce consommateur (NF2, comme `POST /flows/search`)."""
+        invoice = afnor_server_controller.find_invoice_for_consumer_by_flow_id(
+            db, oauth_app=oauth_app, flow_id=flow_id
+        )
+        if invoice is None:
+            raise HTTPException(status_code=404, detail="Flow not found")
+
+        if docType in ("Converted", "ReadableView"):
+            raise HTTPException(status_code=501, detail=f"docType={docType} not implemented")
+
+        audit_trace_service.record_odoo_flow_trace(
+            db,
+            request,
+            afnor_api_version=afnor_api_version,
+            endpoint="GET /afnor-flow/flows/{flowId}",
+            flow_id=flow_id,
+            doc_type=docType,
+            client_id=oauth_app.client_id,
+            response={"status": "ok"},
+            http_status=200,
+        )
+
+        if docType == "Original":
+            return FileResponse(
+                invoice.file_path,
+                filename=invoice.flow_name or f"{flow_id}.xml",
+                media_type="application/octet-stream",
+            )
+        flow = afnor_server_controller.flow_from_invoice(invoice)
+        return Response(
+            content=flow.model_dump_json(exclude_none=True), media_type="application/json"
+        )
+
+    @router.get("/afnor-flow/healthcheck")
+    def flow_healthcheck(
+        request: Request,
+        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        db: Session = Depends(get_db),
+    ):
+        return passthrough(
+            request,
+            oauth_app,
+            db,
+            method="GET",
+            service="afnor-flow",
+            path="healthcheck",
+            endpoint_label="GET /afnor-flow/healthcheck",
+        )
+
+    # ----------------------------------------------------------- Directory Service
+
+    @router.get("/afnor-directory/siren/code-insee:{siren}")
+    def lookup_siren(
         siren: str,
         request: Request,
         oauth_app: OAuthApplication = Depends(get_current_oauth_application),
         db: Session = Depends(get_db),
     ):
-        """Proxy transparent de consultation d'annuaire (§ 4.4) : la réponse de SuperPDP
-        est retransmise telle quelle à Odoo — aucune création de `PartnerDirectory` ni de
-        règle de routage implicite, l'annuaire consulté par Odoo concerne ses propres
-        clients, pas les fournisseurs dont le routeur gère le routage (§ 4.3)."""
-        company = company_for(db, oauth_app)
+        """Proxy transparent de consultation d'annuaire par SIREN (§ 4.4) — aucune
+        création de `PartnerDirectory` ni de règle de routage implicite, l'annuaire
+        consulté par Odoo concerne ses propres clients, pas les fournisseurs dont le
+        routeur gère le routage (§ 4.3).
 
+        Limite connue : passe par le wrapper `pyfrctc.get_directory_siren_parsed`
+        (validation SIREN incluse), qui ne relaie pas les paramètres `fields`/
+        `include` du contrat — contrairement aux autres endpoints de ce module, qui
+        utilisent `raw_passthrough` et les transmettent tels quels."""
+        company = company_for(db, oauth_app)
         result = call_superpdp(
             lambda: afnor_client_adapter.lookup_directory_siren(
                 db, company=company, siren=siren, afnor_api_version=afnor_api_version
             )
         )
-
         audit_trace_service.record_odoo_flow_trace(
             db,
             request,
             afnor_api_version=afnor_api_version,
-            endpoint="GET /directory/{siren}",
+            endpoint="GET /afnor-directory/siren/code-insee:{siren}",
             siren=siren,
             client_id=oauth_app.client_id,
             response=result,
             http_status=200,
         )
         return result
+
+    @router.post("/afnor-directory/siren/search")
+    def search_siren(
+        body: dict,
+        request: Request,
+        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        db: Session = Depends(get_db),
+    ):
+        return passthrough(
+            request,
+            oauth_app,
+            db,
+            method="POST",
+            service="afnor-directory",
+            path="siren/search",
+            endpoint_label="POST /afnor-directory/siren/search",
+            json_body=body,
+        )
+
+    @router.get("/afnor-directory/siret/code-insee:{siret}")
+    def lookup_siret(
+        siret: str,
+        request: Request,
+        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        db: Session = Depends(get_db),
+    ):
+        """Symétrique de `lookup_siren` pour un SIRET — même absence d'interprétation
+        (§ 4.3/§ 4.4) et même limite connue (`fields`/`include` non relayés, cf.
+        docstring de `lookup_siren`)."""
+        company = company_for(db, oauth_app)
+        result = call_superpdp(
+            lambda: afnor_client_adapter.lookup_directory_siret(
+                db, company=company, siret=siret, afnor_api_version=afnor_api_version
+            )
+        )
+        audit_trace_service.record_odoo_flow_trace(
+            db,
+            request,
+            afnor_api_version=afnor_api_version,
+            endpoint="GET /afnor-directory/siret/code-insee:{siret}",
+            siret=siret,
+            client_id=oauth_app.client_id,
+            response=result,
+            http_status=200,
+        )
+        return result
+
+    @router.post("/afnor-directory/siret/search")
+    def search_siret(
+        body: dict,
+        request: Request,
+        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        db: Session = Depends(get_db),
+    ):
+        return passthrough(
+            request,
+            oauth_app,
+            db,
+            method="POST",
+            service="afnor-directory",
+            path="siret/search",
+            endpoint_label="POST /afnor-directory/siret/search",
+            json_body=body,
+        )
+
+    @router.get("/afnor-directory/routing-code/siret:{siret}/code:{routing_identifier}")
+    def lookup_routing_code(
+        siret: str,
+        routing_identifier: str,
+        request: Request,
+        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        db: Session = Depends(get_db),
+    ):
+        return passthrough(
+            request,
+            oauth_app,
+            db,
+            method="GET",
+            service="afnor-directory",
+            path=f"routing-code/siret:{siret}/code:{routing_identifier}",
+            endpoint_label="GET /afnor-directory/routing-code/siret:{siret}/code:{routing-identifier}",
+            extra_trace_fields={"siret": siret, "routing_identifier": routing_identifier},
+        )
+
+    @router.post("/afnor-directory/routing-code/search")
+    def search_routing_code(
+        body: dict,
+        request: Request,
+        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        db: Session = Depends(get_db),
+    ):
+        return passthrough(
+            request,
+            oauth_app,
+            db,
+            method="POST",
+            service="afnor-directory",
+            path="routing-code/search",
+            endpoint_label="POST /afnor-directory/routing-code/search",
+            json_body=body,
+        )
+
+    @router.get("/afnor-directory/directory-line/code:{addressing_identifier}")
+    def lookup_directory_line(
+        addressing_identifier: str,
+        request: Request,
+        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        db: Session = Depends(get_db),
+    ):
+        return passthrough(
+            request,
+            oauth_app,
+            db,
+            method="GET",
+            service="afnor-directory",
+            path=f"directory-line/code:{addressing_identifier}",
+            endpoint_label="GET /afnor-directory/directory-line/code:{addressing-identifier}",
+            params=dict(request.query_params),
+            extra_trace_fields={"addressing_identifier": addressing_identifier},
+        )
+
+    @router.post("/afnor-directory/directory-line/search")
+    def search_directory_line(
+        body: dict,
+        request: Request,
+        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        db: Session = Depends(get_db),
+    ):
+        return passthrough(
+            request,
+            oauth_app,
+            db,
+            method="POST",
+            service="afnor-directory",
+            path="directory-line/search",
+            endpoint_label="POST /afnor-directory/directory-line/search",
+            json_body=body,
+        )
+
+    @router.get("/afnor-directory/healthcheck")
+    def directory_healthcheck(
+        request: Request,
+        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        db: Session = Depends(get_db),
+    ):
+        return passthrough(
+            request,
+            oauth_app,
+            db,
+            method="GET",
+            service="afnor-directory",
+            path="healthcheck",
+            endpoint_label="GET /afnor-directory/healthcheck",
+        )

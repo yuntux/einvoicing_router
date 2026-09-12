@@ -149,10 +149,17 @@ def test_restricted_user_sees_only_their_company_scope(client, db_session, monke
     restricted_user.companies = [company_a]
     db_session.commit()
 
+    # Page Entreprises réservée aux admins (§ 5.1) — un utilisateur restreint n'y a
+    # plus accès du tout, même filtré à son périmètre.
     response = client.get("/api/ihm/companies")
-    assert response.status_code == 200
-    names = [c["name"] for c in response.json()]
-    assert names == ["Société A"]
+    assert response.status_code == 403
+
+    # La référence minimale (id+nom, non filtrée par périmètre) reste accessible :
+    # des pages non admin-only (ex. Règles de routage) en ont besoin pour l'affichage.
+    lookup = client.get("/api/ihm/companies/lookup")
+    assert lookup.status_code == 200
+    names = {c["name"] for c in lookup.json()}
+    assert names == {"Société A", "Société B"}
 
     # Consultation d'une facture hors périmètre -> 403 (pas 404, la ressource existe).
     from datetime import date

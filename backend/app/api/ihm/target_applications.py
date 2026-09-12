@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.auth.oauth import generate_client_credentials, hash_secret
-from app.auth.perimeter import apply_company_scope, ensure_company_in_scope
+from app.auth.perimeter import ensure_company_in_scope
 from app.auth.session import get_current_user
 from app.db.session import get_db
 from app.models.referential import (
@@ -16,6 +16,7 @@ from app.models.referential import (
 from app.schemas.referential import (
     TargetApplicationCreate,
     TargetApplicationCreated,
+    TargetApplicationLookup,
     TargetApplicationRead,
     TargetApplicationStatusUpdate,
     TargetApplicationUpdate,
@@ -23,23 +24,31 @@ from app.schemas.referential import (
 from app.services import audit_trace_service
 from app.services.url_validation import UnsafeWebhookUrlError, validate_webhook_url
 
+# `router` : ouvert à tout utilisateur authentifié (`dependencies=ihm_auth` dans
+# `app/main.py`) — uniquement la référence minimale id+nom+entreprise (`/lookup`),
+# dont a besoin la page Règles de routage (non admin-only) pour afficher ses colonnes
+# sans donner accès à la page Applications cibles elle-même (§ NF4).
+# `admin_router` : réservé aux administrateurs — liste complète, création,
+# modification, activation/désactivation.
 router = APIRouter()
+admin_router = APIRouter()
 
 
-@router.get("", response_model=list[TargetApplicationRead])
-def list_target_applications(
-    db: Session = Depends(get_db), user: User | None = Depends(get_current_user)
-):
-    """§ NF4 : un utilisateur restreint ne voit que les applications cibles des
-    entreprises de son périmètre (`user.companies`) — un admin, ou hors
-    authentification, les voit toutes."""
-    query = apply_company_scope(
-        db.query(TargetApplication), user=user, company_id_column=TargetApplication.company_id
-    )
-    return list(query.order_by(TargetApplication.id).all())
+@router.get("/lookup", response_model=list[TargetApplicationLookup])
+def list_target_application_lookups(db: Session = Depends(get_db)):
+    """Référence minimale (id + nom + entreprise), toutes applications confondues,
+    sans filtrage de périmètre ni paramètres sensibles (destinataires mail, webhook
+    OAuth) : utilisée pour l'affichage croisé sur des pages accessibles à un
+    utilisateur restreint (ex. Règles de routage)."""
+    return list(db.query(TargetApplication).order_by(TargetApplication.id).all())
 
 
-@router.post("", response_model=TargetApplicationCreated, status_code=201)
+@admin_router.get("", response_model=list[TargetApplicationRead])
+def list_target_applications(db: Session = Depends(get_db)):
+    return list(db.query(TargetApplication).order_by(TargetApplication.id).all())
+
+
+@admin_router.post("", response_model=TargetApplicationCreated, status_code=201)
 def create_target_application(
     payload: TargetApplicationCreate,
     request: Request,
@@ -100,7 +109,7 @@ def create_target_application(
     )
 
 
-@router.put("/{target_application_id}", response_model=TargetApplicationRead)
+@admin_router.put("/{target_application_id}", response_model=TargetApplicationRead)
 def update_target_application(
     target_application_id: int,
     payload: TargetApplicationUpdate,
@@ -150,7 +159,7 @@ def update_target_application(
     return target_application
 
 
-@router.put("/{target_application_id}/status", response_model=TargetApplicationRead)
+@admin_router.put("/{target_application_id}/status", response_model=TargetApplicationRead)
 def update_target_application_status(
     target_application_id: int,
     payload: TargetApplicationStatusUpdate,

@@ -87,13 +87,12 @@ class Settings(BaseSettings):
     # Registre de versions AFNOR (§ 4.8, lot 8) : versions du serveur exposé à Odoo
     # effectivement montées, séparées par des virgules — permet de désactiver/retirer
     # une version sans supprimer son code (dépréciation progressive, § 4.8).
-    afnor_api_enabled_versions: str = "v1,v2"
+    afnor_api_enabled_versions: str = "v1"
 
-    # Taille maximale acceptée pour un fichier proxifié vers SuperPDP (`POST
-    # /invoices/emit`, `POST /lifecycle-events/emit`, § 4.4) — au-delà, la requête est
-    # rejetée (413) avant d'être intégralement chargée en mémoire, pour éviter qu'un
-    # client OAuth (malveillant ou compromis) n'épuise la mémoire du process avec un
-    # envoi disproportionné.
+    # Taille maximale acceptée pour un fichier proxifié vers SuperPDP (`POST /flows`,
+    # § 4.4) — au-delà, la requête est rejetée (413) avant d'être intégralement
+    # chargée en mémoire, pour éviter qu'un client OAuth (malveillant ou compromis)
+    # n'épuise la mémoire du process avec un envoi disproportionné.
     max_upload_size_bytes: int = 20 * 1024 * 1024
 
 

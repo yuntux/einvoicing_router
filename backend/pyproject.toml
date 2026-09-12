@@ -53,6 +53,10 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3",
+    # Valide les réponses des endpoints AFNOR contre les schémas JSON déclarés dans
+    # backend/docs/afnor-contracts/*.json (tests/afnor_contracts.py) plutôt que de
+    # retaper leur forme de mémoire dans les tests.
+    "jsonschema>=4.23",
 ]
 
 [tool.pytest.ini_options]

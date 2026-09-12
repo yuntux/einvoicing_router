@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
-import { listCompanies, type Company } from '../api/companies'
+import { listCompanyLookups, type CompanyLookup } from '../api/companies'
 import { createPartner, listPartners, type Partner } from '../api/partners'
-import { listTargetApplications, type TargetApplication } from '../api/targetApplications'
+import { listTargetApplicationLookups, type TargetApplicationLookup } from '../api/targetApplications'
 import { listRoutingRules, setRoutingRuleActive, type RoutingRule } from '../api/routingRules'
 import { useErrorMessage } from '../composables/useErrorMessage'
 
 const partners = ref<Partner[]>([])
-const targetApplications = ref<TargetApplication[]>([])
+const targetApplications = ref<TargetApplicationLookup[]>([])
 const rules = ref<RoutingRule[]>([])
-const companies = ref<Company[]>([])
+const companies = ref<CompanyLookup[]>([])
 
 // Formulaire "nouveau fournisseur"
 const newPartnerSiren = ref('')
@@ -33,7 +33,7 @@ function partnerHasNoRule(partnerId: number): boolean {
   return !rules.value.some((r) => r.partner_directory_id === partnerId)
 }
 
-function recipientLabel(target: TargetApplication): string {
+function recipientLabel(target: TargetApplicationLookup): string {
   if (target.company_id == null) return '—'
   const company = companies.value.find((c) => c.id === target.company_id)
   return company ? company.name : '—'
@@ -48,9 +48,9 @@ const rows = computed(() => [...partners.value].sort((a, b) => (a.siren < b.sire
 async function refresh() {
   ;[partners.value, targetApplications.value, rules.value, companies.value] = await Promise.all([
     listPartners(),
-    listTargetApplications(),
+    listTargetApplicationLookups(),
     listRoutingRules(),
-    listCompanies(),
+    listCompanyLookups(),
   ])
 }
 

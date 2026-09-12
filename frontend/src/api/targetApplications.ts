@@ -3,6 +3,7 @@ import { apiFetch } from './http'
 export type RoutingMethod = 'mail' | 'afnor_api'
 
 export interface TargetApplicationOAuth {
+  client_id: string
   app_type: 'confidential' | 'public'
   redirect_urls: string | null
   preferred_conversion_format: string | null
@@ -37,8 +38,23 @@ export interface TargetApplicationCreate {
   parameters: Record<string, unknown>
 }
 
+/** Référence minimale (id + nom + entreprise), sans paramètres ni infos OAuth —
+ * accessible à tout utilisateur authentifié, contrairement à
+ * `listTargetApplications` (page Applications cibles, admin uniquement, § 5.1). À
+ * utiliser pour un affichage croisé (ex. Règles de routage), jamais pour la page
+ * Applications cibles elle-même. */
+export interface TargetApplicationLookup {
+  id: number
+  name: string
+  company_id: number
+}
+
 export function listTargetApplications(): Promise<TargetApplication[]> {
   return apiFetch('/api/ihm/target-applications', {}, 'Failed to list target applications')
+}
+
+export function listTargetApplicationLookups(): Promise<TargetApplicationLookup[]> {
+  return apiFetch('/api/ihm/target-applications/lookup', {}, 'Failed to list target applications')
 }
 
 export function createTargetApplication(

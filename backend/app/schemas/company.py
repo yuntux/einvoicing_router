@@ -17,3 +17,16 @@ class CompanyRead(AuditColumnsRead):
     id: int
     siren: str
     name: str
+
+
+class CompanyLookup(BaseModel):
+    """Référence minimale (id + nom) — pas de SIREN ni de colonnes d'audit. Exposée à
+    tout utilisateur authentifié (pas seulement les admins, contrairement à
+    `CompanyRead`) car des pages non admin-only (ex. Règles de routage) ont besoin
+    d'afficher un nom d'entreprise sans donner accès à la page Entreprises elle-même
+    (§ NF4)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
