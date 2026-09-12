@@ -43,6 +43,24 @@ def test_login_dev_mode_sets_session_and_me_reflects_user(client, monkeypatch):
     assert body["user"]["email"] == "alice@example.com"
     # Premier utilisateur créé -> admin (amorçage, cf. UserService).
     assert body["user"]["role"] == "admin"
+    # Toute première connexion : pas de connexion précédente à afficher.
+    assert body["user"]["previous_login_at"] is None
+
+
+def test_me_previous_login_at_reflects_login_before_the_current_one(client, monkeypatch):
+    """`/auth/me` doit exposer l'avant-dernière connexion, jamais celle en cours
+    (sans intérêt puisque toujours "maintenant") — cf. `get_previous_login`."""
+    monkeypatch.setattr(settings, "oidc_mode", "dev")
+
+    client.get("/api/ihm/auth/login", params={"email": "dana@example.com"}, follow_redirects=False)
+    first_login_at = client.get("/api/ihm/auth/me").json()["user"]["previous_login_at"]
+    assert first_login_at is None
+    client.post("/api/ihm/auth/logout")
+
+    client.get("/api/ihm/auth/login", params={"email": "dana@example.com"}, follow_redirects=False)
+    body = client.get("/api/ihm/auth/me").json()
+    # La connexion en cours (la 2e) n'est pas celle renvoyée : c'est la 1re.
+    assert body["user"]["previous_login_at"] is not None
 
 
 def test_login_dev_mode_resyncs_name_on_repeat_login(client, monkeypatch):

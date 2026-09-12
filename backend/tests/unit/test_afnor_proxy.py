@@ -173,3 +173,42 @@ def test_lookup_directory_superpdp_failure_returns_502(client, db_session):
         )
 
     assert response.status_code == 502
+
+
+def test_emit_invoice_rejects_oversized_file(client, db_session, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "max_upload_size_bytes", 10)
+    company = _make_company(db_session)
+    oauth_app = _make_oauth_app(db_session, company, client_secret="secret-5")
+    token = _token(client, oauth_app, "secret-5")
+
+    with patch("app.afnor.client.adapter.afnor_client_adapter.send_invoice") as mock_send:
+        response = client.post(
+            "/api/afnor/v1/invoices/emit",
+            headers={"Authorization": f"Bearer {token}"},
+            data={"flow_syntax": "Factur-X", "processing_rule": "B2B"},
+            files={"file": ("invoice.xml", b"x" * 1000, "application/xml")},
+        )
+
+    assert response.status_code == 413
+    mock_send.assert_not_called()
+
+
+def test_emit_lifecycle_event_rejects_oversized_file(client, db_session, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "max_upload_size_bytes", 10)
+    company = _make_company(db_session)
+    oauth_app = _make_oauth_app(db_session, company, client_secret="secret-6")
+    token = _token(client, oauth_app, "secret-6")
+
+    with patch("app.afnor.client.adapter.afnor_client_adapter.send_cdar") as mock_send:
+        response = client.post(
+            "/api/afnor/v1/lifecycle-events/emit",
+            headers={"Authorization": f"Bearer {token}"},
+            files={"file": ("cdar.xml", b"x" * 1000, "application/xml")},
+        )
+
+    assert response.status_code == 413
+    mock_send.assert_not_called()

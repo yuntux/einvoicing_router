@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { authStatus, ensureAuthStatus, loginUrl, logout } from './api/auth'
+import { formatDateTimeFr } from './utils/date'
 
 const route = useRoute()
 
@@ -119,6 +120,13 @@ onMounted(ensureAuthStatus)
                 <path d="M21 12H9" />
               </svg>
             </button>
+          </div>
+          <div
+            v-if="authStatus.user?.previous_login_at"
+            class="sidebar-last-login"
+            data-testid="sidebar-last-login"
+          >
+            Dernière connexion : {{ formatDateTimeFr(authStatus.user.previous_login_at) }}
           </div>
         </template>
         <template v-else>

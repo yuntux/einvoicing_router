@@ -90,3 +90,52 @@ def test_partner_created_manually_has_create_user_id_but_auto_created_does_not(
     )
     assert created is True
     assert auto_partner.create_user_id is None
+
+
+def test_last_login_derived_from_audit_log_reflects_most_recent_login(
+    client, monkeypatch, db_session
+):
+    """`last_login_at` (§ NF4/NF9, `UsersView`) n'est pas une colonne dédiée sur
+    `User` — il est dérivé du journal d'audit (action "login") pour ne pas dupliquer
+    un événement déjà tracé là, cf. `audit_trace_service.get_last_login(s)`."""
+    from datetime import timedelta
+
+    from app.services import audit_trace_service
+
+    monkeypatch.setattr(settings, "oidc_mode", "dev")
+    client.get("/api/ihm/auth/login", params={"email": "bob@example.com"}, follow_redirects=False)
+    user_id = client.get("/api/ihm/auth/me").json()["user"]["id"]
+
+    first_login_log = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.action == "login", AuditLog.user_id == user_id)
+        .first()
+    )
+    # Pas encore de login pour un autre utilisateur -> absent du dict, get() renvoie None.
+    assert audit_trace_service.get_last_logins(db_session, [user_id, 999999]) == {
+        user_id: first_login_log.created_at
+    }
+    # Une seule connexion à ce stade -> pas d'"avant-dernière" à renvoyer.
+    assert audit_trace_service.get_previous_login(db_session, user_id) is None
+    # Recule artificiellement le 1er login pour simuler un vrai écart temporel, puis
+    # ajoute un 2e login plus récent : `get_last_login` doit refléter le plus récent.
+    first_login_log.created_at -= timedelta(days=1)
+    db_session.commit()
+
+    client.post("/api/ihm/auth/logout")
+    client.get("/api/ihm/auth/login", params={"email": "bob@example.com"}, follow_redirects=False)
+
+    logs = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.action == "login", AuditLog.user_id == user_id)
+        .order_by(AuditLog.id)
+        .all()
+    )
+    assert len(logs) == 2
+    assert audit_trace_service.get_last_login(db_session, user_id) == logs[1].created_at
+    assert audit_trace_service.get_last_login(db_session, user_id) != logs[0].created_at
+
+    # `get_previous_login` (utilisé par /auth/me pour la sidebar) doit renvoyer la
+    # connexion *avant* la dernière, jamais la dernière elle-même.
+    assert audit_trace_service.get_previous_login(db_session, user_id) == logs[0].created_at
+    assert audit_trace_service.get_previous_login(db_session, user_id) != logs[1].created_at

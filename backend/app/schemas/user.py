@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 from app.schemas.mixins import AuditColumnsRead
@@ -11,6 +13,7 @@ class UserRead(AuditColumnsRead):
     company_ids: list[int]
     is_active: bool
     has_logged_in: bool
+    last_login_at: datetime | None
 
 
 class UserCreate(BaseModel):

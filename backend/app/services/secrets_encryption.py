@@ -15,7 +15,10 @@ from app.config import settings
 
 
 def _fernet() -> Fernet:
-    key_material = (settings.secrets_encryption_key or settings.jwt_secret).encode("utf-8")
+    # Toujours `settings.secrets_encryption_key` — jamais de repli sur `jwt_secret`
+    # (cf. commentaire de `Settings.secrets_encryption_key`, § 4.10) : ces deux
+    # secrets protègent des surfaces distinctes et ne doivent jamais être confondus.
+    key_material = settings.secrets_encryption_key.encode("utf-8")
     # Fernet exige une clé de 32 octets encodée en base64 urlsafe ; on dérive une clé de
     # taille fixe à partir du secret configuré, quelle que soit sa longueur d'origine.
     derived_key = base64.urlsafe_b64encode(hashlib.sha256(key_material).digest())

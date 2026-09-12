@@ -1,5 +1,14 @@
 """Fixtures partagées : base SQLite en mémoire (spec.md § 10.2) + client HTTP FastAPI."""
 
+import os
+
+# `Settings.oidc_mode` (app/config.py) n'a volontairement aucune valeur par défaut
+# (§ NF3, fail-closed) : la suite de tests choisit explicitement "disabled" ici,
+# avant tout import de `app.config`, plutôt que de dépendre d'un défaut silencieux —
+# les tests qui veulent exercer l'authentification le surchargent eux-mêmes via
+# `monkeypatch.setattr(settings, "oidc_mode", ...)`.
+os.environ.setdefault("ROUTER_OIDC_MODE", "disabled")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import StaticPool, create_engine
@@ -25,6 +34,14 @@ def _disable_scheduler(monkeypatch):
     tournerait dans un thread de fond contre la base réelle (`SessionLocal`), pas
     contre la base SQLite en mémoire propre à chaque test."""
     monkeypatch.setattr(settings, "scheduler_enabled", False)
+
+
+@pytest.fixture(autouse=True)
+def _disable_rate_limit(monkeypatch):
+    """La limitation de débit (NF6) sur `/oauth/token`/`/auth/login` est désactivée
+    par défaut dans les tests, qui appellent ces endpoints bien plus souvent qu'un
+    usage réel (cf. test_rate_limit.py, qui la réactive explicitement)."""
+    monkeypatch.setattr(settings, "rate_limit_enabled", False)
 
 
 @pytest.fixture(autouse=True)
@@ -77,6 +94,9 @@ def client(db_session):
             pass
 
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
+    # `base_url` en https : le cookie de session IHM est `Secure` dès que
+    # `oidc_mode != "dev"` (§ NF3) — httpx n'expose/n'envoie un cookie `Secure` que
+    # sur une origine https, y compris pour le client de test.
+    with TestClient(app, base_url="https://testserver") as test_client:
         yield test_client
     app.dependency_overrides.clear()

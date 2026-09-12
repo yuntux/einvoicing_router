@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.auth.oauth import generate_client_credentials, hash_secret
+from app.auth.perimeter import apply_company_scope, ensure_company_in_scope
 from app.auth.session import get_current_user
 from app.db.session import get_db
 from app.models.referential import (
@@ -20,13 +21,22 @@ from app.schemas.referential import (
     TargetApplicationUpdate,
 )
 from app.services import audit_trace_service
+from app.services.url_validation import UnsafeWebhookUrlError, validate_webhook_url
 
 router = APIRouter()
 
 
 @router.get("", response_model=list[TargetApplicationRead])
-def list_target_applications(db: Session = Depends(get_db)):
-    return list(db.query(TargetApplication).order_by(TargetApplication.id).all())
+def list_target_applications(
+    db: Session = Depends(get_db), user: User | None = Depends(get_current_user)
+):
+    """§ NF4 : un utilisateur restreint ne voit que les applications cibles des
+    entreprises de son périmètre (`user.companies`) — un admin, ou hors
+    authentification, les voit toutes."""
+    query = apply_company_scope(
+        db.query(TargetApplication), user=user, company_id_column=TargetApplication.company_id
+    )
+    return list(query.order_by(TargetApplication.id).all())
 
 
 @router.post("", response_model=TargetApplicationCreated, status_code=201)
@@ -36,6 +46,7 @@ def create_target_application(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user),
 ):
+    ensure_company_in_scope(user, payload.company_id)
     actor_id = user.id if user else None
     oauth_client_id: str | None = None
     oauth_client_secret: str | None = None
@@ -43,6 +54,12 @@ def create_target_application(
 
     if payload.routing_method == RoutingMethod.AFNOR_API:
         oauth_client_id, oauth_client_secret = generate_client_credentials()
+        webhook_url = payload.parameters.get("webhook_url")
+        if webhook_url:
+            try:
+                validate_webhook_url(webhook_url)
+            except UnsafeWebhookUrlError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
         oauth_app = OAuthApplication(
             company_id=payload.company_id,
             client_id=oauth_client_id,
@@ -51,7 +68,7 @@ def create_target_application(
             scope=OAuthScope.CONSUMER_TO_ROUTER,
             redirect_urls=",".join(payload.parameters.get("redirect_urls", []) or []) or None,
             preferred_conversion_format=payload.parameters.get("preferred_conversion_format"),
-            webhook_url=payload.parameters.get("webhook_url"),
+            webhook_url=webhook_url,
             create_user_id=actor_id,
             write_user_id=actor_id,
         )
@@ -99,6 +116,7 @@ def update_target_application(
     target_application = db.get(TargetApplication, target_application_id)
     if target_application is None:
         raise HTTPException(status_code=404, detail="Target application not found")
+    ensure_company_in_scope(user, target_application.company_id)
 
     actor_id = user.id if user else None
     target_application.name = payload.name
@@ -108,6 +126,12 @@ def update_target_application(
     else:
         oauth_app = target_application.oauth_application
         if oauth_app is not None:
+            webhook_url = payload.parameters.get("webhook_url")
+            if webhook_url:
+                try:
+                    validate_webhook_url(webhook_url)
+                except UnsafeWebhookUrlError as exc:
+                    raise HTTPException(status_code=422, detail=str(exc)) from exc
             oauth_app.redirect_urls = (
                 ",".join(payload.parameters.get("redirect_urls", []) or []) or None
             )
@@ -115,7 +139,7 @@ def update_target_application(
                 "preferred_conversion_format"
             )
             oauth_app.app_type = payload.parameters.get("app_type", oauth_app.app_type)
-            oauth_app.webhook_url = payload.parameters.get("webhook_url")
+            oauth_app.webhook_url = webhook_url
             oauth_app.write_user_id = actor_id
 
     db.commit()
@@ -140,6 +164,7 @@ def update_target_application_status(
     target_application = db.get(TargetApplication, target_application_id)
     if target_application is None:
         raise HTTPException(status_code=404, detail="Target application not found")
+    ensure_company_in_scope(user, target_application.company_id)
     actor_id = user.id if user else None
     target_application.is_active = payload.is_active
     target_application.write_user_id = actor_id

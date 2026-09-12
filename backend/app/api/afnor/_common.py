@@ -4,17 +4,20 @@ tant que XP Z12-013 n'a pas publié de v2 réelle — `v1.py` les enregistre en 
 routes propres (`/oauth/token`, `/invoices/emit`, `/lifecycle-events/emit`), `v2.py` les
 enregistre seules (§ 4.8, "point d'extension" du registre de versions)."""
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from app.afnor.client.adapter import afnor_client_adapter
 from app.afnor.server import afnor_server_controller
 from app.afnor.server.afnor_server_controller import call_superpdp
 from app.auth.oauth import get_current_oauth_application
+from app.config import settings
 from app.db.session import get_db
 from app.models.referential import Company, OAuthApplication
 from app.schemas.invoice import InvoiceRead
 from app.services import audit_trace_service
+
+_UPLOAD_CHUNK_SIZE = 64 * 1024
 
 
 def company_for(db: Session, oauth_app: OAuthApplication) -> Company:
@@ -22,6 +25,26 @@ def company_for(db: Session, oauth_app: OAuthApplication) -> Company:
     if company is None:
         raise HTTPException(status_code=500, detail="Application OAuth sans entreprise associée")
     return company
+
+
+async def read_upload_capped(file: UploadFile, *, max_bytes: int | None = None) -> bytes:
+    """Lit `file` par blocs jusqu'à `max_bytes` (par défaut `settings.
+    max_upload_size_bytes`) et lève 413 dès que la limite est dépassée, sans jamais
+    charger en mémoire plus que ce plafond — contrairement à `await file.read()`, qui
+    tamponnerait la totalité d'un envoi disproportionné avant qu'on puisse seulement
+    en constater la taille (§ 4.4, proxy `/invoices/emit`/`/lifecycle-events/emit`)."""
+    limit = max_bytes if max_bytes is not None else settings.max_upload_size_bytes
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK_SIZE)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > limit:
+            raise HTTPException(status_code=413, detail="File too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:

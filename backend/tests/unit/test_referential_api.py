@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from stdnum.fr import siren as siren_stdnum
 
 
@@ -228,18 +230,25 @@ def test_update_afnor_api_target_application_updates_oauth_application(client):
     ).json()
     assert target["oauth_application"]["preferred_conversion_format"] == "Factur-X"
 
-    update_resp = client.put(
-        f"/api/ihm/target-applications/{target['id']}",
-        json={
-            "name": "Odoo",
-            "parameters": {
-                "redirect_urls": ["https://odoo.example/callback", "https://odoo.example/other"],
-                "preferred_conversion_format": "UBL",
-                "app_type": "confidential",
-                "webhook_url": "https://odoo.example/webhook",
+    # `odoo.example` (RFC 2606) ne résout jamais — la validation anti-SSRF du
+    # webhook (§ garde-fou CWE-918, app/services/url_validation.py) a donc besoin
+    # d'une résolution DNS simulée vers une IP publique pour ce test.
+    with patch(
+        "app.services.url_validation.socket.getaddrinfo",
+        return_value=[(2, 1, 6, "", ("93.184.216.34", 0))],
+    ):
+        update_resp = client.put(
+            f"/api/ihm/target-applications/{target['id']}",
+            json={
+                "name": "Odoo",
+                "parameters": {
+                    "redirect_urls": ["https://odoo.example/callback", "https://odoo.example/other"],
+                    "preferred_conversion_format": "UBL",
+                    "app_type": "confidential",
+                    "webhook_url": "https://odoo.example/webhook",
+                },
             },
-        },
-    )
+        )
     assert update_resp.status_code == 200
     updated = update_resp.json()
     assert updated["oauth_application"]["preferred_conversion_format"] == "UBL"

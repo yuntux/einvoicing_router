@@ -9,6 +9,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.auth.oidc import entra_id_client
+from app.auth.rate_limit import rate_limit
 from app.auth.session import get_current_user, issue_session_token
 from app.config import settings
 from app.db.session import get_db
@@ -25,13 +26,14 @@ from app.services.user_service import (
 router = APIRouter()
 
 
-def _to_user_read(user: User) -> CurrentUserRead:
+def _to_user_read(db: Session, user: User) -> CurrentUserRead:
     return CurrentUserRead(
         id=user.id,
         email=user.email,
         name=user.name,
         role=user.role,
         company_ids=[c.id for c in user.companies],
+        previous_login_at=audit_trace_service.get_previous_login(db, user.id),
     )
 
 
@@ -42,6 +44,11 @@ def _set_session_cookie(response: Response, user: User) -> None:
         httponly=True,
         max_age=settings.session_expiry_seconds,
         samesite="lax",
+        # `entra_id` est le seul mode utilisable derrière un vrai déploiement HTTPS
+        # (§ NF3) — `secure=True` y interdit toute transmission du cookie en clair,
+        # indépendamment d'une éventuelle redirection HTTP -> HTTPS en amont
+        # (défense en profondeur). `dev` reste utilisable en HTTP local simple.
+        secure=settings.oidc_mode != "dev",
     )
 
 
@@ -66,15 +73,15 @@ def _login_error_redirect(reason: str) -> RedirectResponse:
 
 
 @router.get("/me", response_model=CurrentUserStatus)
-def me(user: User | None = Depends(get_current_user)):
+def me(db: Session = Depends(get_db), user: User | None = Depends(get_current_user)):
     return CurrentUserStatus(
         oidc_mode=settings.oidc_mode,
         authenticated=user is not None,
-        user=_to_user_read(user) if user else None,
+        user=_to_user_read(db, user) if user else None,
     )
 
 
-@router.get("/login")
+@router.get("/login", dependencies=[Depends(rate_limit(scope="ihm_login"))])
 async def login(
     request: Request,
     email: str = Query(default="dev@example.com"),

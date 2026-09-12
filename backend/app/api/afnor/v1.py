@@ -13,8 +13,9 @@ from sqlalchemy.orm import Session
 from app.afnor.client.adapter import afnor_client_adapter
 from app.afnor.server.afnor_server_controller import call_superpdp
 from app.afnor.versioning.registry import register_version
-from app.api.afnor._common import company_for, register_common_routes
+from app.api.afnor._common import company_for, read_upload_capped, register_common_routes
 from app.auth.oauth import get_current_oauth_application, issue_token_response
+from app.auth.rate_limit import rate_limit
 from app.db.session import get_db
 from app.models.referential import OAuthApplication
 from app.services import audit_trace_service
@@ -25,7 +26,7 @@ router = APIRouter()
 register_common_routes(router, AFNOR_API_VERSION)
 
 
-@router.post("/oauth/token")
+@router.post("/oauth/token", dependencies=[Depends(rate_limit(scope="oauth_token"))])
 def issue_token(
     request: Request,
     response: Response,
@@ -66,7 +67,7 @@ async def emit_invoice(
     *reçues* sont indexées) — seul le `FlowTrace` de l'échange est conservé."""
     company = company_for(db, oauth_app)
     correlation_id = str(uuid.uuid4())
-    file_bin = await file.read()
+    file_bin = await read_upload_capped(file)
 
     audit_trace_service.record_odoo_flow_trace(
         db,
@@ -113,7 +114,7 @@ async def emit_lifecycle_event(
     lot (cf. note dans `lifecycle_service.py`)."""
     company = company_for(db, oauth_app)
     correlation_id = str(uuid.uuid4())
-    cdar_bytes = await file.read()
+    cdar_bytes = await read_upload_capped(file)
 
     audit_trace_service.record_odoo_flow_trace(
         db,

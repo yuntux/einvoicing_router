@@ -15,20 +15,31 @@ from app.models.referential import User
 
 JWT_ALGORITHM = "HS256"
 
+# Claim `typ` distinguant ce jeton du jeton OAuth émis pour les applications
+# consommatrices (§ 4.10, `app.auth.oauth`) — signés avec des secrets déjà distincts
+# (`session_secret` vs `jwt_secret`), cette claim est une seconde barrière : même si
+# les deux secrets venaient un jour à être confondus par erreur, un jeton de l'un ne
+# serait jamais accepté à la place de l'autre.
+_TOKEN_TYPE = "ihm_session"
+
 
 def issue_session_token(user: User) -> str:
     now = int(time.time())
     payload = {
         "sub": str(user.id),
         "role": user.role,
+        "typ": _TOKEN_TYPE,
         "iat": now,
         "exp": now + settings.session_expiry_seconds,
     }
-    return jwt.encode(payload, settings.jwt_secret, algorithm=JWT_ALGORITHM)
+    return jwt.encode(payload, settings.session_secret, algorithm=JWT_ALGORITHM)
 
 
 def _decode_session_token(token: str) -> dict:
-    return jwt.decode(token, settings.jwt_secret, algorithms=[JWT_ALGORITHM])
+    payload = jwt.decode(token, settings.session_secret, algorithms=[JWT_ALGORITHM])
+    if payload.get("typ") != _TOKEN_TYPE:
+        raise jwt.InvalidTokenError("Unexpected token type")
+    return payload
 
 
 def get_current_user(

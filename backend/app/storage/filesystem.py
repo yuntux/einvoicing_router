@@ -6,6 +6,20 @@ from pathlib import Path
 from app.config import settings
 
 
+def _safe_path_component(value: str, *, fallback: str) -> str:
+    """Neutralise une traversée de chemin (CWE-22) : `flow_id`/`file_name` viennent de
+    métadonnées SuperPDP externes (assignées par la plateforme d'interopérabilité,
+    en dernier ressort potentiellement influencées par le fournisseur émetteur de la
+    facture) — jamais des identifiants que le routeur choisit lui-même. `Path.name`
+    ne garde que le dernier segment (neutralise `../..` et, propriété moins connue
+    de pathlib, un composant absolu comme `/etc/passwd` qui sinon remplacerait
+    entièrement le chemin de base via l'opérateur `/`)."""
+    name = Path(value).name
+    if not name or name in (".", ".."):
+        return fallback
+    return name
+
+
 def save_invoice_file(
     *, company_siren: str, flow_id: str, file_name: str, content: bytes, received_at: datetime
 ) -> str:
@@ -16,8 +30,10 @@ def save_invoice_file(
     d'une entreprise dans un seul répertoire au fil des années."""
     root = Path(settings.invoice_storage_root)
     month_folder = received_at.strftime("%y%m")
-    directory = root / company_siren / month_folder / flow_id
+    safe_flow_id = _safe_path_component(flow_id, fallback="unknown-flow")
+    directory = root / company_siren / month_folder / safe_flow_id
     directory.mkdir(parents=True, exist_ok=True)
-    file_path = directory / file_name
+    safe_file_name = _safe_path_component(file_name, fallback=f"{safe_flow_id}.xml")
+    file_path = directory / safe_file_name
     file_path.write_bytes(content)
     return str(file_path)

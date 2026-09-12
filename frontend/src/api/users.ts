@@ -8,6 +8,7 @@ export interface AppUser {
   company_ids: number[]
   is_active: boolean
   has_logged_in: boolean
+  last_login_at: string | null
 }
 
 export interface UserCreate {

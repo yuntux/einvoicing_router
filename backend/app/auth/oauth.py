@@ -28,6 +28,12 @@ from app.models.referential import OAuthApplication
 
 JWT_ALGORITHM = "HS256"
 
+# Claim `typ` distinguant ce jeton du jeton de session IHM (§ NF3, `app.auth.session`)
+# — signés avec des secrets déjà distincts (`jwt_secret` vs `session_secret`), cette
+# claim est une seconde barrière contre toute confusion entre les deux (cf. commentaire
+# symétrique dans `app.auth.session`).
+_TOKEN_TYPE = "oauth_client_credentials"
+
 # Authlib n'a pas d'intégration officielle FastAPI/Starlette côté serveur OAuth2
 # (contrairement à Flask/Django) — `query_client`/`save_token` sont de simples
 # fonctions, sans accès direct à la session SQLAlchemy de la requête FastAPI en
@@ -141,6 +147,7 @@ def _generate_bearer_token(
         "sub": client.model.client_id,
         "company_id": client.model.company_id,
         "scope": client.model.scope,
+        "typ": _TOKEN_TYPE,
         "iat": now,
         "exp": now + expires_in,
     }
@@ -203,6 +210,8 @@ def get_current_oauth_application(
     token = authorization.removeprefix("Bearer ")
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[JWT_ALGORITHM])
+        if payload.get("typ") != _TOKEN_TYPE:
+            raise jwt.InvalidTokenError("Unexpected token type")
     except jwt.PyJWTError as exc:
         raise HTTPException(status_code=401, detail="Invalid or expired token") from exc
 

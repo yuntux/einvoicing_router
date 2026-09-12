@@ -16,7 +16,7 @@ from app.services.user_access_service import EmailAlreadyExistsError
 router = APIRouter()
 
 
-def _to_read(user: User) -> UserRead:
+def _to_read(user: User, *, last_login_at=None) -> UserRead:
     return UserRead(
         id=user.id,
         email=user.email,
@@ -25,6 +25,7 @@ def _to_read(user: User) -> UserRead:
         company_ids=[c.id for c in user.companies],
         is_active=user.is_active,
         has_logged_in=user.oidc_subject is not None,
+        last_login_at=last_login_at,
         create_user_id=user.create_user_id,
         create_datetime=user.create_datetime,
         write_user_id=user.write_user_id,
@@ -34,7 +35,9 @@ def _to_read(user: User) -> UserRead:
 
 @router.get("", response_model=list[UserRead])
 def list_users(db: Session = Depends(get_db)):
-    return [_to_read(user) for user in user_access_service.list_users(db)]
+    users = user_access_service.list_users(db)
+    last_logins = audit_trace_service.get_last_logins(db, [user.id for user in users])
+    return [_to_read(user, last_login_at=last_logins.get(user.id)) for user in users]
 
 
 @router.post("", response_model=UserRead, status_code=201)
@@ -78,4 +81,4 @@ def update_user_access(
     audit_trace_service.record_user_action(
         db, request, actor, action="user_access_update", target=str(user.id)
     )
-    return _to_read(user)
+    return _to_read(user, last_login_at=audit_trace_service.get_last_login(db, user.id))

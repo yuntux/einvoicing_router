@@ -71,6 +71,7 @@ def test_create_user_preprovisions_by_email(client, monkeypatch):
     assert body["role"] == "user"
     assert body["is_active"] is True
     assert body["has_logged_in"] is False
+    assert body["last_login_at"] is None
 
 
 def test_create_user_rejects_duplicate_email(client, monkeypatch):
@@ -105,6 +106,7 @@ def test_deactivating_user_flags_has_logged_in_and_is_active(client, monkeypatch
     users = client.get("/api/ihm/users").json()
     target = [u for u in users if u["email"] == "toban@example.com"][0]
     assert target["has_logged_in"] is True
+    assert target["last_login_at"] is not None
 
     response = client.put(
         f"/api/ihm/users/{target['id']}/access",
@@ -112,3 +114,4 @@ def test_deactivating_user_flags_has_logged_in_and_is_active(client, monkeypatch
     )
     assert response.status_code == 200
     assert response.json()["is_active"] is False
+    assert response.json()["last_login_at"] is not None

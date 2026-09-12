@@ -7,6 +7,8 @@ export interface CurrentUser {
   name: string
   role: string
   company_ids: number[]
+  // Avant-dernière connexion (pas la connexion en cours) — cf. schemas/auth.py.
+  previous_login_at: string | null
 }
 
 export interface CurrentUserStatus {
