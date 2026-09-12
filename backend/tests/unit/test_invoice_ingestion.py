@@ -252,6 +252,50 @@ def test_reroute_unrouted_invoices_for_partner_fans_out_to_second_target(db_sess
     assert {r.target_application_id for r in invoice.routings} == {target_a.id, target_b.id}
 
 
+def test_reroute_unrouted_invoices_for_partner_does_not_leak_across_companies(db_session):
+    """NF2 : un fournisseur commun à deux entreprises gérées ne doit pas faire router
+    la facture de l'une vers l'application cible de l'autre lors d'un "rejeu" de
+    règle (`reroute_existing`, § 4.3) — symétrique de
+    `test_ingest_does_not_leak_invoice_to_other_company_afnor_target`, mais pour le
+    chemin de rattrapage plutôt que l'ingestion normale (`_route_invoice`)."""
+    company_a = _make_company(db_session, siren="111111111")
+    company_b = _make_company(db_session, siren="333333333")
+
+    partner = PartnerDirectory(siren="222222222", name="Fournisseur Commun")
+    db_session.add(partner)
+    db_session.commit()
+    db_session.refresh(partner)
+
+    # Facture reçue par l'entreprise B, avant toute règle de routage.
+    client_b = FakeCertifiedPlatformClient([_raw_invoice(emitter_siren="222222222")])
+    result_b = ingest_from_client(db_session, company=company_b, client=client_b)
+    invoice_b = result_b.created[0]
+    assert invoice_b.routings == []
+
+    # Une règle est activée entre ce fournisseur et une application cible de
+    # l'entreprise A (pas B) — la facture de B ne doit pas être routée vers elle.
+    target_a = TargetApplication(
+        name="Canal A",
+        routing_method=RoutingMethod.MAIL,
+        company_id=company_a.id,
+        parameters={"to": ["a@b.com"]},
+    )
+    db_session.add(target_a)
+    db_session.commit()
+    db_session.refresh(target_a)
+    routing_rule_service.set_rule_active(
+        db_session, partner_directory_id=partner.id, target_application_id=target_a.id, active=True
+    )
+
+    rerouted = invoice_ingestion_service.reroute_unrouted_invoices_for_partner(
+        db_session, partner_directory_id=partner.id, target_application_id=target_a.id
+    )
+
+    assert rerouted == 0
+    db_session.refresh(invoice_b)
+    assert invoice_b.routings == []
+
+
 def test_ingest_creates_routing_when_rule_matches(db_session):
     company = _make_company(db_session)
 

@@ -29,11 +29,34 @@ class PartnerDirectoryRead(AuditColumnsRead):
     name: str
 
 
+def validate_target_application_parameters(routing_method: RoutingMethod, parameters: dict) -> None:
+    """Un canal `mail` sans aucune adresse ne peut jamais envoyer de facture ; une
+    application `afnor_api` sans type (confidentielle/publique, RFC 6749 §2.1) n'a pas
+    de modèle d'authentification défini — les deux sont rejetés plutôt que
+    silencieusement acceptés (mail) ou complétés par un défaut implicite (afnor_api,
+    § demande utilisateur : le type d'application doit être explicitement renseigné,
+    pas seulement pré-sélectionné côté IHM). Partagée entre la création (§
+    `TargetApplicationCreate` ci-dessous) et la modification (§ endpoint `PUT
+    /target-applications/{id}`, qui connaît `routing_method` par l'objet existant,
+    jamais par le payload — figé après création, cf. `TargetApplicationUpdate`)."""
+    if routing_method == RoutingMethod.MAIL:
+        if not parameters.get("from") and not parameters.get("to"):
+            raise ValueError('Au moins l\'adresse "De" ou une adresse "À" doit être renseignée.')
+    elif routing_method == RoutingMethod.AFNOR_API:
+        if not parameters.get("app_type"):
+            raise ValueError("Le type d'application (confidentielle/publique) est obligatoire.")
+
+
 class TargetApplicationCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     routing_method: RoutingMethod
     company_id: int
     parameters: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_parameters(self) -> "TargetApplicationCreate":
+        validate_target_application_parameters(self.routing_method, self.parameters)
+        return self
 
 
 class TargetApplicationOAuthRead(BaseModel):

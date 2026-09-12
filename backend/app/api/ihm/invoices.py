@@ -10,7 +10,7 @@ from app.auth.perimeter import apply_company_scope, ensure_company_in_scope
 from app.auth.session import get_current_user, require_write
 from app.db.session import get_db
 from app.models.audit import AuditLog
-from app.models.referential import PartnerDirectory, User
+from app.models.referential import Company, PartnerDirectory, User
 from app.models.invoicing import Invoice
 from app.models.lifecycle import AfnorFlow, LifecycleEvent, LifecycleEventAttachment
 from app.schemas.invoice import InvoiceDetailRead, InvoiceRead
@@ -27,6 +27,19 @@ from app.services.lifecycle_service import LifecycleValidationError, ManualEvent
 router = APIRouter()
 
 INVOICE_DOWNLOAD_ACTION = "invoice_download"
+
+
+def _afnor_flow_to_read(flow: AfnorFlow) -> AfnorFlowRead:
+    return AfnorFlowRead(
+        id=flow.id,
+        flow_id=flow.flow_id,
+        direction=flow.direction,
+        flow_type=flow.flow_type,
+        syntax=flow.syntax,
+        processing_rule=flow.processing_rule,
+        state=flow.state,
+        has_file=flow.file_bin is not None,
+    )
 
 
 def _lifecycle_event_to_read(event: LifecycleEvent) -> LifecycleEventRead:
@@ -49,19 +62,7 @@ def _lifecycle_event_to_read(event: LifecycleEvent) -> LifecycleEventRead:
             LifecycleEventAttachmentRead(id=a.id, filename=a.filename, has_file=bool(a.file_path))
             for a in event.attachments
         ],
-    )
-
-
-def _afnor_flow_to_read(flow: AfnorFlow) -> AfnorFlowRead:
-    return AfnorFlowRead(
-        id=flow.id,
-        flow_id=flow.flow_id,
-        direction=flow.direction,
-        flow_type=flow.flow_type,
-        syntax=flow.syntax,
-        processing_rule=flow.processing_rule,
-        state=flow.state,
-        has_file=flow.file_bin is not None,
+        afnor_flow=_afnor_flow_to_read(event.afnor_flow) if event.afnor_flow is not None else None,
     )
 
 
@@ -76,11 +77,11 @@ def _last_download(db: Session, invoice_id: int) -> tuple[object | None, str | N
     )
     if last is None:
         return None, None
-    user_email = None
+    user_label = None
     if last.user_id is not None:
         user = db.get(User, last.user_id)
-        user_email = user.email if user else None
-    return last.created_at, user_email
+        user_label = (user.name or user.email) if user else None
+    return last.created_at, user_label
 
 
 def _last_downloads_bulk(
@@ -103,16 +104,45 @@ def _last_downloads_bulk(
     user_cache: dict[int, str | None] = {}
     result: dict[int, tuple[object, str | None]] = {}
     for log in logs:
-        user_email = None
+        user_label = None
         if log.user_id is not None:
             if log.user_id not in user_cache:
                 user = db.get(User, log.user_id)
-                user_cache[log.user_id] = user.email if user else None
-            user_email = user_cache[log.user_id]
+                user_cache[log.user_id] = (user.name or user.email) if user else None
+            user_label = user_cache[log.user_id]
         # Tri croissant : la dernière itération pour un même invoice_id est bien la
         # plus récente, elle écrase les précédentes.
-        result[int(log.target)] = (log.created_at, user_email)
+        result[int(log.target)] = (log.created_at, user_label)
     return result
+
+
+def _emitter_names_bulk(db: Session, sirens: set[str]) -> dict[str, str | None]:
+    """Raison sociale de chaque émetteur (§ 6.1), par SIREN — une seule requête
+    plutôt qu'un aller-retour `PartnerDirectory` par facture affichée. Un SIREN peut
+    porter plusieurs entrées d'annuaire (SIRET différents) : on ne garde que la
+    première rencontrée, purement indicatif pour l'affichage de liste (le détail
+    d'une facture, lui, résout la véritable entrée liée via `partner_directory_id`)."""
+    if not sirens:
+        return {}
+    names: dict[str, str | None] = {}
+    for partner in db.query(PartnerDirectory).filter(PartnerDirectory.siren.in_(sirens)).all():
+        names.setdefault(partner.siren, partner.name)
+    return names
+
+
+def _company_names_bulk(db: Session, company_ids: set[int]) -> dict[int, tuple[str, str]]:
+    """Raison sociale et SIREN de chaque entreprise réceptrice (§ 6.1), par id —
+    sans passer par `/companies/lookup` (qui masque volontairement le SIREN pour un
+    affichage inter-entreprises, § 5.1) : ici, `apply_company_scope` garantit déjà
+    que les factures listées appartiennent au périmètre de l'utilisateur, donc
+    afficher le SIREN de *sa propre* entreprise réceptrice n'expose rien hors
+    périmètre."""
+    if not company_ids:
+        return {}
+    return {
+        company.id: (company.name, company.siren)
+        for company in db.query(Company).filter(Company.id.in_(company_ids)).all()
+    }
 
 
 @router.get("", response_model=list[InvoiceRead])
@@ -189,10 +219,16 @@ def list_invoices(
     invoices = list(query.order_by(Invoice.received_at.desc()).all())
 
     downloads = _last_downloads_bulk(db, [invoice.id for invoice in invoices])
+    emitter_names = _emitter_names_bulk(db, {invoice.emitter_siren for invoice in invoices})
+    company_names = _company_names_bulk(db, {invoice.company_id for invoice in invoices})
     results = []
     for invoice in invoices:
         data = InvoiceRead.model_validate(invoice)
         data.last_download_at, data.last_download_by = downloads.get(invoice.id, (None, None))
+        data.emitter_name = emitter_names.get(invoice.emitter_siren)
+        company_name, company_siren = company_names.get(invoice.company_id, (None, None))
+        data.company_name = company_name
+        data.company_siren = company_siren
         results.append(data)
     return results
 
@@ -212,6 +248,8 @@ def get_invoice(
         partner = db.get(PartnerDirectory, invoice.partner_directory_id)
         emitter_name = partner.name if partner else None
 
+    company = db.get(Company, invoice.company_id)
+
     flows = (
         db.query(AfnorFlow)
         .filter(AfnorFlow.invoice_id == invoice_id)
@@ -221,6 +259,8 @@ def get_invoice(
 
     data = InvoiceDetailRead.model_validate(invoice)
     data.emitter_name = emitter_name
+    data.company_name = company.name if company else None
+    data.company_siren = company.siren if company else None
     data.last_download_at, data.last_download_by = _last_download(db, invoice.id)
     data.afnor_flows = [_afnor_flow_to_read(flow) for flow in flows]
     return data

@@ -68,6 +68,18 @@ def update_user_access(
     db: Session = Depends(get_db),
     actor: User | None = Depends(get_current_user),
 ):
+    if actor is not None and actor.id == user_id and not payload.is_active:
+        # Un administrateur pourrait sinon se verrouiller lui-même hors du routeur
+        # (plus personne d'actif pour réactiver son propre compte, § NF4) — bloqué
+        # ici plutôt que dans `user_access_service`, pour rester une règle
+        # d'autorisation de la requête, pas du modèle de données.
+        raise HTTPException(status_code=403, detail="Vous ne pouvez pas désactiver votre propre compte")
+    if actor is not None and actor.id == user_id and payload.role != actor.role:
+        # Même logique que la désactivation ci-dessus : un admin qui se rétrograderait
+        # lui-même pourrait perdre l'accès à cette page avant d'avoir pu redonner le
+        # rôle admin à quelqu'un d'autre.
+        raise HTTPException(status_code=403, detail="Vous ne pouvez pas changer votre propre rôle")
+
     user = user_access_service.update_access(
         db,
         user_id=user_id,

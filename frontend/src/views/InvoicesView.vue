@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import {
-  afnorFlowDownloadUrl,
   getInvoice,
   invoiceDownloadUrl,
   listInvoices,
@@ -9,14 +8,17 @@ import {
   type InvoiceDetail,
   type InvoiceFilters,
 } from '../api/invoices'
+import { listCompanyLookups, type CompanyLookup } from '../api/companies'
 import { listTargetApplicationLookups, type TargetApplicationLookup } from '../api/targetApplications'
 import LifecycleEventForm from '../components/LifecycleEventForm.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { useErrorMessage } from '../composables/useErrorMessage'
+import { formatDateTimeFr } from '../utils/date'
 
 const invoices = ref<Invoice[]>([])
 const selected = ref<InvoiceDetail | null>(null)
 const targetApplications = ref<TargetApplicationLookup[]>([])
+const companies = ref<CompanyLookup[]>([])
 const { error, guard } = useErrorMessage()
 
 // § 4.7/§ 8.3 : un badge par application cible de l'entreprise de la facture,
@@ -40,6 +42,26 @@ function routingBadgeClass(invoice: Invoice, targetId: number): string {
   return ROUTING_BADGE_CLASS[routing.transfer_status] ?? ''
 }
 
+// Libellés FR pour `transfer_status` (§ mêmes valeurs que ROUTING_BADGE_CLASS
+// ci-dessus, StatusBadge ne fait qu'un code couleur, jamais de traduction) —
+// utilisés dans la popin de détail (§ section "Routage"), où le statut brut de
+// l'API ("to_send", "failed_final"...) serait incompréhensible tel quel.
+const ROUTING_STATUS_LABEL: Record<string, string> = {
+  sent: 'Envoyée avec succès',
+  to_send: "En attente du prochain cycle d'envoi",
+  retrying: 'Échec, nouvel essai prévu',
+  failed: 'Échec',
+  failed_final: 'Échec définitif',
+}
+
+function routingStatusLabel(status: string): string {
+  return ROUTING_STATUS_LABEL[status] ?? status
+}
+
+function targetApplicationName(targetId: number): string {
+  return targetApplications.value.find((t) => t.id === targetId)?.name ?? `Application cible #${targetId}`
+}
+
 function isUnrouted(invoice: Invoice): boolean {
   return invoice.routings.length === 0
 }
@@ -57,6 +79,7 @@ const ROUTING_LEGEND = [
 const filterInvoiceNumber = ref('')
 const filterEmitterSiren = ref('')
 const filterEmitterName = ref('')
+const filterCompanyId = ref('')
 const filterDateFrom = ref('')
 const filterDateTo = ref('')
 const filterAmountExclTaxMin = ref('')
@@ -94,6 +117,7 @@ async function refreshInvoices() {
   if (filterInvoiceNumber.value) filters.invoice_number = filterInvoiceNumber.value
   if (filterEmitterSiren.value) filters.emitter_siren = filterEmitterSiren.value
   if (filterEmitterName.value) filters.emitter_name = filterEmitterName.value
+  if (filterCompanyId.value) filters.company_id = Number(filterCompanyId.value)
   if (filterDateFrom.value) filters.invoice_date_from = filterDateFrom.value
   if (filterDateTo.value) filters.invoice_date_to = filterDateTo.value
   if (filterAmountExclTaxMin.value) filters.amount_excl_tax_min = Number(filterAmountExclTaxMin.value)
@@ -111,6 +135,36 @@ async function refreshInvoices() {
 async function selectInvoice(id: number) {
   selected.value = await getInvoice(id)
 }
+
+function closeDetail() {
+  selected.value = null
+  downloadMenuOpen.value = false
+}
+
+const downloadMenuOpen = ref(false)
+const downloadControlRef = ref<HTMLElement | null>(null)
+
+function onDocumentClick(event: MouseEvent) {
+  if (downloadMenuOpen.value && !downloadControlRef.value?.contains(event.target as Node)) {
+    downloadMenuOpen.value = false
+  }
+}
+
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && selected.value) {
+    closeDetail()
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', onDocumentClick)
+  document.addEventListener('keydown', onKeydown)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', onDocumentClick)
+  document.removeEventListener('keydown', onKeydown)
+})
 
 function vatAmount(invoice: Invoice): number | null {
   if (invoice.amount_total == null || invoice.amount_excl_tax == null) return null
@@ -135,7 +189,10 @@ async function onLifecycleEventCreated() {
 
 onMounted(async () => {
   await guard(async () => {
-    targetApplications.value = await listTargetApplicationLookups()
+    ;[targetApplications.value, companies.value] = await Promise.all([
+      listTargetApplicationLookups(),
+      listCompanyLookups(),
+    ])
   })
   await refreshInvoices()
 })
@@ -156,6 +213,16 @@ onMounted(async () => {
         <input v-model="filterInvoiceNumber" placeholder="Numéro de facture" data-testid="filter-invoice-number" />
         <input v-model="filterEmitterSiren" placeholder="SIREN émetteur" data-testid="filter-emitter-siren" />
         <input v-model="filterEmitterName" placeholder="Raison sociale émetteur" data-testid="filter-emitter-name" />
+
+        <div class="field">
+          <label for="filter-company-id">Destinataire</label>
+          <select id="filter-company-id" v-model="filterCompanyId" data-testid="filter-company-id">
+            <option value="">Toutes les entreprises</option>
+            <option v-for="company in companies" :key="company.id" :value="company.id">
+              {{ company.name }}
+            </option>
+          </select>
+        </div>
 
         <div class="field">
           <label for="filter-date-from">Date</label>
@@ -258,6 +325,7 @@ onMounted(async () => {
           <tr>
             <th>N° facture</th>
             <th>Émetteur</th>
+            <th>Destinataire</th>
             <th>Date</th>
             <th>Montant HT</th>
             <th>Montant TVA</th>
@@ -302,14 +370,22 @@ onMounted(async () => {
             :data-testid="`invoice-row-${invoice.invoice_number}`"
           >
             <td>{{ invoice.invoice_number }}</td>
-            <td>{{ invoice.emitter_siren }}</td>
+            <td>
+              {{ invoice.emitter_siren }}
+              <div class="entity-sub">{{ invoice.emitter_name ?? 'annuaire inconnu' }}</div>
+            </td>
+            <td>
+              {{ invoice.company_siren }}
+              <div class="entity-sub">{{ invoice.company_name }}</div>
+            </td>
             <td>{{ invoice.invoice_date }}</td>
             <td>{{ invoice.amount_excl_tax ?? '—' }} {{ invoice.currency }}</td>
             <td>{{ vatAmount(invoice) ?? '—' }} {{ invoice.currency }}</td>
             <td>{{ invoice.amount_total ?? '—' }} {{ invoice.currency }}</td>
             <td :data-testid="`invoice-last-download-${invoice.invoice_number}`">
               <template v-if="invoice.last_download_at">
-                {{ invoice.last_download_at }} par {{ invoice.last_download_by ?? 'utilisateur non identifié' }}
+                {{ formatDateTimeFr(invoice.last_download_at) }} par
+                {{ invoice.last_download_by ?? 'utilisateur non identifié' }}
               </template>
               <template v-else>jamais</template>
             </td>
@@ -335,76 +411,154 @@ onMounted(async () => {
             </td>
           </tr>
           <tr v-if="invoices.length === 0">
-            <td colspan="8" class="entity-list-empty">Aucune facture ne correspond aux filtres.</td>
+            <td colspan="9" class="entity-list-empty">Aucune facture ne correspond aux filtres.</td>
           </tr>
         </tbody>
       </table>
     </section>
 
-    <section v-if="selected" class="card" data-testid="invoice-detail">
-      <h2>Facture {{ selected.invoice_number }}</h2>
-      <p>Émetteur : {{ selected.emitter_siren }} ({{ selected.emitter_name ?? 'annuaire inconnu' }})</p>
-      <p class="cluster">Statut cycle de vie : <StatusBadge :value="selected.lifecycle_status" /></p>
-      <p>
-        <a
-          :href="invoiceDownloadUrl(selected.id)"
-          data-testid="invoice-download-link"
-          @click="scheduleRefreshSelected"
-        >
-          Télécharger le fichier
-        </a>
-      </p>
-      <p data-testid="invoice-last-download">
-        Dernier téléchargement :
-        <template v-if="selected.last_download_at">
-          {{ selected.last_download_at }} par {{ selected.last_download_by ?? 'utilisateur non identifié' }}
-        </template>
-        <template v-else>jamais</template>
-      </p>
-
-      <h3>Enveloppe du flux AFNOR</h3>
-      <ul class="entity-list" data-testid="invoice-flow-envelope">
-        <li>Syntaxe : {{ selected.syntax ?? '—' }} <span class="entity-sub">({{ selected.flow_name ?? '—' }})</span></li>
-        <li>Règle de traitement : {{ selected.processing_rule ?? '—' }} <span class="entity-sub">({{ selected.processing_rule_source ?? '—' }})</span></li>
-        <li>Profil : {{ selected.flow_profile ?? '—' }}</li>
-        <li>Direction / type : {{ selected.flow_direction ?? '—' }} / {{ selected.flow_type ?? '—' }}</li>
-        <li>Identifiant de suivi (trackingId) : {{ selected.tracking_id ?? '—' }}</li>
-        <li>
-          Accusé de réception :
-          <StatusBadge :value="selected.ack_status" />
-          <span v-if="selected.ack_details" class="entity-sub">{{ selected.ack_details }}</span>
-        </li>
-      </ul>
-
-      <h3>Routage</h3>
-      <ul v-if="selected.routings.length" class="entity-list" data-testid="invoice-routings-list">
-        <li v-for="routing in selected.routings" :key="routing.id">
-          <span>Application cible #{{ routing.target_application_id }}</span>
-          <StatusBadge :value="routing.transfer_status" />
-        </li>
-      </ul>
-      <p v-else data-testid="invoice-no-routing">Aucune application cible routée.</p>
-
-      <h3>Flux AFNOR</h3>
-      <ul v-if="selected.afnor_flows.length" class="entity-list" data-testid="afnor-flows-list">
-        <li v-for="flow in selected.afnor_flows" :key="flow.id">
+    <div v-if="selected" class="modal-overlay" @click.self="closeDetail" @keydown.esc="closeDetail">
+      <div class="modal-panel card" role="dialog" aria-modal="true" data-testid="invoice-detail">
+        <div class="modal-header">
           <div>
-            <span class="entity-title">{{ flow.flow_type }} ({{ flow.direction }})</span>
-            <span class="entity-sub">Syntaxe {{ flow.syntax }}<template v-if="flow.flow_id"> — {{ flow.flow_id }}</template></span>
+            <h2>Facture {{ selected.invoice_number }}</h2>
+            <p class="entity-sub">
+              {{ selected.emitter_name ?? 'annuaire inconnu' }} ({{ selected.emitter_siren }}) — {{ selected.invoice_date }}
+            </p>
           </div>
-          <StatusBadge :value="flow.state" />
-          <a
-            v-if="flow.has_file"
-            :href="afnorFlowDownloadUrl(selected.id, flow.id)"
-            :data-testid="`afnor-flow-download-${flow.id}`"
+          <button
+            type="button"
+            class="modal-close"
+            aria-label="Fermer"
+            data-testid="invoice-detail-close"
+            @click="closeDetail"
           >
-            Télécharger
-          </a>
-        </li>
-      </ul>
-      <p v-else data-testid="invoice-no-afnor-flow">Aucun flux AFNOR pour cette facture.</p>
+            ×
+          </button>
+        </div>
 
-      <LifecycleEventForm :key="selected.id" :invoice-id="selected.id" @created="onLifecycleEventCreated" />
-    </section>
+        <div class="modal-stats">
+          <div class="modal-stat-card">
+            <span class="modal-stat-label">Montant TTC</span>
+            <span class="modal-stat-value">{{ selected.amount_total ?? '—' }} {{ selected.currency }}</span>
+          </div>
+          <div class="modal-stat-card">
+            <span class="modal-stat-label">Statut cycle de vie</span>
+            <span><StatusBadge :value="selected.lifecycle_status" /></span>
+          </div>
+          <div class="modal-stat-card">
+            <span class="modal-stat-label">Dernier téléchargement</span>
+            <span data-testid="invoice-last-download">
+              <template v-if="selected.last_download_at">
+                {{ formatDateTimeFr(selected.last_download_at) }} par
+                {{ selected.last_download_by ?? 'utilisateur non identifié' }}
+              </template>
+              <template v-else>jamais</template>
+            </span>
+          </div>
+        </div>
+
+        <div class="download-control-wrapper">
+          <div ref="downloadControlRef" class="download-control">
+            <div class="cluster" style="gap: 0">
+              <a
+                :href="invoiceDownloadUrl(selected.id)"
+                class="btn-secondary download-btn-main"
+                data-testid="invoice-download-link"
+                @click="scheduleRefreshSelected"
+              >
+                Télécharger la facture
+              </a>
+              <button
+                type="button"
+                class="btn-secondary download-btn-toggle"
+                aria-label="Choisir le format de téléchargement"
+                data-testid="invoice-download-format-toggle"
+                @click="downloadMenuOpen = !downloadMenuOpen"
+              >
+                ▾
+              </button>
+            </div>
+            <div v-if="downloadMenuOpen" class="download-menu" data-testid="invoice-download-menu">
+              <a
+                :href="invoiceDownloadUrl(selected.id)"
+                data-testid="invoice-download-format-original"
+                @click="downloadMenuOpen = false; scheduleRefreshSelected()"
+              >
+                {{ selected.syntax ?? 'Format d’origine' }}
+                <span class="entity-sub">(format de réception)</span>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <LifecycleEventForm :key="selected.id" :invoice-id="selected.id" @created="onLifecycleEventCreated" />
+
+        <details class="modal-technical-details">
+          <summary>Détails techniques</summary>
+
+          <h3>Enveloppe du flux AFNOR</h3>
+          <div class="modal-stats modal-stats-compact" data-testid="invoice-flow-envelope">
+            <div class="modal-stat-card">
+              <span class="modal-stat-label">Syntaxe</span>
+              <span class="modal-stat-value">{{ selected.syntax ?? '—' }}</span>
+              <span v-if="selected.flow_name" class="entity-sub">{{ selected.flow_name }}</span>
+            </div>
+            <div class="modal-stat-card">
+              <span class="modal-stat-label">Règle de traitement</span>
+              <span class="modal-stat-value">{{ selected.processing_rule ?? '—' }}</span>
+              <span v-if="selected.processing_rule_source" class="entity-sub">
+                Source : {{ selected.processing_rule_source }}
+              </span>
+            </div>
+            <div class="modal-stat-card">
+              <span class="modal-stat-label">Profil</span>
+              <span class="modal-stat-value">{{ selected.flow_profile ?? '—' }}</span>
+            </div>
+            <div class="modal-stat-card">
+              <span class="modal-stat-label">Direction / type</span>
+              <span class="modal-stat-value">{{ selected.flow_direction ?? '—' }} / {{ selected.flow_type ?? '—' }}</span>
+            </div>
+            <div class="modal-stat-card">
+              <span class="modal-stat-label">Identifiant de suivi</span>
+              <span class="modal-stat-value">
+                <code v-if="selected.tracking_id">{{ selected.tracking_id }}</code>
+                <template v-else>—</template>
+              </span>
+            </div>
+            <div class="modal-stat-card">
+              <span class="modal-stat-label">Accusé de réception</span>
+              <span class="modal-stat-value"><StatusBadge :value="selected.ack_status" /></span>
+              <span v-if="selected.ack_details" class="entity-sub">{{ selected.ack_details }}</span>
+            </div>
+          </div>
+
+          <h3>Routage</h3>
+          <table v-if="selected.routings.length" data-testid="invoice-routings-list">
+            <thead>
+              <tr>
+                <th>Application cible</th>
+                <th>Statut de transfert</th>
+                <th>Tentatives</th>
+                <th>Prochain essai</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="routing in selected.routings" :key="routing.id">
+                <td>{{ targetApplicationName(routing.target_application_id) }}</td>
+                <td>
+                  <span class="badge" :class="ROUTING_BADGE_CLASS[routing.transfer_status] ?? ''">
+                    {{ routingStatusLabel(routing.transfer_status) }}
+                  </span>
+                </td>
+                <td>{{ routing.attempt_count }}</td>
+                <td>{{ routing.next_attempt_at ? formatDateTimeFr(routing.next_attempt_at) : '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-else class="entity-list-empty" data-testid="invoice-no-routing">Aucune application cible routée.</p>
+        </details>
+      </div>
+    </div>
   </main>
 </template>

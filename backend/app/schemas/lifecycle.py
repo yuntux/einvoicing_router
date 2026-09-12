@@ -58,6 +58,10 @@ class LifecycleEventRead(BaseModel):
     details: list[LifecycleEventDetailRead]
     payments: list[LifecycleEventPaymentRead]
     attachments: list[LifecycleEventAttachmentRead]
+    # Flux CDAR technique associé (§ 6.2) — permet à l'IHM de fusionner en une seule
+    # ligne le statut métier et son état de transmission, sans requête séparée sur
+    # "Flux AFNOR" (cf. maquette popin facture).
+    afnor_flow: AfnorFlowRead | None
 
 
 class CreateManualLifecycleEvent(BaseModel):

@@ -42,6 +42,11 @@ export interface Invoice {
   // Statut de routage par application cible (§ 4.7/§ 8.3) — un badge par
   // application de l'entreprise dans la liste des factures.
   routings: InvoiceRouting[]
+  // Raison sociale de l'émetteur (PartnerDirectory) et de l'entreprise réceptrice
+  // (Company) — obtenues par jointure côté backend, jamais dénormalisées.
+  emitter_name: string | null
+  company_name: string | null
+  company_siren: string | null
 }
 
 export interface AfnorFlow {
@@ -56,9 +61,6 @@ export interface AfnorFlow {
 }
 
 export interface InvoiceDetail extends Invoice {
-  emitter_name: string | null
-  last_download_at: string | null
-  last_download_by: string | null
   afnor_flows: AfnorFlow[]
 }
 

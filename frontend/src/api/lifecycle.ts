@@ -35,6 +35,17 @@ export interface LifecycleEventAttachment {
   has_file: boolean
 }
 
+export interface LifecycleEventAfnorFlow {
+  id: number
+  flow_id: string | null
+  direction: string
+  flow_type: string
+  syntax: string
+  processing_rule: string | null
+  state: string
+  has_file: boolean
+}
+
 export interface LifecycleEvent {
   id: number
   invoice_id: number
@@ -46,6 +57,9 @@ export interface LifecycleEvent {
   details: LifecycleEventDetail[]
   payments: LifecycleEventPayment[]
   attachments: LifecycleEventAttachment[]
+  // Flux CDAR technique associé (§ 6.2) — fusionné dans l'affichage plutôt que
+  // listé séparément (cf. maquette popin facture).
+  afnor_flow: LifecycleEventAfnorFlow | null
 }
 
 export interface CreateLifecycleEventPayload {

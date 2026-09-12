@@ -1,9 +1,18 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { authStatus } from '../api/auth'
 import { type Company, listCompanies } from '../api/companies'
 import { type AppUser, createUser, listUsers, updateUserAccess } from '../api/users'
 import { useErrorMessage } from '../composables/useErrorMessage'
 import { formatDateTimeFr } from '../utils/date'
+
+// § un utilisateur ne doit pas pouvoir désactiver son propre compte, ni changer son
+// propre rôle (bloqué aussi côté API, § app/api/ihm/users.py) — sinon un admin
+// pourrait se retrouver verrouillé hors de cette page sans plus personne pour
+// annuler.
+function isSelf(user: AppUser): boolean {
+  return authStatus.value?.user?.id === user.id
+}
 
 const users = ref<AppUser[]>([])
 const companies = ref<Company[]>([])
@@ -116,7 +125,12 @@ onMounted(() => guard(refresh))
               </span>
             </td>
             <td>
-              <select v-model="editedRole[user.id]" :data-testid="`user-role-select-${user.id}`">
+              <select
+                v-model="editedRole[user.id]"
+                :disabled="isSelf(user)"
+                :title="isSelf(user) ? 'Vous ne pouvez pas changer votre propre rôle' : undefined"
+                :data-testid="`user-role-select-${user.id}`"
+              >
                 <option value="user">Utilisateur restreint</option>
                 <option value="readonly">Lecture seule</option>
                 <option value="admin">Administrateur</option>
@@ -142,6 +156,8 @@ onMounted(() => guard(refresh))
               <input
                 type="checkbox"
                 v-model="editedIsActive[user.id]"
+                :disabled="isSelf(user)"
+                :title="isSelf(user) ? 'Vous ne pouvez pas désactiver votre propre compte' : undefined"
                 :data-testid="`user-active-checkbox-${user.id}`"
               />
             </td>

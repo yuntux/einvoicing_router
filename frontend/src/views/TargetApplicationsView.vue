@@ -61,6 +61,25 @@ function buildParameters(method: RoutingMethod, state: TargetApplicationFieldsSt
       }
 }
 
+/** Même règle que le backend (§ `validate_target_application_parameters`,
+ * app/schemas/referential.py) — dupliquée ici pour un retour immédiat sans aller-retour
+ * serveur, mais le backend reste la source de vérité (jamais fait confiance côté client
+ * seul). */
+function validateParameters(method: RoutingMethod, parameters: ReturnType<typeof buildParameters>): string | null {
+  if (method === 'mail') {
+    const { from, to } = parameters as { from: string | null; to: string[] }
+    if (!from && to.length === 0) {
+      return 'Au moins l\'adresse "De" ou une adresse "À" doit être renseignée.'
+    }
+  } else {
+    const { app_type } = parameters as { app_type: string }
+    if (!app_type) {
+      return "Le type d'application est obligatoire."
+    }
+  }
+  return null
+}
+
 function startEdit(ta: TargetApplication) {
   edits[ta.id] = {
     name: ta.name,
@@ -82,6 +101,11 @@ function cancelEdit() {
 
 async function saveEdit(ta: TargetApplication) {
   const parameters = buildParameters(ta.routing_method, edits[ta.id])
+  const validationError = validateParameters(ta.routing_method, parameters)
+  if (validationError) {
+    error.value = validationError
+    return
+  }
   await guard(async () => {
     await updateTargetApplication(ta.id, { name: edits[ta.id].name, parameters })
     editingId.value = null
@@ -103,6 +127,11 @@ async function submit() {
   }
 
   const parameters = buildParameters(routingMethod.value, formState.value)
+  const validationError = validateParameters(routingMethod.value, parameters)
+  if (validationError) {
+    error.value = validationError
+    return
+  }
 
   await guard(async () => {
     const created = await createTargetApplication({
