@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   getInvoice,
   invoiceDownloadUrl,
@@ -14,6 +15,9 @@ import LifecycleEventForm from '../components/LifecycleEventForm.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { useErrorMessage } from '../composables/useErrorMessage'
 import { formatDateTimeFr } from '../utils/date'
+
+const route = useRoute()
+const router = useRouter()
 
 const invoices = ref<Invoice[]>([])
 const selected = ref<InvoiceDetail | null>(null)
@@ -132,14 +136,32 @@ async function refreshInvoices() {
   })
 }
 
-async function selectInvoice(id: number) {
-  selected.value = await getInvoice(id)
+// Détail de facture routé (§ /invoices/:id, plutôt qu'une popin) : le clic sur une
+// ligne pousse une vraie navigation — URL partageable, bouton précédent du
+// navigateur fonctionnel nativement — au lieu de basculer un simple booléen local.
+function openInvoice(id: number) {
+  router.push({ name: 'invoice-detail', params: { id } })
 }
 
-function closeDetail() {
-  selected.value = null
-  downloadMenuOpen.value = false
+function goBackToList() {
+  router.push({ name: 'invoices' })
 }
+
+async function loadSelected(idParam: string | string[] | undefined) {
+  if (!idParam) {
+    selected.value = null
+    downloadMenuOpen.value = false
+    return
+  }
+  const id = Number(Array.isArray(idParam) ? idParam[0] : idParam)
+  await guard(async () => {
+    selected.value = await getInvoice(id)
+  })
+}
+
+// Navigue entre /invoices et /invoices/:id (ou d'une facture à l'autre) sans
+// remonter le composant — même `component:` sur les deux routes, § router.ts.
+watch(() => route.params.id, (id) => loadSelected(id))
 
 const downloadMenuOpen = ref(false)
 const downloadControlRef = ref<HTMLElement | null>(null)
@@ -152,7 +174,7 @@ function onDocumentClick(event: MouseEvent) {
 
 function onKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && selected.value) {
-    closeDetail()
+    goBackToList()
   }
 }
 
@@ -195,17 +217,21 @@ onMounted(async () => {
     ])
   })
   await refreshInvoices()
+  // Chargement initial si l'URL pointe déjà sur une facture (lien direct/rechargement
+  // de page) — les navigations suivantes passent par le `watch` ci-dessus.
+  await loadSelected(route.params.id)
 })
 </script>
 
 <template>
   <main class="stack">
+    <p v-if="error" role="alert">{{ error }}</p>
+
+    <template v-if="!selected">
     <header class="page-header">
       <h1>Factures reçues</h1>
       <p>Factures récupérées depuis l'API AFNOR et leur routage vers les applications cibles.</p>
     </header>
-
-    <p v-if="error" role="alert">{{ error }}</p>
 
     <section class="card">
       <h2>Filtres</h2>
@@ -366,7 +392,7 @@ onMounted(async () => {
             v-for="invoice in invoices"
             :key="invoice.id"
             class="row-clickable"
-            @click="selectInvoice(invoice.id)"
+            @click="openInvoice(invoice.id)"
             :data-testid="`invoice-row-${invoice.invoice_number}`"
           >
             <td>{{ invoice.invoice_number }}</td>
@@ -416,35 +442,55 @@ onMounted(async () => {
         </tbody>
       </table>
     </section>
+    </template>
 
-    <div v-if="selected" class="modal-overlay" @click.self="closeDetail" @keydown.esc="closeDetail">
-      <div class="modal-panel card" role="dialog" aria-modal="true" data-testid="invoice-detail">
-        <div class="modal-header">
-          <div>
-            <h2>Facture {{ selected.invoice_number }}</h2>
-            <p class="entity-sub">
-              {{ selected.emitter_name ?? 'annuaire inconnu' }} ({{ selected.emitter_siren }}) — {{ selected.invoice_date }}
-            </p>
-          </div>
-          <button
-            type="button"
-            class="modal-close"
-            aria-label="Fermer"
-            data-testid="invoice-detail-close"
-            @click="closeDetail"
-          >
-            ×
-          </button>
-        </div>
+    <template v-else>
+      <header class="page-header">
+        <button
+          type="button"
+          class="back-link"
+          data-testid="invoice-detail-back"
+          @click="goBackToList"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 6l-6 6 6 6" />
+          </svg>
+          Retour à la liste
+        </button>
+        <h1>Facture {{ selected.invoice_number }}</h1>
+      </header>
 
+      <section class="card" data-testid="invoice-detail">
         <div class="modal-stats">
           <div class="modal-stat-card">
-            <span class="modal-stat-label">Montant TTC</span>
-            <span class="modal-stat-value">{{ selected.amount_total ?? '—' }} {{ selected.currency }}</span>
+            <span class="modal-stat-label">Émetteur</span>
+            <span class="modal-stat-value">{{ selected.emitter_siren }}</span>
+            <span class="entity-sub">{{ selected.emitter_name ?? 'annuaire inconnu' }}</span>
+          </div>
+          <div class="modal-stat-card">
+            <span class="modal-stat-label">Destinataire</span>
+            <span class="modal-stat-value">{{ selected.company_siren }}</span>
+            <span class="entity-sub">{{ selected.company_name }}</span>
+          </div>
+          <div class="modal-stat-card">
+            <span class="modal-stat-label">Date</span>
+            <span class="modal-stat-value">{{ selected.invoice_date }}</span>
           </div>
           <div class="modal-stat-card">
             <span class="modal-stat-label">Statut cycle de vie</span>
             <span><StatusBadge :value="selected.lifecycle_status" /></span>
+          </div>
+          <div class="modal-stat-card">
+            <span class="modal-stat-label">Montant HT</span>
+            <span class="modal-stat-value">{{ selected.amount_excl_tax ?? '—' }} {{ selected.currency }}</span>
+          </div>
+          <div class="modal-stat-card">
+            <span class="modal-stat-label">Montant TVA</span>
+            <span class="modal-stat-value">{{ vatAmount(selected) ?? '—' }} {{ selected.currency }}</span>
+          </div>
+          <div class="modal-stat-card">
+            <span class="modal-stat-label">Montant TTC</span>
+            <span class="modal-stat-value">{{ selected.amount_total ?? '—' }} {{ selected.currency }}</span>
           </div>
           <div class="modal-stat-card">
             <span class="modal-stat-label">Dernier téléchargement</span>
@@ -460,7 +506,7 @@ onMounted(async () => {
 
         <div class="download-control-wrapper">
           <div ref="downloadControlRef" class="download-control">
-            <div class="cluster" style="gap: 0">
+            <div class="download-btn-group">
               <a
                 :href="invoiceDownloadUrl(selected.id)"
                 class="btn-secondary download-btn-main"
@@ -476,7 +522,9 @@ onMounted(async () => {
                 data-testid="invoice-download-format-toggle"
                 @click="downloadMenuOpen = !downloadMenuOpen"
               >
-                ▾
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 6l4 4 4-4" />
+                </svg>
               </button>
             </div>
             <div v-if="downloadMenuOpen" class="download-menu" data-testid="invoice-download-menu">
@@ -492,73 +540,71 @@ onMounted(async () => {
           </div>
         </div>
 
-        <LifecycleEventForm :key="selected.id" :invoice-id="selected.id" @created="onLifecycleEventCreated" />
-
-        <details class="modal-technical-details">
-          <summary>Détails techniques</summary>
-
-          <h3>Enveloppe du flux AFNOR</h3>
-          <div class="modal-stats modal-stats-compact" data-testid="invoice-flow-envelope">
-            <div class="modal-stat-card">
-              <span class="modal-stat-label">Syntaxe</span>
-              <span class="modal-stat-value">{{ selected.syntax ?? '—' }}</span>
-              <span v-if="selected.flow_name" class="entity-sub">{{ selected.flow_name }}</span>
-            </div>
-            <div class="modal-stat-card">
-              <span class="modal-stat-label">Règle de traitement</span>
-              <span class="modal-stat-value">{{ selected.processing_rule ?? '—' }}</span>
-              <span v-if="selected.processing_rule_source" class="entity-sub">
-                Source : {{ selected.processing_rule_source }}
-              </span>
-            </div>
-            <div class="modal-stat-card">
-              <span class="modal-stat-label">Profil</span>
-              <span class="modal-stat-value">{{ selected.flow_profile ?? '—' }}</span>
-            </div>
-            <div class="modal-stat-card">
-              <span class="modal-stat-label">Direction / type</span>
-              <span class="modal-stat-value">{{ selected.flow_direction ?? '—' }} / {{ selected.flow_type ?? '—' }}</span>
-            </div>
-            <div class="modal-stat-card">
-              <span class="modal-stat-label">Identifiant de suivi</span>
-              <span class="modal-stat-value">
-                <code v-if="selected.tracking_id">{{ selected.tracking_id }}</code>
-                <template v-else>—</template>
-              </span>
-            </div>
-            <div class="modal-stat-card">
-              <span class="modal-stat-label">Accusé de réception</span>
-              <span class="modal-stat-value"><StatusBadge :value="selected.ack_status" /></span>
-              <span v-if="selected.ack_details" class="entity-sub">{{ selected.ack_details }}</span>
-            </div>
+        <div class="modal-columns">
+          <div class="modal-column">
+            <LifecycleEventForm :key="selected.id" :invoice-id="selected.id" @created="onLifecycleEventCreated" />
           </div>
 
-          <h3>Routage</h3>
-          <table v-if="selected.routings.length" data-testid="invoice-routings-list">
-            <thead>
-              <tr>
-                <th>Application cible</th>
-                <th>Statut de transfert</th>
-                <th>Tentatives</th>
-                <th>Prochain essai</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="routing in selected.routings" :key="routing.id">
-                <td>{{ targetApplicationName(routing.target_application_id) }}</td>
-                <td>
-                  <span class="badge" :class="ROUTING_BADGE_CLASS[routing.transfer_status] ?? ''">
-                    {{ routingStatusLabel(routing.transfer_status) }}
+          <div class="modal-column">
+            <h3>Enveloppe du flux AFNOR</h3>
+            <div class="kv-columns" data-testid="invoice-flow-envelope">
+              <div class="kv-list">
+                <p>
+                  <strong>Syntaxe :</strong> {{ selected.syntax ?? '—' }}
+                  <span v-if="selected.flow_name" class="entity-sub">({{ selected.flow_name }})</span>
+                </p>
+                <p>
+                  <strong>Règle de traitement :</strong> {{ selected.processing_rule ?? '—' }}
+                  <span v-if="selected.processing_rule_source" class="entity-sub">
+                    (Source : {{ selected.processing_rule_source }})
                   </span>
-                </td>
-                <td>{{ routing.attempt_count }}</td>
-                <td>{{ routing.next_attempt_at ? formatDateTimeFr(routing.next_attempt_at) : '—' }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <p v-else class="entity-list-empty" data-testid="invoice-no-routing">Aucune application cible routée.</p>
-        </details>
-      </div>
-    </div>
+                </p>
+                <p><strong>Profil :</strong> {{ selected.flow_profile ?? '—' }}</p>
+              </div>
+              <div class="kv-list">
+                <p>
+                  <strong>Direction / type :</strong> {{ selected.flow_direction ?? '—' }} / {{ selected.flow_type ?? '—' }}
+                </p>
+                <p>
+                  <strong>Identifiant de suivi :</strong>
+                  <code v-if="selected.tracking_id">{{ selected.tracking_id }}</code>
+                  <template v-else>—</template>
+                </p>
+                <p>
+                  <strong>Accusé de réception :</strong>
+                  <StatusBadge :value="selected.ack_status" />
+                  <span v-if="selected.ack_details" class="entity-sub">{{ selected.ack_details }}</span>
+                </p>
+              </div>
+            </div>
+
+            <h3>Routage</h3>
+            <table v-if="selected.routings.length" data-testid="invoice-routings-list">
+              <thead>
+                <tr>
+                  <th>Application cible</th>
+                  <th>Statut de transfert</th>
+                  <th>Tentatives</th>
+                  <th>Prochain essai</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="routing in selected.routings" :key="routing.id">
+                  <td>{{ targetApplicationName(routing.target_application_id) }}</td>
+                  <td>
+                    <span class="badge" :class="ROUTING_BADGE_CLASS[routing.transfer_status] ?? ''">
+                      {{ routingStatusLabel(routing.transfer_status) }}
+                    </span>
+                  </td>
+                  <td>{{ routing.attempt_count }}</td>
+                  <td>{{ routing.next_attempt_at ? formatDateTimeFr(routing.next_attempt_at) : '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-else class="entity-list-empty" data-testid="invoice-no-routing">Aucune application cible routée.</p>
+          </div>
+        </div>
+      </section>
+    </template>
   </main>
 </template>

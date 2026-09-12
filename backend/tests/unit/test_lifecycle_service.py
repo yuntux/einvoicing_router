@@ -147,6 +147,30 @@ def test_create_incoming_event_dispute_with_detail(db_session):
     assert flow.invoice_id == invoice.id
 
 
+def test_create_incoming_event_records_state_flow_type(db_session):
+    """Régression : les statuts purement techniques (`ap_received` "Reçue par la
+    plateforme", etc.) transitent par le flux `StateSupplierInvoiceLC`, distinct de
+    `SupplierInvoiceLC` — un CDAR reçu via ce flux doit rester rattaché à la facture
+    et créer son événement, avec le bon `AfnorFlow.flow_type` (cf. l'incident du
+    statut "Reçue par la plateforme" jamais visible côté Tricatel)."""
+    invoice = _make_invoice(db_session)
+    xml_bytes = _generate_cdar_bytes(invoice, status="ap_received")
+
+    event = create_incoming_event(
+        db_session,
+        invoice=invoice,
+        flow_id="cdar-flow-state-1",
+        xml_bytes=xml_bytes,
+        flow_type="StateSupplierInvoiceLC",
+    )
+
+    assert event is not None
+    assert event.status == "ap_received"
+
+    flow = db_session.query(AfnorFlow).filter(AfnorFlow.flow_id == "cdar-flow-state-1").one()
+    assert flow.flow_type == "StateSupplierInvoiceLC"
+
+
 def test_create_incoming_event_payment_sent_creates_payment_line(db_session):
     from app.models.lifecycle import LifecycleEventPayment
 
@@ -174,6 +198,30 @@ def test_create_incoming_event_is_idempotent(db_session):
     assert first is not None
     assert second is None
     assert db_session.query(AfnorFlow).filter(AfnorFlow.flow_id == "cdar-flow-3").count() == 1
+
+
+def test_create_incoming_event_skips_flow_id_already_used_outgoing(db_session):
+    """Un CDAR reçu ne doit jamais être traité une seconde fois s'il correspond à un
+    `flow_id` déjà connu sous forme d'`AfnorFlow` SORTANT — SuperPDP peut exposer un
+    même flux technique côté `flow_direction="out"` (cf. l'incident du statut
+    ap_received), l'idempotence doit donc porter sur le `flow_id` seul, pas sur le
+    couple (flow_id, direction)."""
+    invoice = _make_invoice(db_session)
+    outgoing_flow = AfnorFlow(
+        invoice_id=invoice.id,
+        flow_id="shared-flow-id",
+        direction=EventDirection.OUT,
+        flow_type="SupplierInvoiceLC",
+        syntax="CDAR",
+    )
+    db_session.add(outgoing_flow)
+    db_session.commit()
+
+    xml_bytes = _generate_cdar_bytes(invoice, status="approved")
+    event = create_incoming_event(db_session, invoice=invoice, flow_id="shared-flow-id", xml_bytes=xml_bytes)
+
+    assert event is None
+    assert db_session.query(AfnorFlow).filter(AfnorFlow.flow_id == "shared-flow-id").count() == 1
 
 
 def test_create_incoming_event_unknown_status_keeps_flow_but_no_event(db_session, monkeypatch):

@@ -151,14 +151,42 @@ def test_fetch_incoming_lifecycle_events_maps_flow_to_raw_cdar():
         client = PyfrctcCertifiedPlatformClient(session)
         events = client.fetch_incoming_lifecycle_events(company_siren="123456789")
 
-    search.assert_called_once()
-    assert search.call_args.kwargs["flow_type"] == ["SupplierInvoiceLC"]
+    # Interrogé dans les deux sens (`in` et `out`) — un même statut technique peut
+    # ressortir en `flow_direction="out"` côté SuperPDP, cf. l'incident du statut
+    # ap_received. Le même flux étant renvoyé par le mock pour les deux appels, il
+    # ne doit être conservé qu'une fois (dédoublonné par flow_id).
+    assert search.call_count == 2
+    directions = {call.kwargs["flow_direction"] for call in search.call_args_list}
+    assert directions == {"in", "out"}
+    for call in search.call_args_list:
+        assert call.kwargs["flow_type"] == ["SupplierInvoiceLC", "StateSupplierInvoiceLC"]
     get_flow.assert_called_once_with(session, "cdar-flow-1", doc_type="Original")
 
     assert len(events) == 1
     assert events[0].flow_id == "cdar-flow-1"
     assert events[0].xml_bytes == b"<cdar/>"
     assert events[0].flow_type == "SupplierInvoiceLC"
+
+
+def test_fetch_incoming_lifecycle_events_merges_both_directions():
+    """Un statut technique visible uniquement en `flow_direction="out"` (ex.
+    "Reçue par la plateforme", cf. l'incident Tricatel) doit être remonté même s'il
+    est absent du côté `in`."""
+    session = MagicMock()
+    flow_in = {"flowId": "cdar-in-1", "flowType": "SupplierInvoiceLC"}
+    flow_out = {"flowId": "cdar-out-1", "flowType": "SupplierInvoiceLC"}
+
+    def fake_search(_session, *, updated_after, flow_direction, flow_type):
+        return [flow_in] if flow_direction == "in" else [flow_out]
+
+    with (
+        patch("app.afnor.client.pyfrctc_client.core.search_flows_parsed", side_effect=fake_search),
+        patch("app.afnor.client.pyfrctc_client.core.get_flow", return_value=b"<cdar/>"),
+    ):
+        client = PyfrctcCertifiedPlatformClient(session)
+        events = client.fetch_incoming_lifecycle_events(company_siren="123456789")
+
+    assert {e.flow_id for e in events} == {"cdar-in-1", "cdar-out-1"}
 
 
 def test_fetch_incoming_lifecycle_events_skips_flow_without_id():
