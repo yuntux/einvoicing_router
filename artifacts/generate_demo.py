@@ -507,6 +507,11 @@ async def check_routing_cell(page, partner_text, target_name, reroute_existing=T
     `target_name` — évite d'avoir à connaître les identifiants de base de données des lignes
     créées pendant la capture."""
     table = page.locator('[data-testid="routing-rules-list"]')
+    # Les colonnes (une par application cible) sont peuplées par un appel asynchrone séparé de
+    # celui qui affiche le tableau lui-même — attendre l'en-tête cherché explicitement plutôt que
+    # de lire `thead th` une seule fois évite une lecture prématurée (0 colonne encore chargée),
+    # piège découvert en testant ce script.
+    await table.locator("thead th", has_text=target_name).first.wait_for(state="visible", timeout=8000)
     headers = table.locator("thead th")
     col_index = None
     for i in range(1, await headers.count()):
@@ -633,10 +638,14 @@ async def capture(durations):
             try:
                 await page.fill('[data-testid="ta-name-input"]', "Odoo")
                 await page.select_option('[data-testid="ta-method-select"]', "afnor_api")
-                await asyncio.sleep(0.3)
+                # Attend le rendu effectif des champs propres à afnor_api (TargetApplicationFormFields
+                # bascule sur un `v-if` piloté par routingMethod) avant de continuer, plutôt qu'un
+                # sleep() arbitraire — un délai fixe s'est révélé parfois insuffisant en testant ce
+                # script (soumission avec l'ancien jeu de champs encore affiché, échec silencieux).
+                await page.wait_for_selector('[data-testid="ta-app-type-select"]', timeout=5000)
                 await page.locator('[data-testid="ta-company-select"]').select_option(label=company_name)
                 await click_with_cursor(page, page.locator('[data-testid="ta-submit-button"]'))
-                await page.wait_for_selector('[data-testid="ta-oauth-credentials"]', timeout=8000)
+                await page.wait_for_selector('[data-testid="ta-oauth-credentials"]', timeout=12000)
                 print("  ✅ Application cible AFNOR API créée (Odoo), identifiants affichés")
                 await asyncio.sleep(1.5)
             except Exception as e:
