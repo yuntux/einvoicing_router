@@ -58,7 +58,7 @@ async function submitNewUser() {
   })
 }
 
-onMounted(refresh)
+onMounted(() => guard(refresh))
 </script>
 
 <template>

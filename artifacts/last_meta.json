@@ -1,0 +1,15 @@
+{
+  "video_path": "/home/ubuntu/einvoicing_router/artifacts/temp_video/page@bf9756fe12fc208ecb6f41a84bbf1f58.webm",
+  "timestamps": {
+    "00_value_prop": 2.1457672119140625e-06,
+    "01_companies": 18.108062744140625,
+    "02_target_applications": 29.54678964614868,
+    "03_routing_rules": 44.354575395584106,
+    "04_invoices": 55.97250485420227,
+    "05_lifecycle": 67.5235071182251,
+    "06_failed_routings": 77.12405037879944,
+    "07_traces": 87.06931638717651,
+    "08_access_audit": 95.81633377075195,
+    "09_outro": 106.27797245979309
+  }
+}

@@ -71,8 +71,10 @@ async function submitCredentials(companyId: number) {
 }
 
 onMounted(async () => {
-  afnorPlatforms.value = await listAfnorPlatforms()
-  await refresh()
+  await guard(async () => {
+    afnorPlatforms.value = await listAfnorPlatforms()
+    await refresh()
+  })
 })
 </script>
 

@@ -1,94 +1,73 @@
 """
-Script d'automatisation de démonstration vidéo - Projet Klepsydrix
+Script d'automatisation de démonstration vidéo — Routeur de factures électroniques
 
-Ce script permet de générer une vidéo de démonstration (environ 2min50-3min15 avec les 11
-segments actuels — le format "1 à 2 minutes" visé au départ a été dépassé au fil des demandes
-d'enrichissement du contenu) en combinant :
-1. Narration audio (F5-TTS, clonage vocal local à partir d'une voix de référence, voir
-   user_doc/demo_video/voice_ref/) — a remplacé Kokoro ONNX, dont la voix française sonnait
-   trop artificielle (voix ff_siwis entraînée sur moins de 11h de français).
-2. Capture vidéo automatisée (Playwright), pilotant le frontend Klepsydrix (Vue + Vite)
-   connecté au backend FastAPI, sur la base de démonstration seedée par
-   backend/app/core/init_demo.py
-3. Montage automatique (MoviePy)
+Ce script génère une vidéo de démonstration en combinant :
+1. Narration audio (edge-tts, voix neuronale Microsoft Azure, gratuit, sans clonage).
+2. Un schéma animé d'introduction (PIL + MoviePy, PAS de capture navigateur) qui pose
+   la proposition de valeur du routeur avant de montrer l'application : plusieurs
+   outils de gestion (Spendesk, comptable, ERP...) utilisant des protocoles différents,
+   absorbés par le routeur derrière une seule adresse de facturation par SIREN.
+3. Capture vidéo automatisée (Playwright) du parcours complet dans l'IHM réelle
+   (Vue + Vite), contre un backend FastAPI de démonstration dédié, lancé avec
+   `ROUTER_OIDC_MODE=disabled` (§ NF3 — aucune authentification requise, comportement
+   déjà utilisé pour les tests/vérifications manuelles de ce projet) : pas de flux de
+   connexion à scripter.
+4. Montage automatique (MoviePy).
 
-ETAPES DE LA PRODUCION APPUYEE SUR UN LLM :
---------------------------------------------
-Pré-requis : l'application est développée, le jeu de données de démo existe
-(base "timetable" seedée via `backend/.venv/bin/python -m backend.app.core.init_demo`),
-la documentation du projet est rédigée (voir user_doc/chef_etablissement_doc.md).
+Choix de voix testés à l'oreille :
+- fr-FR-HenriNeural (homme, génération "Neural" standard) : rendu saccadé, écarté.
+- fr-FR-RemyMultilingualNeural (homme, génération "Multilingual" plus récente) : validé, RETENU.
+- fr-FR-VivienneMultilingualNeural (femme, même génération) : validée aussi, bonne alternative —
+  changez juste EDGE_TTS_VOICE ci-dessous pour basculer.
+Autres voix FR disponibles (régionales) : fr-BE-CharlineNeural/GerardNeural (Belgique),
+fr-CA-SylvieNeural/AntoineNeural/JeanNeural/ThierryNeural (Québec),
+fr-CH-ArianeNeural/FabriceNeural (Suisse) — lister avec `edge-tts --list-voices`.
 
-1. Envoyer au LLM la documentation du projet : "J'ai construit une web app (frontend Vue +
-backend FastAPI) qui permet de construire l'emploi du temps annuel d'un établissement scolaire.
-Je veux générer une vidéo de démonstration de 1 à 2 minutes avec une voix off en français. Voici
-la documentation du projet en PJ. Rédige moi le tableau de minutage de la démonstration avec les
-3 colonnes suivantes : 1/ le minutage 2/ l'action à réaliser visuellement par l'utilisateur
-3/ le texte de la voix off "
+Quota : edge-tts n'a pas de quota officiel publié (ce n'est pas un produit facturé, contrairement
+à Azure Speech Service qui utilise les mêmes voix) mais pas de garantie de service non plus —
+usage intensif/en rafale déconseillé (throttling possible). Notre usage (10 segments courts,
+générés ponctuellement) est très en dessous de tout seuil réaliste.
 
-2. Envoyer au LLM le tableau de minutage généré par le LLM, ainsi que ce script,
-et lui demander : "Voici le tableau de minutage, adapte le script python ci-joint
-pour qu'il corresponde au tableau de minutage et aux actions à réaliser.
-Les sélecteurs CSS doivent être des placeholder à remplacer par les vrais "clics" à
-l'étape suivante."
-
-3. Envoyer au LLM : "Voici le script de génération vidéo, ainsi que les fichiers Vue de
-l'application ciblée par la démo (ou le script frontend/scripts/doc-screenshots/lib.mjs
-qui contient déjà les sélecteurs vérifiés). Adapte le script pour intégrer les sélecteurs
-CSS et les actions à réaliser."
+Les données de démonstration (entreprise, applications cibles, règle de routage,
+facture) ne sont PAS pré-seedées séparément : elles sont créées EN DIRECT pendant la
+capture, via les vrais formulaires de l'IHM (ou, pour la réception de facture — qui en
+production ne peut venir que du polling SuperPDP, § 4.1 — via l'endpoint réservé aux
+tests `POST /api/test/invoices/simulate`, monté uniquement quand
+`certified_platform_client_mode == "fake"`, cf. `backend/app/api/testing/invoices.py`).
+La démo EST le seed : ce qui s'affiche à l'écran est le résultat réel des actions
+effectuées, pas un jeu de données injecté en base en amont.
 
 INSTALLATION DES DEPENDANCES :
 ------------------------------
-# Dépendances système : ffmpeg (requis par MoviePy), polices DejaVu (page de garde)
 sudo apt update && sudo apt install -y python3-pip python3-venv ffmpeg fonts-dejavu-core
-
-# Dépendances Python. ATTENTION : torch par défaut sur PyPI peut résoudre vers une build CUDA
-# (plusieurs Go de paquets nvidia-* inutiles sans GPU) — installer torch CPU-only d'abord :
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-pip install --no-cache-dir playwright moviepy f5-tts huggingface_hub soundfile pillow requests --break-system-packages
-
-# Navigateur Chromium pour Playwright + ses dépendances système
+pip install --no-cache-dir playwright moviepy edge-tts pillow requests --break-system-packages
 playwright install --with-deps chromium
-
-# Voix de référence + checkpoint F5-TTS français : voir user_doc/demo_video/voice_ref/README.md
-# pour la provenance de la voix (LibriVox, domaine public). Le checkpoint RASPIAUDIO
-# (~1,35 Go, téléchargé automatiquement au premier lancement dans ~/.cache/huggingface) est sous
-# licence CC-BY-NC-4.0 : USAGE NON COMMERCIAL UNIQUEMENT. Si la vidéo générée a un usage
-# commercial, il faut soit obtenir une licence, soit utiliser un autre checkpoint/moteur.
-
+# edge-tts a besoin d'un accès réseau sortant (endpoint non officiel Microsoft) — pas de clé API.
 
 EXECUTION DU SCRIPT :
 ---------------------
-# Pré-requis : backend + frontend démarrés (./start_services.sh start) et base de démo seedée
-python3 generate_demo.py
+# Aucun service à démarrer manuellement au préalable : le script lance lui-même un
+# backend et un frontend de démonstration dédiés (ports distincts de ceux d'une
+# instance de dev/prod déjà en cours, cf. CONFIGURATION ci-dessous), sur une base
+# SQLite jetable dans artifacts/temp_demo_db/.
+python3 artifacts/generate_demo.py
 
-# Mode montage seul (réutilise la dernière capture vidéo, ne relance pas Playwright)
-python3 generate_demo.py --assemble-only
-
-
+# Mode montage seul (réutilise la dernière capture vidéo, ne relance pas Playwright) :
+python3 artifacts/generate_demo.py --assemble-only
 
 STRUCTURE DU SCRIPT :
 --------------------
-- CONFIGURATION : URL locale du frontend Klepsydrix, identifiants du compte de démo
-  (mêmes conventions que frontend/scripts/doc-screenshots/lib.mjs), réglages F5-TTS.
-- AUDIO : Génération des segments WAV à partir du dictionnaire 'script_segments' via F5-TTS
-          (clonage zero-shot de la voix de référence user_doc/demo_video/voice_ref/bernard_ref.wav,
-          checkpoint français RASPIAUDIO/F5-French-MixedSpeakers-reduced). Lent sur CPU (environ
-          5-6 minutes par segment, donc plus d'une heure pour les 11 segments à la première
-          génération) — mis en cache par la suite (hash du texte), comme avec Kokoro.
-- CAPTURE :
-    - Injection d'un curseur rouge (JS) pour la visibilité des clics.
-    - SyncNarrator : Classe assurant que l'audio et la vidéo restent synchronisés.
-    - open_tree_path : portage Python de frontend/scripts/doc-screenshots/lib.mjs::openTreePath,
-      pour naviguer dans l'arborescence de gauche (NotebooksTree.vue) par libellés affichés.
-    - Logique métier : Parcours utilisateur automatisé dans Klepsydrix (connexion silencieuse,
-      import STS-web/SIECLE, services prévisionnels + alignement + TRMD, contraintes enseignants,
-      génération automatique des cours/groupes, placement automatique, attribution des salles,
-      heatmap + glisser-déposer manuel, optimisation, export SIECLE, vue d'ensemble). Voir
-      script_segments pour le détail exact de chaque étape.
-- MONTAGE :
-    - create_title_card : Génère une slide d'intro.
-    - assemble : Assemble les clips et mixe l'audio en respectant les timestamps réels.
-
+- CONFIGURATION : ports/DB de démonstration dédiés, réglages edge-tts, palette reprise
+  de frontend/src/style.css.
+- AUDIO : génération des segments MP3 via edge-tts (voix fr-FR-RemyMultilingualNeural),
+  mis en cache par hash du texte.
+- SCHEMA D'INTRO : create_intro_sequence() — diaporama de 4 vues (PIL) : chaos des
+  protocoles avant le routeur, convergence dans le routeur, sortie unique par SIREN,
+  page de garde brandée — substitut animé de create_title_card() dans l'assemblage.
+- CAPTURE : navigation réelle dans l'IHM (clics de menu, remplissage de formulaires,
+  confirmation des popins) via les vrais data-testid du frontend — pas de données
+  pré-injectées, tout est créé pendant la capture.
+- MONTAGE : create_intro_sequence() + capture, audio calé sur les timestamps réels.
 """
 import os
 import asyncio
@@ -97,6 +76,7 @@ import subprocess
 import sys
 import hashlib
 import json
+import math
 import socket
 from datetime import datetime
 from pathlib import Path
@@ -110,122 +90,211 @@ BASE_DIR = Path(__file__).parent.absolute()
 ROOT_DIR = BASE_DIR.parent
 AUDIO_DIR = BASE_DIR / "temp_audio"
 VIDEO_DIR = BASE_DIR / "temp_video"
+DEMO_DB_DIR = BASE_DIR / "temp_demo_db"
 AUDIO_DIR.mkdir(exist_ok=True)
 VIDEO_DIR.mkdir(exist_ok=True)
+DEMO_DB_DIR.mkdir(exist_ok=True)
 
 BACKEND_DIR = ROOT_DIR / "backend"
 FRONTEND_DIR = ROOT_DIR / "frontend"
 
-# Klepsydrix est une app client-serveur (frontend Vite + backend FastAPI) : les deux services
-# doivent tourner avant la capture. Mêmes conventions que start_services.sh et
-# frontend/scripts/doc-screenshots/lib.mjs (BASE_URL, compte et base de démo).
-BASE_URL = os.environ.get("KLEPSYDRIX_BASE_URL", "http://localhost:3000")
-BACKEND_URL = "http://localhost:8000"
-DEMO_DB = "timetable"
-DEMO_IDENTIFIER = "demo@klepsydrix.fr"
-DEMO_PASSWORD = "Demo1234!"
+# Ports DÉLIBÉRÉMENT distincts de ceux d'une instance de dev/prod déjà en cours
+# (8000/5173, cf. README.md) — ce script lance ses propres services jetables, sur sa
+# propre base SQLite, sans jamais toucher à une base réelle.
+DEMO_BACKEND_PORT = int(os.environ.get("ROUTER_DEMO_BACKEND_PORT", "8299"))
+DEMO_FRONTEND_PORT = int(os.environ.get("ROUTER_DEMO_FRONTEND_PORT", "5299"))
+BASE_URL = f"http://localhost:{DEMO_FRONTEND_PORT}"
+BACKEND_URL = f"http://localhost:{DEMO_BACKEND_PORT}"
+DEMO_DB_PATH = DEMO_DB_DIR / "demo_router.db"
+# backend/.env (config réelle de l'instance de prod/dev locale) définit
+# ROUTER_INVOICE_STORAGE_ROOT vers le VRAI répertoire de stockage des factures — sans cette
+# variable dédiée, les factures simulées pendant la démo (§ 04_invoices) s'écriraient dans les
+# données réelles. Isolée au même titre que ROUTER_DATABASE_URL ci-dessus.
+DEMO_INVOICE_STORAGE_ROOT = DEMO_DB_DIR / "invoices"
+# DOIT être créé DANS frontend/ (pas dans artifacts/) : Vite résout les imports du fichier de
+# config (`@vitejs/plugin-vue`, `vite`) en remontant l'arborescence node_modules à partir de
+# l'EMPLACEMENT du fichier de config lui-même — artifacts/ et frontend/ sont des répertoires
+# frères, sans chaîne node_modules commune, donc un fichier de config posé dans artifacts/ ne
+# trouve jamais les modules déjà installés dans frontend/node_modules (piège découvert en testant
+# ce script : erreur ERR_MODULE_NOT_FOUND alors que les paquets sont bien présents).
+VITE_PROXY_CONFIG = FRONTEND_DIR / "vite.config.demo.mjs"
 
-# Résolution de la capture Playwright (viewport, voir capture()) ET de la page de garde
-# (create_title_card) : DOIVENT être identiques. MoviePy ne réconcilie pas silencieusement deux
-# résolutions différentes lors de la concaténation — un décalage ici a produit un encodage corrompu
-# (flash/strobe sur toute la vidéo montée, alors que la capture brute était propre) avant que ce
-# soit repéré et corrigé.
+# Résolution de la capture Playwright ET du schéma d'intro : DOIVENT être identiques
+# (MoviePy ne réconcilie pas silencieusement deux résolutions différentes lors de la
+# concaténation — un décalage produit un encodage corrompu, flash/strobe sur toute la
+# vidéo montée, alors que chaque clip pris séparément est propre).
 VIDEO_WIDTH = 1440
 VIDEO_HEIGHT = 900
 
-# --- CONFIGURATION DE L'APPLICATION (page de garde) ---
+# --- CONFIGURATION DE L'APPLICATION (schéma d'intro, page de garde) ---
+# Palette reprise de frontend/src/style.css (--color-primary / --color-accent).
 APP_SETTINGS = {
-    "title": "Klepsydrix",
-    "subtitle": "L'emploi du temps annuel de l'établissement,\nconstruit et tenu à jour ensemble",
-    "bg_color": (255, 255, 255),     # Blanc
-    "accent_color": (99, 102, 241),  # Indigo #6366f1 (--accent-primary, frontend/src/assets/main.css)
-    "footer_tagline": "Grille EDT • Classes • Enseignants • TRMD • Comptes & droits",
-    # Backend FastAPI + frontend Vite à démarrer avant la capture (voir start_services.sh).
+    "title": "Routeur de factures",
+    "subtitle": "Une seule adresse de facturation électronique par entreprise,\nquel que soit le nombre d'applications connectées derrière",
+    "bg_color": (255, 255, 255),
+    "primary_color": (44, 59, 87),    # #2c3b57 (--color-primary)
+    "accent_color": (245, 83, 100),   # #f55364 (--color-accent)
+    "muted_color": (112, 117, 138),   # #70758a (--color-muted)
+    "footer_tagline": "Factures • Règles de routage • Entreprises • Applications cibles • Traces & audit",
     "services": [
         {
-            "name": "backend",
-            "port": 8000,
+            "name": "backend démo",
+            "port": DEMO_BACKEND_PORT,
             "check_url": f"{BACKEND_URL}/",
-            "cmd": ["bash", "-c", f"PYTHONPATH={ROOT_DIR} {BACKEND_DIR}/.venv/bin/uvicorn backend.app.main:app --host 0.0.0.0 --port 8000"],
-            "cwd": ROOT_DIR,
+            "cmd": [
+                "bash", "-c",
+                # Variables explicites (jamais un simple sous-ensemble) : backend/.env — le VRAI
+                # fichier de config de l'instance de prod/dev locale — définit par défaut
+                # ROUTER_CERTIFIED_PLATFORM_CLIENT_MODE=pyfrctc et ROUTER_OIDC_MODE=entra_id ; sans
+                # les redéfinir explicitement ici, pydantic-settings les reprendrait tels quels
+                # (env_file=".env", cwd=backend) et ce backend de démo se comporterait comme la
+                # prod (vrai client SuperPDP, vraie authentification Entra ID) au lieu d'un backend
+                # jetable en mode fixtures. ROUTER_CERTIFIED_PLATFORM_CLIENT_MODE=fake est aussi ce
+                # qui monte l'endpoint réservé aux tests /api/test/invoices/simulate (§ app/main.py).
+                f"cd {BACKEND_DIR} && "
+                f"ROUTER_OIDC_MODE=disabled ROUTER_DATABASE_URL=sqlite:///{DEMO_DB_PATH} "
+                f"ROUTER_CERTIFIED_PLATFORM_CLIENT_MODE=fake "
+                f"ROUTER_INVOICE_STORAGE_ROOT={DEMO_INVOICE_STORAGE_ROOT} "
+                f".venv/bin/alembic upgrade head && "
+                f"ROUTER_OIDC_MODE=disabled ROUTER_DATABASE_URL=sqlite:///{DEMO_DB_PATH} "
+                f"ROUTER_CERTIFIED_PLATFORM_CLIENT_MODE=fake "
+                f"ROUTER_INVOICE_STORAGE_ROOT={DEMO_INVOICE_STORAGE_ROOT} "
+                f".venv/bin/uvicorn app.main:app --host 127.0.0.1 --port {DEMO_BACKEND_PORT}",
+            ],
+            "cwd": BACKEND_DIR,
         },
         {
-            "name": "frontend",
-            "port": 3000,
+            "name": "frontend démo",
+            "port": DEMO_FRONTEND_PORT,
             "check_url": BASE_URL,
-            "cmd": ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3000"],
+            # `frontend/.env.development` — le VRAI fichier de config utilisé pour le dev local
+            # normal — fixe VITE_API_BASE_URL=http://localhost:8000 (le backend RÉEL) pour éviter
+            # d'avoir besoin d'un proxy en dev courant. Une variable d'environnement VITE_ à
+            # l'exécution a priorité sur les fichiers .env chez Vite : sans la redéfinir ici à vide,
+            # le frontend de démo continuerait à appeler le VRAI backend au lieu du proxy vers le
+            # backend de démo — piège découvert en testant ce script (échecs silencieux bloqués
+            # par CORS, aucune donnée créée). `VITE_API_BASE_URL=""` restaure le chemin relatif
+            # `/api` attendu par frontend/src/api/http.ts, capté par le proxy de VITE_PROXY_CONFIG.
+            "cmd": [
+                "bash", "-c",
+                f"cd {FRONTEND_DIR} && VITE_API_BASE_URL= "
+                f"npx vite --host 127.0.0.1 --port {DEMO_FRONTEND_PORT} --config {VITE_PROXY_CONFIG}",
+            ],
             "cwd": FRONTEND_DIR,
         },
     ],
 }
 
-# --- CONFIGURATION F5-TTS (clonage vocal local) ---
-# Architecture d'origine du modèle, PAS "F5TTS_v1_Base" : le checkpoint RASPIAUDIO a été
-# entraîné dessus. Les deux configs ont les mêmes dimensions de tenseurs (1024/22/16) donc le
-# chargement ne lève aucune erreur avec la mauvaise archi, mais des détails internes diffèrent
-# (text_mask_padding, pe_attn_head) -> audio généré incompréhensible sans lever d'exception.
-F5TTS_MODEL = "F5TTS_Base"
-# Licence CC-BY-NC-4.0 (non-commercial) — voir INSTALLATION DES DEPENDANCES ci-dessus.
-F5TTS_REPO_ID = "RASPIAUDIO/F5-French-MixedSpeakers-reduced"
-F5TTS_CKPT_FILENAME = "model_last_reduced.pt"
-F5TTS_VOCAB_FILENAME = "vocab.txt"
-F5TTS_SEED = 42  # fixe, pour des générations reproductibles (changer si un artefact de liaison
-                 # apparaît sur un segment : re-générer ce segment avec un autre seed suffit
-                 # généralement, pas besoin de tout relancer).
-
-VOICE_REF_DIR = BASE_DIR / "voice_ref"
-VOICE_REF_AUDIO = VOICE_REF_DIR / "bernard_ref.wav"
-VOICE_REF_TEXT_FILE = VOICE_REF_DIR / "bernard_ref.txt"
+# --- CONFIGURATION edge-tts (voix neuronales Microsoft Azure, gratuit, non officiel) ---
+# Pas de clé API, pas de modèle local. Nécessite un accès réseau sortant.
+#
+# Ce que edge-tts expose et que d'autres moteurs TTS basiques n'ont PAS (raison de fond :
+# edge-tts donne accès aux mêmes voix neuronales que le service payant Azure Speech, via un
+# point d'accès gratuit non officiel) :
+#
+# Déjà utilisés ci-dessous :
+#   - voice  : un vrai choix parmi ~300+ voix neuronales nommées (13 en français : Remy, Vivienne,
+#              Henri, Denise...), chacune avec son propre timbre/prosodie.
+#   - rate   : réglage natif du débit ("+15%", "-10%"), pitch préservé, géré côté service Microsoft
+#              (pas de bricolage ffmpeg `atempo` nécessaire pour accélérer sans changer la hauteur
+#              de voix, comme avec un moteur n'exposant qu'un booléen slow=True/False).
+#   - pitch  : décalage de hauteur ("+5Hz", "-10Hz"). Laissé à +0Hz ici, mais utilisable pour
+#              changer le caractère de la voix.
+#
+# Disponibles mais PAS utilisés pour l'instant (pistes pour plus tard) :
+#   - volume            : même principe que rate/pitch ("+20%", "-10%"), documenté dans l'API.
+#   - communicate.stream() au lieu de .save() : renvoie des événements WordBoundary (début, durée
+#                          de chaque mot prononcé) — permettrait de générer des sous-titres
+#                          synchronisés automatiquement sur la vidéo.
+#   - edge_tts.list_voices() / `edge-tts --list-voices` : catalogue interrogeable (langue, genre,
+#                          catégorie) — utilisé une fois en exploration pour lister les 13 voix FR,
+#                          pas appelé depuis ce script.
+#
+# Voix retenue après comparaison à l'oreille (voir docstring) — homme, génération "Multilingual"
+# récente, jugée fluide (contrairement à fr-FR-HenriNeural, plus ancienne, saccadée).
+EDGE_TTS_VOICE = "fr-FR-RemyMultilingualNeural"
+EDGE_TTS_RATE = "+0%"
+EDGE_TTS_PITCH = "+0Hz"
 
 # --- SEGMENTS DE VOIX OFF (script de la démo) ---
-# La connexion (compte de démo) n'a plus de segment narré dédié : elle est effectuée
-# silencieusement pendant 01_intro, qui est de toute façon recouvert par la page de garde
-# au montage (voir assemble()) — ce qui s'affiche à l'écran pendant ce segment n'apparaît
-# jamais dans la vidéo finale.
+# "00_value_prop" couvre le schéma d'intro (create_intro_sequence) — ce qui se passe à
+# l'écran pendant ce segment (navigation initiale, silencieuse) n'apparaît jamais dans
+# la vidéo finale, exactement comme la page de garde recouvrait la connexion sur
+# l'ancien projet (cf. assemble()).
 script_segments = [
     {
-        "id": "01_intro",
-        "text": "Klepsydrix construit l'emploi du temps annuel d'un établissement, de la pré-rentrée jusqu'à la grille finale."
+        "id": "00_value_prop",
+        "text": (
+            "Toutes vos factures ne sont pas traités dans la même application de gestion ? Vous n'avez pas envie de multiplier les adresses de facturation électroniques déclarées dans l'annuaire public ?  einvoicing Router masque cette complexité une fois pour toutes : vis-à-vis de vos "
+            "fournisseurs, une seule adresse de facturation électronique par entreprise suffit, quel que "
+            "soit le nombre d'applications branchées derrière."
+        ),
     },
     {
-        "id": "02_import_siecle",
-        "text": "Tout part de vos données STS-web et SIECLE : professeurs, matières, classes, élèves, responsables sont importés pour initialiser la base de données."
+        "id": "01_companies",
+        "text": (
+            "Chaque entreprise gérée dispose d'une fiche unique : SIREN, raison sociale, et ses "
+            "identifiants d'accès à la plateforme certifiée."
+        ),
     },
     {
-        "id": "03_services_trmd",
-        "text": "Chaque service prévisionnel — classe, matière, professeur — peut être aligné entre classes ; le TRMD synthétise ensuite les besoins par discipline face aux moyens professeurs disponibles."
+        "id": "02_target_applications",
+        "text": (
+            "On configure ensuite les canaux de sortie : une adresse mail pour Spendesk ou le "
+            "comptable, ou une mise à disposition via l'API normalisée AFNOR pour un ERP comme Odoo — chacun "
+            "avec ses propres identifiants."
+        ),
     },
     {
-        "id": "04_teacher_constraints",
-        "text": "L'utilisateur peut saisir les indisponibilités et préférences de créneaux de chaque enseignant dans une grille dédiée — même logique pour les classes et les autres ressources."
+        "id": "03_routing_rules",
+        "text": (
+            "Il ne reste qu'à décider, pour chaque fournisseur, vers quelles applications cibles "
+            "router ses factures : la matrice croise fournisseurs et applications. Vous êtes notifié par mail lors de l'arrivée de la première facture d'un fournissuer, pour indiquer vers quelles applications la router."
+        ),
     },
     {
-        "id": "05_generate_courses",
-        "text": "Les cours et les groupes de spécialité sont ensuite générés automatiquement à partir de ces données."
+        "id": "04_invoices",
+        "text": (
+            "Les factures reçues depuis la plateforme certifiée sont automatiquement routées "
+            "vers les bonnes cibles — consultables, filtrables, téléchargeables, avec le détail complet "
+            "de leurs métadonnées issue de l'API normalisée AFNOR."
+        ),
     },
     {
-        "id": "06_placement_auto",
-        "text": "Le placement des cours est confié à Timefold, un moteur open source de résolution de contraintes, puissant et éprouvé."
+        "id": "05_lifecycle",
+        "text": (
+            "Un événement de cycle de vie — approbation, litige, paiement — peut être saisi "
+            "manuellement à tout moment et vient enrichir l'historique de la facture."
+        ),
     },
     {
-        "id": "07_room_assignment",
-        "text": "Chaque cours peut être restreint à un groupe de salles ; Klepsydrix attribue ensuite la salle précise selon les préférences des professeurs et des classes, la disponibilité, en minimisant les déplacements."
+        "id": "06_failed_routings",
+        "text": (
+            "En cas d'échec d'envoi, le routeur retente automatiquement plusieurs fois avant "
+            "d'alerter les gestionnaires de facturation ; un cycle d'envoi peut aussi être forcé "
+            "manuellement."
+        ),
     },
     {
-        "id": "08_heatmap_dragdrop",
-        "text": "La carte de chaleur montre le score de chaque créneau ; et à tout moment, un cours peut être ajusté ou replacé à la main, d'un simple glisser-déposer."
+        "id": "07_traces",
+        "text": (
+            "Chaque échange avec la plateforme certifiée est tracé en base, avec un identifiant de "
+            "corrélation commun de bout en bout, pour un audit complet."
+        ),
     },
     {
-        "id": "09_optimize",
-        "text": "Un algorithme permet d'optimiser l'ensemble de l'emploi du temps afin de limiter les trous tout en maximisant les préférences facultatives."
+        "id": "08_access_audit",
+        "text": (
+            "Les accès à l'IHM sont restreints par entreprise et par rôle, et chaque action "
+            "utilisateur — connexion, téléchargement, modification — est journalisée."
+        ),
     },
     {
-        "id": "10_export_siecle",
-        "text": "Une fois les groupes stabilisés, le rattachement élèves-groupes repart vers SIECLE en un clic."
-    },
-    {
-        "id": "11_overview_outro",
-        "text": "L'emploi du temps complet reste visible et modifiable à tout moment : Klepsydrix, l'emploi du temps annuel, piloté de bout en bout."
+        "id": "09_outro",
+        "text": (
+            "Factures, règles de routage, échecs, traces : tout reste consultable au même endroit. "
+            "Le routeur de factures, une seule porte d'entrée pour vos factures reçues."
+        ),
     },
 ]
 
@@ -237,6 +306,24 @@ def is_port_open(port):
         return s.connect_ex(("127.0.0.1", port)) == 0
 
 
+def write_vite_proxy_config():
+    """Le frontend appelle l'API en chemin relatif (`API_BASE = import.meta.env.VITE_API_BASE_URL
+    ?? ''`, cf. frontend/src/api/http.ts — pensé pour Caddy en prod). En dev, il faut donc un
+    proxy `/api` -> backend de démo ; ce fichier de config Vite dédié est généré ici et supprimé
+    en fin d'exécution (cf. main()), pour ne rien laisser de permanent dans le dépôt."""
+    VITE_PROXY_CONFIG.write_text(
+        "import vue from '@vitejs/plugin-vue'\n"
+        "import { defineConfig } from 'vite'\n\n"
+        "export default defineConfig({\n"
+        "  plugins: [vue()],\n"
+        "  server: {\n"
+        f"    proxy: {{ '/api': {{ target: '{BACKEND_URL}', changeOrigin: true }} }},\n"
+        "  },\n"
+        "})\n",
+        encoding="utf-8",
+    )
+
+
 def wait_for_service(service_config):
     import requests
     name = service_config["name"]
@@ -244,12 +331,12 @@ def wait_for_service(service_config):
     url = service_config.get("check_url")
 
     print(f"⏳ Attente de {name} sur le port {port}...")
-    for i in range(40):
+    for i in range(60):
         if is_port_open(port):
             if url:
                 try:
                     resp = requests.get(url, timeout=2)
-                    if resp.status_code == 200:
+                    if resp.status_code < 500:
                         print(f"  ✅ {name} opérationnel.")
                         return True
                 except Exception:
@@ -258,8 +345,8 @@ def wait_for_service(service_config):
                 print(f"  ✅ {name} (port ouvert).")
                 return True
 
-        if i % 5 == 0:
-            print(f"🚀 [Tentative {i // 5 + 1}] Lancement de {name}...")
+        if i == 0:
+            print(f"🚀 Lancement de {name}...")
             subprocess.Popen(
                 service_config["cmd"],
                 cwd=str(service_config["cwd"]),
@@ -269,82 +356,57 @@ def wait_for_service(service_config):
     return False
 
 
-# --- AUDIO (F5-TTS, clonage vocal local à partir de voice_ref/) ---
-def generate_audio():
-    print("🎙️ Phase Audio F5-TTS (clonage vocal, voix FR RASPIAUDIO)...")
+# --- AUDIO (edge-tts, voix neuronale Microsoft Azure — gratuit, non officiel, pas de clonage) ---
+async def generate_audio():
+    print(f"🎙️ Phase Audio edge-tts (voix {EDGE_TTS_VOICE}, rate {EDGE_TTS_RATE}, pitch {EDGE_TTS_PITCH})...")
     try:
-        from huggingface_hub import hf_hub_download
-        from f5_tts.api import F5TTS
-        import soundfile as sf
+        import edge_tts
     except Exception as e:
-        print(f"  ❌ Erreur import F5-TTS : {e}")
-        print("     -> pip install f5-tts huggingface_hub soundfile")
+        print(f"  ❌ Erreur import edge-tts : {e}")
+        print("     -> pip install edge-tts")
         return {s['id']: 5.0 for s in script_segments}, {}
-
-    if not VOICE_REF_AUDIO.exists() or not VOICE_REF_TEXT_FILE.exists():
-        print(f"  ❌ Voix de référence introuvable : {VOICE_REF_AUDIO}")
-        print(f"     -> voir {VOICE_REF_DIR / 'README.md'} pour la reconstituer")
-        return {s['id']: 5.0 for s in script_segments}, {}
-    ref_text = VOICE_REF_TEXT_FILE.read_text(encoding="utf-8").strip()
 
     durations = {}
     paths_map = {}
-
-    # Si tous les segments sont déjà en cache, on évite de charger le modèle (téléchargement +
-    # init coûteux) pour rien.
-    pending = []
     for segment in script_segments:
-        text_hash = hashlib.md5(segment['text'].encode()).hexdigest()
-        path = AUDIO_DIR / f"{segment['id']}_{text_hash}.wav"
+        cache_key = f"{segment['text']}|{EDGE_TTS_VOICE}|{EDGE_TTS_RATE}|{EDGE_TTS_PITCH}"
+        text_hash = hashlib.md5(cache_key.encode()).hexdigest()
+        path = AUDIO_DIR / f"{segment['id']}_{text_hash}.mp3"
 
-        # Nettoyage des anciens fichiers pour cet ID si le texte a changé
-        for old_file in AUDIO_DIR.glob(f"{segment['id']}_*.wav"):
+        for old_file in AUDIO_DIR.glob(f"{segment['id']}_*.mp3"):
             if old_file.name != path.name:
                 old_file.unlink()
 
         if path.exists() and path.stat().st_size > 0:
             try:
-                info = sf.info(str(path))
-                durations[segment['id']] = info.frames / info.samplerate
+                clip = mp.AudioFileClip(str(path))
+                durations[segment['id']] = clip.duration
+                clip.close()
                 paths_map[segment['id']] = path
                 print(f"  ✅ {segment['id']} (cache : {durations[segment['id']]:.1f}s)")
                 continue
             except Exception:
                 pass
-        pending.append((segment, path))
 
-    if not pending:
-        return durations, paths_map
-
-    print(f"  ⏳ Chargement du modèle F5-TTS ({F5TTS_REPO_ID}, architecture {F5TTS_MODEL})...")
-    ckpt = hf_hub_download(F5TTS_REPO_ID, F5TTS_CKPT_FILENAME)
-    vocab = hf_hub_download(F5TTS_REPO_ID, F5TTS_VOCAB_FILENAME)
-    f5tts = F5TTS(model=F5TTS_MODEL, ckpt_file=ckpt, vocab_file=vocab, device="cpu")
-    print("  ✅ Modèle chargé.")
-
-    for segment, path in pending:
-        print(f"  🎙️ Génération {segment['id']} (nouveau texte détecté, ~5-6 min sur CPU)...")
+        print(f"  🎙️ Génération {segment['id']} (nouveau texte détecté)...")
         try:
-            f5tts.infer(
-                ref_file=str(VOICE_REF_AUDIO),
-                ref_text=ref_text,
-                gen_text=segment['text'],
-                file_wave=str(path),
-                seed=F5TTS_SEED,
+            communicate = edge_tts.Communicate(
+                segment['text'], voice=EDGE_TTS_VOICE, rate=EDGE_TTS_RATE, pitch=EDGE_TTS_PITCH,
             )
-            info = sf.info(str(path))
-            durations[segment['id']] = info.frames / info.samplerate
+            await communicate.save(str(path))
+            clip = mp.AudioFileClip(str(path))
+            durations[segment['id']] = clip.duration
+            clip.close()
             paths_map[segment['id']] = path
             print(f"    -> OK ({durations[segment['id']]:.1f}s)")
         except Exception as e:
-            print(f"    ❌ Échec : {e}")
+            print(f"    ❌ Échec (vérifier l'accès réseau, endpoint Microsoft non officiel) : {e}")
             durations[segment['id']] = 5.0
     return durations, paths_map
 
 
 # --- UTILITAIRES CAPTURE ---
 async def install_cursor(page):
-    """Injections du code JS pour le curseur (définition des fonctions et style)."""
     js_code = """
     window.setupFakeCursor = function() {
         if (document.getElementById('fake-cursor')) return;
@@ -387,137 +449,76 @@ async def install_cursor(page):
         pass
 
 
-async def move_cursor(page, selector=None, x=None, y=None):
-    """Déplace le pointeur rouge vers un élément ou des coordonnées."""
-    await page.evaluate("if(window.setupFakeCursor) window.setupFakeCursor();")
-
-    if selector:
-        try:
-            box = await page.locator(selector).first.bounding_box()
-            if box:
-                x = box['x'] + box['width'] / 2
-                y = box['y'] + box['height'] / 2
-        except Exception:
-            pass
-
-    if x is not None and y is not None:
-        try:
-            await page.evaluate(f"if(window.moveCursor) window.moveCursor({x}, {y})")
-            await asyncio.sleep(0.6)
-        except Exception:
-            pass
-
-
 async def move_cursor_to_locator(page, locator):
-    """Déplace le curseur vers un Locator déjà résolu (utile après un .filter()/hasText)."""
+    await page.evaluate("if(window.setupFakeCursor) window.setupFakeCursor();")
     try:
         box = await locator.bounding_box()
         if box:
-            await move_cursor(page, None, box['x'] + box['width'] / 2, box['y'] + box['height'] / 2)
+            x, y = box['x'] + box['width'] / 2, box['y'] + box['height'] / 2
+            await page.evaluate(f"if(window.moveCursor) window.moveCursor({x}, {y})")
+            await asyncio.sleep(0.6)
     except Exception:
         pass
 
 
-async def close_modal(page):
-    """Ferme une modale/popin ouverte. BaseModal.vue (wizards) N'A PAS de handler Escape — appuyer
-    sur Echap est un no-op qui laisse la modale ouverte et bloque tous les clics suivants (piège
-    découvert en testant ce script : une modale restée ouverte après 02_import_siecle a fait
-    échouer les 8 segments suivants en timeout). Seuls un clic sur .btn-close (BaseModal, CoursePopin)
-    ou en dehors de la modale la ferment. .btn-close est réutilisé tel quel dans les deux contextes,
-    donc cibler la première instance visible suffit (une seule modale/popin ouverte à la fois)."""
+async def click_with_cursor(page, locator, timeout=5000):
+    """Déplace le curseur visible vers `locator`, l'anime au clic, puis clique réellement."""
+    await locator.first.wait_for(state="visible", timeout=timeout)
+    await move_cursor_to_locator(page, locator.first)
     try:
-        btn = page.locator(".btn-close").first
-        if await btn.count() > 0:
-            await btn.click(timeout=3000)
+        await page.evaluate("if(window.clickCursor) window.clickCursor()")
+    except Exception:
+        pass
+    await locator.first.click(timeout=timeout)
+
+
+async def open_nav(page, nav_label, group_toggle_testid=None):
+    """Navigue vers une page via un clic réel sur le menu latéral (App.vue) — ouvre le
+    groupe "Paramétrage"/"Traces & journaux" si nécessaire (data-testid nav-settings-toggle /
+    nav-traces-toggle) plutôt que de naviguer directement par URL, pour un rendu fidèle à
+    l'usage réel."""
+    link = page.get_by_role("link", name=nav_label, exact=True)
+    if group_toggle_testid and (await link.count() == 0 or not await link.first.is_visible()):
+        await click_with_cursor(page, page.locator(f'[data-testid="{group_toggle_testid}"]'))
+        await asyncio.sleep(0.4)
+        link = page.get_by_role("link", name=nav_label, exact=True)
+    await click_with_cursor(page, link)
+    await asyncio.sleep(0.6)
+
+
+async def confirm_dialog(page, reroute_existing=None):
+    """Valide la popin de confirmation (ConfirmDialog.vue), utilisée notamment par la
+    matrice de règles de routage (data-testid confirm-dialog / confirm-dialog-confirm)."""
+    dialog = page.locator('[data-testid="confirm-dialog"]')
+    await dialog.wait_for(state="visible", timeout=5000)
+    if reroute_existing is not None:
+        radio_testid = "reroute-choice-existing" if reroute_existing else "reroute-choice-future-only"
+        radio = page.locator(f'[data-testid="{radio_testid}"]')
+        if await radio.count() > 0:
+            await radio.check()
             await asyncio.sleep(0.3)
-    except Exception:
-        pass
+    await click_with_cursor(page, page.locator('[data-testid="confirm-dialog-confirm"]'))
+    await dialog.wait_for(state="detached", timeout=5000)
 
 
-async def stop_solver_if_running(page, timeout=2000, wait_gone_timeout=25000):
-    """Arrête un calcul Timefold encore en cours (bouton 'Arrêter le calcul' de
-    SolverProgressOverlay.vue). Sans ça, l'overlay plein écran reste affiché tant que le solveur
-    tourne et bloque tous les clics des segments suivants (piège découvert en testant ce script :
-    le solve d'optimisation, plus long, était encore actif quand le segment suivant a tenté de
-    naviguer dans le menu — timeout 30s). close_modal() ne suffit pas ici : cet overlay n'a pas de
-    .btn-close, seulement ce bouton dédié.
-
-    L'arrêt est ASYNCHRONE côté backend (endpoint POST /api/timetable/stop, message "Résolution
-    annulée" mais `terminate_early()` de Timefold met un moment à réellement s'arrêter — piège
-    découvert lui aussi en testant : un clic sur "Arrêter le calcul" suivi d'une pause fixe de
-    0.5s ne suffit pas, l'overlay reste affiché et bloque le segment suivant, voire fuit jusqu'à
-    la PROCHAINE exécution du script si le processus se termine avant que le solve ait fini de
-    s'arrêter côté serveur). On attend donc la disparition réelle de l'overlay plutôt qu'une pause
-    fixe."""
-    try:
-        overlay = page.locator(".solver-overlay-fullscreen")
-        if await overlay.count() > 0:
-            stop_btn = page.get_by_text("Arrêter le calcul", exact=False).first
-            if await stop_btn.count() > 0:
-                await stop_btn.click(timeout=timeout)
-            await overlay.wait_for(state="detached", timeout=wait_gone_timeout)
-    except Exception:
-        pass
-
-
-async def submit_wizard_step(page, timeout=3000):
-    """Clique le bouton de soumission de l'étape courante d'un GenericWizard (GenericForm.vue,
-    bouton primary type=submit dans .form-actions ; réutilisé tel quel par le wizard). Best-effort
-    seulement : si l'étape a des champs obligatoires non pré-remplis, le clic peut échouer côté
-    validation front sans lever d'exception Playwright — dans ce cas la modale reste simplement
-    affichée, ce qui est un repli visuel acceptable pour la démo. Retourne True si un clic a eu lieu."""
-    try:
-        btn = page.locator(".generic-wizard .form-actions button[type='submit']").first
-        if await btn.count() > 0:
-            await btn.click(timeout=timeout)
-            return True
-    except Exception:
-        pass
-    return False
-
-
-async def open_tree_path(page, titles, animate=True):
-    """Portage Python de frontend/scripts/doc-screenshots/lib.mjs::openTreePath.
-
-    Ouvre un chemin dans l'arborescence de gauche (NotebooksTree.vue) par les libellés
-    affichés, ex. open_tree_path(page, ["Emploi du temps", "Classes", "Liste"]).
-    """
-    l1_title = titles[0]
-    l2_title = titles[1] if len(titles) > 1 else None
-    l3_title = titles[2] if len(titles) > 2 else None
-
-    l1_header = page.locator(".nav-group-header", has_text=l1_title).first
-    await l1_header.wait_for(state="visible")
-    if animate:
-        await move_cursor_to_locator(page, l1_header)
-        await page.evaluate("window.clickCursor()")
-    l1_class = await l1_header.get_attribute("class") or ""
-    if "open" not in l1_class:
-        await l1_header.click()
-    if not l2_title:
-        return
-
-    l1_submenu = l1_header.locator("xpath=following-sibling::*[1]")
-    l2_header = l1_submenu.locator(".submenu-item", has_text=l2_title).first
-    await l2_header.wait_for(state="visible")
-    if animate:
-        await move_cursor_to_locator(page, l2_header)
-        await page.evaluate("window.clickCursor()")
-
-    l2_class = await l2_header.get_attribute("class") or ""
-    if "has-children" in l2_class:
-        if "open" not in l2_class:
-            await l2_header.click()
-        if not l3_title:
-            return
-        l2_submenu = l2_header.locator("xpath=following-sibling::*[1]")
-        l3_item = l2_submenu.locator(".sub-submenu-item", has_text=l3_title).first
-        if animate:
-            await move_cursor_to_locator(page, l3_item)
-            await page.evaluate("window.clickCursor()")
-        await l3_item.click()
-    else:
-        await l2_header.click()
+async def check_routing_cell(page, partner_text, target_name, reroute_existing=True):
+    """Coche la case de la matrice de règles de routage pour la ligne dont le texte contient
+    `partner_text` (SIREN ou raison sociale) et la colonne dont l'en-tête contient
+    `target_name` — évite d'avoir à connaître les identifiants de base de données des lignes
+    créées pendant la capture."""
+    table = page.locator('[data-testid="routing-rules-list"]')
+    headers = table.locator("thead th")
+    col_index = None
+    for i in range(1, await headers.count()):
+        if target_name in (await headers.nth(i).inner_text()):
+            col_index = i
+            break
+    if col_index is None:
+        raise RuntimeError(f"Colonne '{target_name}' introuvable dans la matrice de routage")
+    row = table.locator("tbody tr", has_text=partner_text)
+    checkbox = row.locator("td").nth(col_index).locator('input[type="checkbox"]')
+    await click_with_cursor(page, checkbox)
+    await confirm_dialog(page, reroute_existing=reroute_existing)
 
 
 # --- CAPTURE ---
@@ -539,8 +540,6 @@ async def capture(durations):
             return time.time() - start_capture_time
 
         class SyncNarrator:
-            """Gère la synchronisation entre les actions de capture et la narration audio."""
-
             def __init__(self, durations, time_func):
                 self.durations = durations
                 self.get_v_time = time_func
@@ -551,8 +550,8 @@ async def capture(durations):
             async def start(self, segment_id):
                 if self.current_id:
                     raise RuntimeError(
-                        f"❌ ERREUR SYNCHRO : Impossible de démarrer '{segment_id}' car "
-                        f"'{self.current_id}' est encore en cours. Appelez .end() d'abord."
+                        f"❌ ERREUR SYNCHRO : '{segment_id}' démarré alors que "
+                        f"'{self.current_id}' est encore en cours."
                     )
                 if segment_id not in self.durations:
                     print(f"⚠️  Attention : ID audio '{segment_id}' inconnu.")
@@ -569,8 +568,7 @@ async def capture(durations):
                 target_end = self.start_v_time + duration + padding
                 now = self.get_v_time()
                 if now < target_end:
-                    wait_time = target_end - now
-                    print(f"⏳ [Sync Wait] Pause de {wait_time:.1f}s pour finir '{self.current_id}'...")
+                    print(f"⏳ [Sync Wait] Pause de {target_end - now:.1f}s pour finir '{self.current_id}'...")
                     while self.get_v_time() < target_end:
                         await asyncio.sleep(0.1)
                 else:
@@ -583,273 +581,182 @@ async def capture(durations):
         start_capture_time = time.time()
 
         try:
-            print("🎬 Navigation vers l'écran de connexion Klepsydrix...")
-            await page.goto(f"{BASE_URL}/login?db={DEMO_DB}", wait_until="load", timeout=30000)
+            # --- 00. Proposition de valeur (recouvert par le schéma d'intro, cf. assemble()) ---
+            # Aucune connexion à scripter (ROUTER_OIDC_MODE=disabled, § NF3) : simple navigation.
+            await narrator.start("00_value_prop")
+            print("🎬 Navigation vers l'IHM (silencieux, recouvert par le schéma d'intro)")
             try:
-                await page.wait_for_selector("text=Connexion", timeout=15000)
-            except Exception:
-                pass
-
-            # --- 01. Intro ---
-            # Ce segment est recouvert par la page de garde au montage (voir assemble()) :
-            # ce qui se passe ici à l'écran n'apparaît jamais dans la vidéo finale. C'est donc
-            # ici, silencieusement, qu'on effectue la connexion (compte de démonstration).
-            await narrator.start("01_intro")
-            print("🎬 Connexion à Klepsydrix (silencieux, recouvert par la page de garde)")
-            try:
-                # Authentification réelle (API), mêmes conventions que
-                # frontend/scripts/doc-screenshots/lib.mjs::loginAsDemo — plus fiable qu'une
-                # saisie simulée dans le formulaire pour un script non-interactif.
-                resp = await page.request.post(
-                    f"{BASE_URL}/api/auth/login/local",
-                    headers={"X-Klepsydrix-Database": DEMO_DB},
-                    data={"identifier": DEMO_IDENTIFIER, "password": DEMO_PASSWORD},
-                )
-                if not resp.ok:
-                    print(f"  ⚠️  Échec de connexion démo : {resp.status} {await resp.text()}")
-                await context.add_cookies([{"name": "klepsydrix_db", "value": DEMO_DB, "url": BASE_URL}])
-
                 await page.goto(BASE_URL, wait_until="load", timeout=30000)
                 await page.wait_for_selector(".sidebar", timeout=15000)
-                print("  ✅ Connecté, arrivée sur l'écran principal")
+                print("  ✅ IHM chargée")
             except Exception as e:
-                print(f"  ⚠️  Connexion : {e}")
-            await narrator.end(padding=1.5)
-
-            # --- 02. Import STS-web / SIECLE ---
-            await narrator.start("02_import_siecle")
-            print("🎬 Pré-rentrée — Importer un flux STS-web")
-            try:
-                await open_tree_path(page, ["Pré-rentrée", "Importer un flux STS-web"])
-                await page.wait_for_selector(".generic-wizard", timeout=15000)
-                print("  ✅ Wizard d'import STS-web affiché")
-                await asyncio.sleep(2.5)
-            except Exception as e:
-                print(f"  ⚠️  Import STS-web : {e}")
-            finally:
-                # Fermeture systématique : une modale restée ouverte bloque tous les clics
-                # des segments suivants (voir close_modal).
-                await close_modal(page)
+                print(f"  ⚠️  Navigation initiale : {e}")
             await narrator.end(padding=1.0)
 
-            # --- 03. Services par classe (+ alignement) puis TRMD ---
-            await narrator.start("03_services_trmd")
-            print("🎬 Pré-rentrée — Services par classe, puis TRMD")
+            # --- 01. Entreprises ---
+            await narrator.start("01_companies")
+            print("🎬 Entreprises — création d'une fiche entreprise")
+            company_siren = "123456782"  # SIREN valide (clé de contrôle Luhn correcte)
+            company_name = "Ma Société Demo"
             try:
-                await open_tree_path(page, ["Pré-rentrée", "Services par classe"])
-                await asyncio.sleep(0.8)
-                # Sélectionne la première classe du panneau maître pour peupler le détail
-                # (même logique que la sélection "6A" utilisée ailleurs).
-                first_division_row = page.locator(".generic-list-row, tr, [class*='list-row']").first
-                if await first_division_row.count() > 0:
-                    await move_cursor_to_locator(page, first_division_row)
-                    await first_division_row.click()
-                print("  ✅ Services de la classe affichés")
+                await open_nav(page, "Entreprises", group_toggle_testid="nav-settings-toggle")
+                await page.fill('[data-testid="siren-input"]', company_siren)
+                await page.fill('[data-testid="name-input"]', company_name)
+                await click_with_cursor(page, page.locator('[data-testid="submit-button"]'))
+                await page.wait_for_selector('[data-testid="companies-list"]', timeout=8000)
+                print("  ✅ Entreprise créée")
+                # Ouvre le formulaire d'identifiants SuperPDP (sans les soumettre — un test de
+                # connexion réel échouerait sans plateforme certifiée jointe) pour montrer le champ.
+                toggle = page.locator('[data-testid^="certified-platform-credentials-toggle-"]').first
+                if await toggle.count() > 0:
+                    await click_with_cursor(page, toggle)
+                    await asyncio.sleep(1.2)
+            except Exception as e:
+                print(f"  ⚠️  Entreprises : {e}")
+            await narrator.end(padding=1.0)
+
+            # --- 02. Applications cibles (mail + AFNOR API) ---
+            await narrator.start("02_target_applications")
+            print("🎬 Applications cibles — création d'une cible mail puis AFNOR API")
+            try:
+                await open_nav(page, "Applications cibles", group_toggle_testid="nav-settings-toggle")
+                await page.fill('[data-testid="ta-name-input"]', "Spendesk")
+                await page.select_option('[data-testid="ta-method-select"]', "mail")
+                company_select = page.locator('[data-testid="ta-company-select"]')
+                await company_select.select_option(label=company_name)
+                await page.fill('[data-testid="ta-to-input"]', "factures@spendesk.example")
+                await click_with_cursor(page, page.locator('[data-testid="ta-submit-button"]'))
+                await page.wait_for_selector('[data-testid="target-applications-list"]', timeout=8000)
+                print("  ✅ Application cible mail créée (Spendesk)")
+            except Exception as e:
+                print(f"  ⚠️  Application cible mail : {e}")
+            try:
+                await page.fill('[data-testid="ta-name-input"]', "Odoo")
+                await page.select_option('[data-testid="ta-method-select"]', "afnor_api")
+                await asyncio.sleep(0.3)
+                await page.locator('[data-testid="ta-company-select"]').select_option(label=company_name)
+                await click_with_cursor(page, page.locator('[data-testid="ta-submit-button"]'))
+                await page.wait_for_selector('[data-testid="ta-oauth-credentials"]', timeout=8000)
+                print("  ✅ Application cible AFNOR API créée (Odoo), identifiants affichés")
                 await asyncio.sleep(1.5)
             except Exception as e:
-                print(f"  ⚠️  Services par classe : {e}")
-            try:
-                await open_tree_path(page, ["Pré-rentrée", "TRMD"])
-                print("  ✅ Synthèse TRMD affichée")
-                await asyncio.sleep(2.2)
-            except Exception as e:
-                print(f"  ⚠️  TRMD : {e}")
+                print(f"  ⚠️  Application cible AFNOR API : {e}")
             await narrator.end(padding=1.0)
 
-            # --- 04. Enseignants : vœux et contraintes ---
-            await narrator.start("04_teacher_constraints")
-            print("🎬 Enseignants — Vœux et contraintes")
+            # --- 03. Règles de routage ---
+            partner_siren = "100000009"  # SIREN valide (clé de contrôle Luhn correcte)
+            partner_name = "Fournisseur Demo"
+            await narrator.start("03_routing_rules")
+            print("🎬 Règles de routage — ajout d'un fournisseur, activation vers Spendesk")
             try:
-                await open_tree_path(page, ["Emploi du temps", "Enseignants", "Vœux et contraintes"])
-                await asyncio.sleep(0.8)
-                # Sélectionne le premier enseignant du panneau maître pour afficher sa grille
-                # de préférences (PreferenceGrid) plutôt que l'état vide.
-                first_teacher_row = page.locator(".generic-list-row, tr, [class*='list-row']").first
-                if await first_teacher_row.count() > 0:
-                    await move_cursor_to_locator(page, first_teacher_row)
-                    await first_teacher_row.click()
-                    print("  ✅ Grille de préférences d'un enseignant affichée")
-                await asyncio.sleep(1.8)
+                await open_nav(page, "Règles de routage")
+                await page.fill('[data-testid="partner-siren-input"]', partner_siren)
+                await page.fill('[data-testid="partner-name-input"]', partner_name)
+                await click_with_cursor(page, page.locator('[data-testid="partner-submit-button"]'))
+                await page.wait_for_selector('[data-testid="routing-rules-list"]', timeout=8000)
+                await check_routing_cell(page, partner_siren, "Spendesk", reroute_existing=True)
+                print("  ✅ Règle de routage activée (fournisseur -> Spendesk)")
             except Exception as e:
-                print(f"  ⚠️  Vœux et contraintes (enseignants) : {e}")
+                print(f"  ⚠️  Règles de routage : {e}")
             await narrator.end(padding=1.0)
 
-            # --- 05. Génération automatique des cours et groupes ---
-            await narrator.start("05_generate_courses")
-            print("🎬 Pré-rentrée — Générer les cours, puis les groupes de spécialité")
+            # --- 04. Factures reçues ---
+            invoice_number = "FAC-DEMO-001"
+            await narrator.start("04_invoices")
+            print("🎬 Factures — simulation d'une réception, consultation du détail")
             try:
-                await open_tree_path(page, ["Pré-rentrée", "Générer les cours"])
-                await page.wait_for_selector(".generic-wizard", timeout=15000)
+                companies_resp = await page.request.get(f"{BASE_URL}/api/ihm/companies")
+                companies_list = await companies_resp.json()
+                company = next(c for c in companies_list if c["siren"] == company_siren)
+                await page.request.post(
+                    f"{BASE_URL}/api/test/invoices/simulate",
+                    data={
+                        "company_id": company["id"],
+                        "emitter_siren": partner_siren,
+                        "emitter_name": partner_name,
+                        "invoice_number": invoice_number,
+                        "invoice_date": datetime.now().strftime("%Y-%m-%d"),
+                        "amount_total": 1200.0,
+                        "amount_excl_tax": 1000.0,
+                    },
+                )
+                await open_nav(page, "Factures")
+                row = page.locator(f'[data-testid="invoice-row-{invoice_number}"]')
+                await row.wait_for(state="visible", timeout=8000)
+                await click_with_cursor(page, row)
+                await page.wait_for_selector('[data-testid="invoice-detail"]', timeout=8000)
+                print("  ✅ Facture reçue, routée et affichée")
                 await asyncio.sleep(1.5)
-                print("  ✅ Wizard 'Générer les cours' affiché")
             except Exception as e:
-                print(f"  ⚠️  Générer les cours : {e}")
-            finally:
-                await close_modal(page)
-            try:
-                await open_tree_path(page, ["Pré-rentrée", "Générer les groupes de spécialité"])
-                await page.wait_for_selector(".generic-wizard", timeout=15000)
-                await asyncio.sleep(1.5)
-                print("  ✅ Wizard 'Générer les groupes de spécialité' affiché")
-            except Exception as e:
-                print(f"  ⚠️  Générer les groupes de spécialité : {e}")
-            finally:
-                await close_modal(page)
+                print(f"  ⚠️  Factures : {e}")
             await narrator.end(padding=1.0)
 
-            # --- 06. Placement automatique (Timefold) ---
-            await narrator.start("06_placement_auto")
-            print("🎬 Emploi du temps — Placement automatique (Timefold)")
+            # --- 05. Cycle de vie ---
+            await narrator.start("05_lifecycle")
+            print("🎬 Facture — saisie d'un événement de cycle de vie")
             try:
-                await open_tree_path(page, ["Emploi du temps", "Placement automatique"])
-                await page.wait_for_selector(".generic-wizard", timeout=15000)
-                # Best-effort : tente de soumettre l'étape courante pour déclencher le calcul.
-                # Peut échouer silencieusement si des champs obligatoires ne sont pas pré-remplis
-                # (voir submit_wizard_step) — dans ce cas on montre simplement le wizard de config.
-                await submit_wizard_step(page)
-                try:
-                    await page.wait_for_selector(".solver-overlay-fullscreen", timeout=12000)
-                    print("  ✅ Overlay du solveur Timefold visible (placement)")
-                    await asyncio.sleep(3)
-                except Exception:
-                    print("  ⚠️  Overlay solveur non atteint, wizard de config affiché à la place")
-                    await asyncio.sleep(1.5)
-            except Exception as e:
-                print(f"  ⚠️  Placement automatique : {e}")
-            finally:
-                await stop_solver_if_running(page)
-                await close_modal(page)
-            await narrator.end(padding=1.0)
-
-            # --- 07. Groupe de salles sur un cours, puis attribution automatique ---
-            await narrator.start("07_room_assignment")
-            print("🎬 Fiche cours (groupe de salles), puis Attribuer les salles")
-            try:
-                # Retour explicite sur la grille EDT (écran d'accueil) : depuis l'étape 4, on est
-                # resté sur "Enseignants > Vœux et contraintes", qui n'a pas de .placed-course — les
-                # étapes 5-6 (actions de menu) ne changent pas la page affichée derrière leur wizard.
-                await page.goto(BASE_URL, wait_until="load", timeout=15000)
-                await page.wait_for_selector(".sidebar", timeout=10000)
-            except Exception as e:
-                print(f"  ⚠️  Retour à la grille : {e}")
-            try:
-                first_course_card = page.locator(".placed-course").first
-                if await first_course_card.count() > 0:
-                    await move_cursor_to_locator(page, first_course_card)
-                    await first_course_card.dblclick()
-                    await page.wait_for_selector("text=Salles", timeout=8000)
-                    print("  ✅ Fiche cours ouverte, section Salles visible")
-                    await asyncio.sleep(1.5)
-            except Exception as e:
-                print(f"  ⚠️  Fiche cours (Salles) : {e}")
-            finally:
-                await close_modal(page)
-            try:
-                await open_tree_path(page, ["Emploi du temps", "Attribuer les salles"])
-                await page.wait_for_selector(".generic-wizard", timeout=15000)
-                await submit_wizard_step(page)
-                try:
-                    await page.wait_for_selector(".solver-overlay-fullscreen", timeout=12000)
-                    print("  ✅ Overlay du solveur Timefold visible (salles)")
-                    await asyncio.sleep(3)
-                except Exception:
-                    print("  ⚠️  Overlay solveur non atteint, wizard de config affiché à la place")
-                    await asyncio.sleep(1.5)
-            except Exception as e:
-                print(f"  ⚠️  Attribuer les salles : {e}")
-            finally:
-                await stop_solver_if_running(page)
-                await close_modal(page)
-            await narrator.end(padding=1.0)
-
-            # --- 08. Placement assisté (heatmap) + ajustement manuel (drag & drop) ---
-            await narrator.start("08_heatmap_dragdrop")
-            print("🎬 Placement assisté (heatmap) puis glisser-déposer d'un cours")
-            try:
-                # Le <label>Placement assisté :</label> n'est pas cliquable pour basculer le
-                # switch (piège découvert en testant : le clic "réussissait" sans lever d'erreur
-                # mais le toggle restait sur "Désactivé"). BaseToggle.vue expose un span
-                # .toggle-label-right (texte "Activé") qui force explicitement l'état ON — plus
-                # fiable qu'un clic sur la checkbox elle-même, qui aurait juste basculé l'état
-                # courant (pas idempotent).
-                filter_item = page.locator(".filter-item", has_text="Placement assisté")
-                heatmap_toggle_on = filter_item.locator(".toggle-label-right").first
-                if await heatmap_toggle_on.count() > 0:
-                    await move_cursor_to_locator(page, heatmap_toggle_on)
-                    await heatmap_toggle_on.click()
-                    print("  ✅ Toggle 'Placement assisté' activé")
-                    await asyncio.sleep(0.5)
-                course_card = page.locator(".placed-course").first
-                if await course_card.count() > 0:
-                    await move_cursor_to_locator(page, course_card)
-                    await course_card.click()
-                    await page.wait_for_selector(".heatmap-overlay", timeout=8000)
-                    print("  ✅ Carte de chaleur affichée")
-                await asyncio.sleep(1.8)
-            except Exception as e:
-                print(f"  ⚠️  Heatmap : {e}")
-            try:
-                source = page.locator(".placed-course").first
-                target = page.locator(".heatmap-overlay, [class*='grid-cell']").first
-                if await source.count() > 0 and await target.count() > 0:
-                    await source.drag_to(target)
-                    print("  ✅ Cours déplacé par glisser-déposer")
+                await page.select_option('[data-testid="lifecycle-status-select"]', "approved")
+                await click_with_cursor(page, page.locator('[data-testid="lifecycle-submit-button"]'))
+                await page.wait_for_selector('[data-testid="lifecycle-events-list"]', timeout=8000)
+                print("  ✅ Événement de cycle de vie enregistré")
                 await asyncio.sleep(1.2)
             except Exception as e:
-                print(f"  ⚠️  Glisser-déposer : {e}")
+                print(f"  ⚠️  Cycle de vie : {e}")
             await narrator.end(padding=1.0)
 
-            # --- 09. Optimiser l'emploi du temps ---
-            await narrator.start("09_optimize")
-            print("🎬 Emploi du temps — Optimiser l'emploi du temps (Timefold)")
+            # --- 06. Échecs de routage ---
+            await narrator.start("06_failed_routings")
+            print("🎬 Échecs de routage — forcer un cycle d'envoi")
             try:
-                await open_tree_path(page, ["Emploi du temps", "Optimiser l'emploi du temps"])
-                await page.wait_for_selector(".generic-wizard", timeout=15000)
-                await submit_wizard_step(page)
-                try:
-                    await page.wait_for_selector(".solver-overlay-fullscreen", timeout=12000)
-                    print("  ✅ Overlay du solveur Timefold visible (optimisation)")
-                    await asyncio.sleep(3)
-                except Exception:
-                    print("  ⚠️  Overlay solveur non atteint, wizard de config affiché à la place")
-                    await asyncio.sleep(1.5)
+                await open_nav(page, "Échecs de routage")
+                await click_with_cursor(page, page.locator('[data-testid="force-send-cycle-button"]'))
+                await asyncio.sleep(1.5)
+                print("  ✅ Cycle d'envoi forcé")
             except Exception as e:
-                print(f"  ⚠️  Optimiser l'emploi du temps : {e}")
-            finally:
-                await stop_solver_if_running(page)
-                await close_modal(page)
+                print(f"  ⚠️  Échecs de routage : {e}")
             await narrator.end(padding=1.0)
 
-            # --- 10. Export du rattachement élèves/groupes vers SIECLE ---
-            await narrator.start("10_export_siecle")
-            print("🎬 Pré-rentrée — Exporter le rattachement élèves/groupes vers SIECLE")
+            # --- 07. Traces techniques ---
+            await narrator.start("07_traces")
+            print("🎬 Traces & journaux — traces techniques (FlowTrace)")
             try:
-                await open_tree_path(page, ["Pré-rentrée", "Exporter le rattachement élèves/groupes vers SIECLE"])
-                await page.wait_for_selector(".generic-wizard", timeout=15000)
-                print("  ✅ Wizard d'export SIECLE affiché")
-                await asyncio.sleep(2.5)
+                await open_nav(page, "Traces techniques", group_toggle_testid="nav-traces-toggle")
+                await page.wait_for_selector('[data-testid="flow-traces-table"]', timeout=8000)
+                toggle = page.locator('[data-testid^="flow-trace-toggle-"]').first
+                if await toggle.count() > 0:
+                    await click_with_cursor(page, toggle)
+                    await asyncio.sleep(1.2)
+                print("  ✅ Détail d'une trace technique affiché")
             except Exception as e:
-                print(f"  ⚠️  Export SIECLE : {e}")
-            finally:
-                await close_modal(page)
+                print(f"  ⚠️  Traces techniques : {e}")
             await narrator.end(padding=1.0)
 
-            # --- 11. Vue d'ensemble de la grille finale, puis Outro ---
-            await narrator.start("11_overview_outro")
-            print("🎬 Vue d'ensemble de la grille de l'emploi du temps")
+            # --- 08. Accès & audit ---
+            await narrator.start("08_access_audit")
+            print("🎬 Traces & journaux — gestion des accès puis journal d'audit")
             try:
-                await page.evaluate("window.scrollTo(0, 0)")
-                await asyncio.sleep(0.5)
-                grid = page.locator(".grid-container, [id*='gantt'], [class*='timetable-grid']").first
-                if await grid.count() > 0:
-                    await page.evaluate(
-                        "document.querySelector('.grid-container, [id*=gantt], [class*=timetable-grid]')"
-                        " && document.querySelector('.grid-container, [id*=gantt], [class*=timetable-grid]').scrollBy(200, 0)"
-                    )
-                print("  ✅ Vue d'ensemble affichée")
-                await asyncio.sleep(2)
+                await open_nav(page, "Gestion des accès", group_toggle_testid="nav-settings-toggle")
+                await page.wait_for_selector('[data-testid="users-table"]', timeout=8000)
+                await asyncio.sleep(1.2)
             except Exception as e:
-                print(f"  ⚠️  Vue d'ensemble : {e}")
+                print(f"  ⚠️  Gestion des accès : {e}")
+            try:
+                await open_nav(page, "Journal d'audit", group_toggle_testid="nav-traces-toggle")
+                await page.wait_for_selector('[data-testid="audit-logs-table"]', timeout=8000)
+                print("  ✅ Journal d'audit affiché")
+                await asyncio.sleep(1.2)
+            except Exception as e:
+                print(f"  ⚠️  Journal d'audit : {e}")
+            await narrator.end(padding=1.0)
+
+            # --- 09. Conclusion ---
+            await narrator.start("09_outro")
+            print("🎬 Retour à la vue Factures pour la conclusion")
+            try:
+                await open_nav(page, "Factures")
+                await asyncio.sleep(2.0)
+            except Exception as e:
+                print(f"  ⚠️  Conclusion : {e}")
             await narrator.end(padding=1.5)
 
         except Exception as e:
@@ -860,127 +767,186 @@ async def capture(durations):
         return video_path, narrator.timestamps
 
 
+# --- SCHÉMA D'INTRO (PIL + MoviePy — pas de capture navigateur) ---
+def _font(base_size, scale, bold=False, italic=False):
+    name = "DejaVuSans"
+    if bold:
+        name += "-Bold"
+    elif italic:
+        name += "-Oblique"
+    size = max(8, round(base_size * scale))
+    try:
+        return ImageFont.truetype(f"/usr/share/fonts/truetype/dejavu/{name}.ttf", size)
+    except Exception:
+        try:
+            fallback = "LiberationSans-Bold" if bold else ("LiberationSans-Italic" if italic else "LiberationSans-Regular")
+            return ImageFont.truetype(f"/usr/share/fonts/truetype/liberation/{fallback}.ttf", size)
+        except Exception:
+            return ImageFont.load_default()
+
+
+def _text_centered(draw, cx, y, text, font, fill):
+    bbox = draw.textbbox((0, 0), text, font=font)
+    w = bbox[2] - bbox[0]
+    draw.text((cx - w / 2, y), text, font=font, fill=fill)
+
+
+def draw_box(draw, cx, cy, w, h, label, sublabel, fill, scale, text_color=(255, 255, 255)):
+    x0, y0, x1, y1 = cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2
+    draw.rounded_rectangle([x0, y0, x1, y1], radius=max(6, round(12 * scale)), fill=fill)
+    label_font = _font(22, scale, bold=True)
+    sub_font = _font(16, scale)
+    if sublabel:
+        _text_centered(draw, cx, cy - 14 * scale, label, label_font, text_color)
+        _text_centered(draw, cx, cy + 8 * scale, sublabel, sub_font, text_color)
+    else:
+        bbox = draw.textbbox((0, 0), label, font=label_font)
+        _text_centered(draw, cx, cy - (bbox[3] - bbox[1]) / 2, label, label_font, text_color)
+
+
+def draw_arrow(draw, p0, p1, color, width):
+    draw.line([p0, p1], fill=color, width=width)
+    angle = math.atan2(p1[1] - p0[1], p1[0] - p0[0])
+    arrow_len = width * 3.2
+    for a in (angle - 0.45, angle + 0.45):
+        x = p1[0] - arrow_len * math.cos(a)
+        y = p1[1] - arrow_len * math.sin(a)
+        draw.line([p1, (x, y)], fill=color, width=width)
+
+
 def create_logo_image(size=200):
-    """Crée le logo Klepsydrix (sablier blanc sur fond arrondi accent), fidèle à
-    frontend/src/components/BaseLogo.vue."""
-    img = Image.new('RGBA', (size, size), color=(0, 0, 0, 0))  # Transparent
+    """Reprend le style du repère de marque de la sidebar (App.vue .sidebar-brand-mark) :
+    carré à coins arrondis, fond accent, lettre blanche."""
+    img = Image.new('RGBA', (size, size), color=(0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-
-    # Fond accent avec coins arrondis (rayon = 20% de la taille)
-    radius = int(size * 0.2)
-    accent = APP_SETTINGS["accent_color"]
-    draw.rounded_rectangle(
-        [(0, 0), (size, size)],
-        radius=radius,
-        fill=(accent[0], accent[1], accent[2], 255)
-    )
-
-    # Sablier blanc : barre haute, deux triangles se rejoignant au centre, barre basse
-    # (approximation du path SVG de BaseLogo.vue : "M5 3h14M5 21h14M7 3v3a5 5..." sur un
-    # viewBox 24x24).
-    scale = size / 24.0
-    x1, x2 = 6 * scale, 18 * scale
-    y_top, y_bottom = 5 * scale, 19 * scale
-    cx, cy = size / 2, size / 2
-    bar_h = 1.6 * scale
-
-    draw.rounded_rectangle([(x1, y_top - bar_h / 2), (x2, y_top + bar_h / 2)], radius=bar_h / 2, fill=(255, 255, 255, 255))
-    draw.rounded_rectangle([(x1, y_bottom - bar_h / 2), (x2, y_bottom + bar_h / 2)], radius=bar_h / 2, fill=(255, 255, 255, 255))
-    draw.polygon([(x1, y_top), (x2, y_top), (cx, cy)], fill=(255, 255, 255, 255))
-    draw.polygon([(x1, y_bottom), (x2, y_bottom), (cx, cy)], fill=(255, 255, 255, 255))
-
+    radius = round(size * 0.27)
+    draw.rounded_rectangle([(0, 0), (size, size)], radius=radius, fill=(*APP_SETTINGS["accent_color"], 255))
+    font = _font(size * 0.55, 1.0, bold=True)
+    _text_centered(draw, size / 2, size * 0.18, "R", font, (255, 255, 255))
     return img
 
 
-def create_title_card(duration):
-    """Génère la page de garde complète avec PIL + MoviePy, à la résolution EXACTE de la capture
-    (VIDEO_WIDTH x VIDEO_HEIGHT) — voir le commentaire sur ces constantes : une page de garde à une
-    résolution différente de la capture a produit un montage visuellement corrompu (flash/strobe)
-    une fois concaténée par MoviePy, alors que chaque clip pris séparément était propre."""
-    print(f"🎨 Création de la page de garde ({duration:.1f}s)...")
-
+def create_brand_slide(duration, scale):
     W, H = VIDEO_WIDTH, VIDEO_HEIGHT
-    # Mise à l'échelle de la mise en page (conçue à l'origine pour un canevas 1920x1080) au ratio
-    # de la largeur réelle, plutôt que des coordonnées en dur — reste correct si VIDEO_WIDTH change.
-    scale = W / 1920
+    img = Image.new('RGB', (W, H), color=APP_SETTINGS["bg_color"])
+    draw = ImageDraw.Draw(img)
 
-    title_img = Image.new('RGB', (W, H), color=APP_SETTINGS["bg_color"])
-    draw = ImageDraw.Draw(title_img)
-
-    def scaled_font(path, fallback_path, base_size):
-        size = max(8, round(base_size * scale))
-        try:
-            return ImageFont.truetype(path, size)
-        except Exception:
-            try:
-                return ImageFont.truetype(fallback_path, size)
-            except Exception:
-                return ImageFont.load_default()
-
-    title_font = scaled_font(
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        140,
-    )
-    subtitle_font = scaled_font(
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        44,
-    )
-    footer_font = scaled_font(
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
-        34,
-    )
-
-    # 1. Logo (créé avec PIL, puis inséré comme image)
-    logo_size = round(220 * scale)
+    logo_size = round(150 * scale)
     logo_img = create_logo_image(size=logo_size)
-    logo_x, logo_y = round(250 * scale), round(280 * scale)
-    title_img.paste(logo_img, (logo_x, logo_y), logo_img)
+    img.paste(logo_img, (round(W / 2 - logo_size / 2), round(180 * scale)), logo_img)
 
-    # 2. Titre principal "Klepsydrix"
-    title_text = APP_SETTINGS["title"]
-    title_x, title_y = round(550 * scale), round(300 * scale)
-    draw.text((title_x, title_y), title_text, fill=(24, 32, 43), font=title_font)
+    title_font = _font(90, scale, bold=True)
+    subtitle_font = _font(30, scale)
+    footer_font = _font(22, scale, italic=True)
 
-    # 3. Sous-titre (multi-ligne)
-    subtitle_text = APP_SETTINGS["subtitle"]
-    subtitle_lines = subtitle_text.split('\n')
-    line_height = round(50 * scale)
-    subtitle_y = round(550 * scale)
-    for line in subtitle_lines:
-        line_bbox = draw.textbbox((0, 0), line, font=subtitle_font)
-        line_width = line_bbox[2] - line_bbox[0]
-        line_x = (W - line_width) // 2
-        draw.text((line_x, subtitle_y), line, fill=(80, 80, 80), font=subtitle_font)
-        subtitle_y += line_height
+    _text_centered(draw, W / 2, round(370 * scale), APP_SETTINGS["title"], title_font, APP_SETTINGS["primary_color"])
 
-    # 4. Barre accent (couleur de la marque)
-    bar_width = round(1000 * scale)
-    bar_x = (W - bar_width) // 2
-    bar_y = round(780 * scale)
-    bar_height = max(2, round(8 * scale))
+    subtitle_y = round(480 * scale)
+    for line in APP_SETTINGS["subtitle"].split('\n'):
+        _text_centered(draw, W / 2, subtitle_y, line, subtitle_font, (80, 80, 80))
+        subtitle_y += round(42 * scale)
+
+    bar_width = round(700 * scale)
+    bar_y = round(650 * scale)
     draw.rectangle(
-        [(bar_x, bar_y), (bar_x + bar_width, bar_y + bar_height)],
-        fill=APP_SETTINGS["accent_color"]
+        [(W / 2 - bar_width / 2, bar_y), (W / 2 + bar_width / 2, bar_y + max(2, round(6 * scale)))],
+        fill=APP_SETTINGS["accent_color"],
     )
+    _text_centered(draw, W / 2, round(700 * scale), APP_SETTINGS["footer_tagline"], footer_font, (120, 120, 120))
 
-    # 5. Footer
-    footer_text = APP_SETTINGS["footer_tagline"]
-    footer_bbox = draw.textbbox((0, 0), footer_text, font=footer_font)
-    footer_width = footer_bbox[2] - footer_bbox[0]
-    footer_x = (W - footer_width) // 2
-    footer_y = round(850 * scale)
-    draw.text((footer_x, footer_y), footer_text, fill=(120, 120, 120), font=footer_font)
+    path = AUDIO_DIR / "intro_slide_brand.png"
+    img.save(path)
+    return mp.ImageClip(str(path)).with_duration(duration)
 
-    # Sauvegarder l'image
-    title_card_path = AUDIO_DIR / "title_card.png"
-    title_img.save(title_card_path)
-    print(f"  ✅ Page de garde générée avec PIL ({W}x{H})")
 
-    # Créer le clip vidéo à partir de l'image
-    return mp.ImageClip(str(title_card_path)).with_duration(duration)
+def create_chaos_slide(duration, scale, funnel_target=None, single_exit=False):
+    """Dessine une vue du schéma d'intro. `funnel_target` fait converger les flèches des
+    quatre outils vers ce point (le routeur) plutôt que vers trois fournisseurs distincts ;
+    `single_exit` bascule vers la vue "sortie unique" (routeur -> une seule adresse par SIREN)."""
+    W, H = VIDEO_WIDTH, VIDEO_HEIGHT
+    scale2 = scale
+    img = Image.new('RGB', (W, H), color=APP_SETTINGS["bg_color"])
+    draw = ImageDraw.Draw(img)
+    title_font = _font(30, scale2, bold=True)
+    primary = APP_SETTINGS["primary_color"]
+    accent = APP_SETTINGS["accent_color"]
+    muted = APP_SETTINGS["muted_color"]
+
+    apps = [
+        ("Spendesk", "SMTP"),
+        ("Comptable", "SMTP"),
+        ("Odoo / ERP", "API AFNOR"),
+        ("Autre outil", "API AFNOR"),
+    ]
+    app_y = round(220 * scale2)
+    app_w, app_h = round(220 * scale2), round(90 * scale2)
+    xs = [W * (i + 1) / (len(apps) + 1) for i in range(len(apps))]
+
+    if not single_exit:
+        for (label, proto), x in zip(apps, xs):
+            draw_box(draw, x, app_y, app_w, app_h, label, proto, primary, scale2)
+
+    if funnel_target is None and not single_exit:
+        # Vue 1 : chaos — chaque outil vers son propre fournisseur, protocoles/adresses différents.
+        partners = [("Fournisseur A", "spendesk-inbox@x.fr"), ("Fournisseur B", "compta@y.fr"), ("Fournisseur C", "api.pdp/v1")]
+        partner_y = round(680 * scale2)
+        pxs = [W * (i + 1) / (len(partners) + 1) for i in range(len(partners))]
+        for (label, sub), x in zip(partners, pxs):
+            draw_box(draw, x, partner_y, round(240 * scale2), round(80 * scale2), label, sub, muted, scale2)
+        # Croisements délibérément désordonnés.
+        targets = [pxs[0], pxs[2], pxs[1], pxs[0]]
+        for x, tx in zip(xs, targets):
+            draw_arrow(draw, (x, app_y + app_h / 2), (tx, partner_y - 40 * scale2), accent, max(2, round(3 * scale2)))
+        _text_centered(draw, W / 2, round(60 * scale2), "Sans routeur : un protocole différent par outil, par fournisseur", title_font, primary)
+
+    elif funnel_target is not None:
+        # Vue 2 : convergence — chaque outil pointe vers le routeur.
+        rx, ry = funnel_target
+        draw_box(draw, rx, ry, round(320 * scale2), round(110 * scale2), "Routeur de factures", None, accent, scale2)
+        for x in xs:
+            draw_arrow(draw, (x, app_y + app_h / 2), (rx, ry - 60 * scale2), primary, max(2, round(3 * scale2)))
+        _text_centered(draw, W / 2, round(60 * scale2), "Le routeur absorbe la complexité, application par application", title_font, primary)
+
+    else:
+        # Vue 3 : sortie unique — un seul type d'adresse, une par SIREN.
+        rx, ry = W / 2, round(220 * scale2)
+        draw_box(draw, rx, ry, round(320 * scale2), round(110 * scale2), "Routeur de factures", None, accent, scale2)
+        partners = ["Entreprise A", "Entreprise B", "Entreprise C"]
+        partner_y = round(650 * scale2)
+        pxs = [W * (i + 1) / (len(partners) + 1) for i in range(len(partners))]
+        for label, x in zip(partners, pxs):
+            draw_box(draw, x, partner_y, round(260 * scale2), round(90 * scale2), label, "facturation@<siren>.routeur.fr", primary, scale2)
+            draw_arrow(draw, (rx, ry + 55 * scale2), (x, partner_y - 45 * scale2), accent, max(2, round(3 * scale2)))
+        _text_centered(
+            draw, W / 2, round(60 * scale2),
+            "Une seule adresse par SIREN, quel que soit le nombre d'applications branchées",
+            title_font, primary,
+        )
+
+    path = AUDIO_DIR / f"intro_slide_{'exit' if single_exit else ('funnel' if funnel_target else 'chaos')}.png"
+    img.save(path)
+    return mp.ImageClip(str(path)).with_duration(duration)
+
+
+def create_intro_sequence(duration):
+    """Diaporama de 4 vues remplaçant la page de garde statique de l'ancien projet : pose la
+    proposition de valeur du routeur avant d'entrer dans l'application (§ demande utilisateur —
+    schéma animé simple montrant l'intérêt du routeur)."""
+    print(f"🎨 Création du schéma d'intro ({duration:.1f}s)...")
+    scale = VIDEO_WIDTH / 1920
+
+    brand_dur = max(1.8, duration * 0.22)
+    remaining = max(0.1, duration - brand_dur)
+    slide_dur = remaining / 3
+
+    clips = [
+        create_chaos_slide(slide_dur, scale, funnel_target=None, single_exit=False),
+        create_chaos_slide(slide_dur, scale, funnel_target=(VIDEO_WIDTH / 2, round(500 * scale)), single_exit=False),
+        create_chaos_slide(slide_dur, scale, funnel_target=None, single_exit=True),
+        create_brand_slide(brand_dur, scale),
+    ]
+    print("  ✅ Schéma d'intro généré (4 vues)")
+    return mp.concatenate_videoclips(clips)
 
 
 # --- MONTAGE ---
@@ -992,16 +958,13 @@ def assemble(video_path, durations, audio_paths, timestamps):
 
     full_video = mp.VideoFileClip(video_path)
 
-    intro_audio_dur = durations.get("01_intro", 5.0)
+    intro_audio_dur = durations.get("00_value_prop", 5.0)
     intro_total_dur = intro_audio_dur + 1.5
-    intro_animation = create_title_card(intro_total_dur)
+    intro_clip = create_intro_sequence(intro_total_dur)
 
-    # Pas de "saut temporel" pour cette démo : on concatène simplement la page de garde
-    # et la capture complète.
     rest_of_video = full_video.subclipped(intro_total_dur, full_video.duration)
-    video = mp.concatenate_videoclips([intro_animation, rest_of_video])
+    video = mp.concatenate_videoclips([intro_clip, rest_of_video])
 
-    # --- AUDIO ---
     audio_clips = []
     last_audio_end = 0
     overlaps_detected = []
@@ -1040,7 +1003,7 @@ def assemble(video_path, durations, audio_paths, timestamps):
         else:
             video = video_with_audio
 
-    out_name = f"DEMO_KLEPSYDRIX_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+    out_name = f"DEMO_ROUTEUR_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
     out = BASE_DIR / out_name
     print(f"💾 Génération de {out}...")
     video.write_videofile(str(out), codec="libx264", audio_codec="aac", fps=24)
@@ -1055,54 +1018,56 @@ async def main():
     meta_path = BASE_DIR / "last_meta.json"
 
     if not assemble_only:
+        write_vite_proxy_config()
         for svc in APP_SETTINGS["services"]:
             if not wait_for_service(svc):
+                print(f"❌ {svc['name']} n'a pas démarré à temps.")
                 return
 
-    durations, audio_paths = generate_audio()
+    durations, audio_paths = await generate_audio()
 
-    if assemble_only:
-        if not meta_path.exists():
-            print("  ❌ Aucun fichier 'last_meta.json' trouvé. Lancez une capture complète d'abord.")
-            return
-
-        print("⚡ Mode Montage Seul activé. Réutilisation de la dernière capture...")
-        with open(meta_path, "r") as f:
-            meta = json.load(f)
-            t_marks = meta["timestamps"]
-            v_path = meta.get("video_path")
-
-        if not v_path or not os.path.exists(v_path):
-            webms = list(VIDEO_DIR.glob("*.webm"))
-            if not webms:
-                print("  ❌ Aucune vidéo .webm trouvée dans temp_video/")
+    try:
+        if assemble_only:
+            if not meta_path.exists():
+                print("  ❌ Aucun fichier 'last_meta.json' trouvé. Lancez une capture complète d'abord.")
                 return
-            v_path = str(max(webms, key=os.path.getmtime))
-            print(f"  🎬 Vidéo détectée : {v_path}")
 
-        assemble(v_path, durations, audio_paths, t_marks)
-    else:
-        try:
-            v_path, t_marks = await capture(durations)
-            if v_path:
-                with open(meta_path, "w") as f:
-                    json.dump({
-                        "video_path": v_path,
-                        "timestamps": t_marks
-                    }, f, indent=2)
+            print("⚡ Mode Montage Seul activé. Réutilisation de la dernière capture...")
+            with open(meta_path, "r") as f:
+                meta = json.load(f)
+                t_marks = meta["timestamps"]
+                v_path = meta.get("video_path")
 
-                assemble(v_path, durations, audio_paths, t_marks)
-        except Exception as e:
-            print(f"❌ Échec global : {e}")
-            import traceback
-            traceback.print_exc()
+            if not v_path or not os.path.exists(v_path):
+                webms = list(VIDEO_DIR.glob("*.webm"))
+                if not webms:
+                    print("  ❌ Aucune vidéo .webm trouvée dans temp_video/")
+                    return
+                v_path = str(max(webms, key=os.path.getmtime))
+                print(f"  🎬 Vidéo détectée : {v_path}")
 
-    # Afficher le temps d'exécution
+            assemble(v_path, durations, audio_paths, t_marks)
+        else:
+            try:
+                v_path, t_marks = await capture(durations)
+                if v_path:
+                    with open(meta_path, "w") as f:
+                        json.dump({"video_path": v_path, "timestamps": t_marks}, f, indent=2)
+                    assemble(v_path, durations, audio_paths, t_marks)
+            except Exception as e:
+                print(f"❌ Échec global : {e}")
+                import traceback
+                traceback.print_exc()
+    finally:
+        # Nettoyage du fichier de config Vite jetable — jamais laissé dans le dépôt.
+        if VITE_PROXY_CONFIG.exists():
+            VITE_PROXY_CONFIG.unlink()
+
     elapsed_time = time.time() - script_start_time
     minutes, seconds = divmod(elapsed_time, 60)
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print(f"✨ Script terminé en {int(minutes)}m {seconds:.1f}s ({elapsed_time:.1f}s total)")
-    print("="*60)
+    print("=" * 60)
 
 
 if __name__ == "__main__":

@@ -66,13 +66,17 @@ async function submitContact() {
 }
 
 async function removeContact(id: number) {
-  await deleteBillingManagerContact(id)
-  await refreshContacts()
+  await guard(async () => {
+    await deleteBillingManagerContact(id)
+    await refreshContacts()
+  })
 }
 
 onMounted(async () => {
-  await refreshSettings()
-  await refreshContacts()
+  await guard(async () => {
+    await refreshSettings()
+    await refreshContacts()
+  })
 })
 </script>
 

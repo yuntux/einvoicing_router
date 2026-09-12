@@ -126,8 +126,10 @@ async function toggleActive(ta: TargetApplication) {
 }
 
 onMounted(async () => {
-  await refresh()
-  companies.value = await listCompanies()
+  await guard(async () => {
+    await refresh()
+    companies.value = await listCompanies()
+  })
 })
 </script>
 
