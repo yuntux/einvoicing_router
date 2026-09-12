@@ -21,7 +21,7 @@ def _invoice():
         invoice_number="F-2026-01",
         invoice_date=date(2026, 1, 1),
         file_path="/tmp/x.pdf",
-        superpdp_flow_id="flow-abc",
+        certified_platform_flow_id="flow-abc",
     )
 
 

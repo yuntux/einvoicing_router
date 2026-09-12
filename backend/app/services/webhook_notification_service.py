@@ -25,13 +25,12 @@ def send_new_invoice_notification(
     Retourne True en cas de succès, False sinon (jamais d'exception propagée). Ne fait
     rien et retourne False si aucune URL de webhook n'est configurée (repli silencieux
     sur le polling, § 4.7)."""
-    oauth_app = target.oauth_application
-    if oauth_app is None or not oauth_app.webhook_url:
+    if not target.webhook_url:
         return False
 
     sender = sender or HttpWebhookSender()
     webhook = OutgoingWebhook(
-        url=oauth_app.webhook_url,
+        url=target.webhook_url,
         payload={
             "event": "invoice.routed",
             "invoice_id": invoice.id,
@@ -61,11 +60,10 @@ def notify_lifecycle_event(
     sender = sender or HttpWebhookSender()
     for routing in invoice.routings:
         target = routing.target_application
-        oauth_app = target.oauth_application
-        if oauth_app is None or not oauth_app.webhook_url:
+        if not target.webhook_url:
             continue
         webhook = OutgoingWebhook(
-            url=oauth_app.webhook_url,
+            url=target.webhook_url,
             payload={
                 "event": "lifecycle_event.created",
                 "invoice_id": invoice.id,

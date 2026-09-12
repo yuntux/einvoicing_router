@@ -172,7 +172,7 @@ def test_restricted_user_sees_only_their_company_scope(client, db_session, monke
         invoice_number="F-1",
         invoice_date=date(2026, 1, 1),
         file_path="/tmp/x.pdf",
-        superpdp_flow_id="flow-1",
+        certified_platform_flow_id="flow-1",
     )
     db_session.add(invoice)
     db_session.commit()

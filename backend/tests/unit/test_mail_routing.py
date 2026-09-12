@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 from app.afnor.client.base import RawInvoice
-from app.afnor.client.fake import FakeSuperPDPClient
+from app.afnor.client.fake import FakeCertifiedPlatformClient
 from app.models.invoicing import Invoice, InvoiceRouting, TransferStatus
 from app.models.referential import Company, PartnerDirectory, RoutingMethod, TargetApplication
 from app.models.settings import BillingManagerContact
@@ -66,14 +66,14 @@ def _make_routed_invoice(db, *, company, target, emitter_siren="222222222", flow
     )
 
     raw = RawInvoice(
-        superpdp_flow_id=flow_id,
+        certified_platform_flow_id=flow_id,
         emitter_siren=emitter_siren,
         invoice_number=f"F-{flow_id}",
         invoice_date=date(2026, 1, 15),
         file_name=f"F-{flow_id}.pdf",
         file_content=b"%PDF-fake-content",
     )
-    client = FakeSuperPDPClient([raw])
+    client = FakeCertifiedPlatformClient([raw])
     result = ingest_from_client(db, company=company, client=client)
     invoice = result.created[0]
     routing = (
@@ -103,6 +103,45 @@ def test_send_routing_success_reads_invoice_file(db_session):
     assert mail.subject == invoice.invoice_number
     assert mail.to == ["spendesk@example.com"]
     assert mail.attachment_content == b"%PDF-fake-content"
+
+
+def test_send_routing_uses_target_from_address_when_set(db_session):
+    """§ 4.9.1 : une application cible peut surcharger l'adresse d'expédition
+    globale (`RouterSettings.smtp_from_address`) pour ses propres envois."""
+    company = _make_company(db_session)
+    target = TargetApplication(
+        name="Spendesk",
+        routing_method=RoutingMethod.MAIL,
+        company_id=company.id,
+        parameters={"from": "factures@ma-societe.example", "to": ["spendesk@example.com"], "cc": [], "bcc": []},
+    )
+    db_session.add(target)
+    db_session.commit()
+    db_session.refresh(target)
+    invoice, routing = _make_routed_invoice(db_session, company=company, target=target)
+
+    sender = RecordingMailSender()
+    mail_router_service.send_routing(
+        db_session, invoice=invoice, routing=routing, target=target, sender=sender
+    )
+
+    assert sender.sent[0].from_address == "factures@ma-societe.example"
+
+
+def test_send_routing_from_address_defaults_to_none_when_not_set(db_session):
+    """Sans surcharge, `from_address` reste `None` — `SmtpMailSender` retombe alors
+    sur l'adresse globale (§ 4.9.1), comportement inchangé pour les applications
+    existantes qui ne définissent pas ce champ."""
+    company = _make_company(db_session)
+    target = _make_mail_target(db_session, company)
+    invoice, routing = _make_routed_invoice(db_session, company=company, target=target)
+
+    sender = RecordingMailSender()
+    mail_router_service.send_routing(
+        db_session, invoice=invoice, routing=routing, target=target, sender=sender
+    )
+
+    assert sender.sent[0].from_address is None
 
 
 def test_send_routing_failure_returns_false(db_session):
@@ -202,14 +241,14 @@ def test_alert_unrouted_invoice_on_zero_target(db_session):
     db_session.commit()
 
     raw = RawInvoice(
-        superpdp_flow_id="flow-unrouted",
+        certified_platform_flow_id="flow-unrouted",
         emitter_siren="999999999",  # aucune PartnerDirectory / RoutingRule
         invoice_number="F-unrouted",
         invoice_date=date(2026, 1, 15),
         file_name="F-unrouted.pdf",
         file_content=b"%PDF-fake-content",
     )
-    client = FakeSuperPDPClient([raw])
+    client = FakeCertifiedPlatformClient([raw])
 
     sender = RecordingMailSender()
     # L'alerte est déclenchée par InvoiceIngestionService avec le sender SMTP réel par
@@ -230,7 +269,7 @@ def test_alert_unrouted_invoice_sends_email_to_contacts(db_session):
         invoice_number="F-alert",
         invoice_date=date(2026, 1, 1),
         file_path="/tmp/irrelevant.pdf",
-        superpdp_flow_id="flow-alert",
+        certified_platform_flow_id="flow-alert",
     )
     db_session.add(invoice)
     db_session.commit()
@@ -252,7 +291,7 @@ def test_alert_unrouted_invoice_no_contacts_sends_nothing(db_session):
         invoice_number="F-alert",
         invoice_date=date(2026, 1, 1),
         file_path="/tmp/irrelevant.pdf",
-        superpdp_flow_id="flow-alert",
+        certified_platform_flow_id="flow-alert",
     )
     db_session.add(invoice)
     db_session.commit()

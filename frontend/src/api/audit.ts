@@ -35,14 +35,56 @@ export interface AuditLogEntry {
   created_at: string
 }
 
-export function listFlowTraces(): Promise<FlowTrace[]> {
-  return apiFetch('/api/ihm/audit/flow-traces', {}, 'Failed to list flow traces')
+export interface FlowTraceFilters {
+  created_from?: string
+  created_to?: string
+  direction?: string
+  afnor_api_version?: string
+  http_status?: number
+  correlation_id?: string
 }
 
-export function listTechnicalLogs(): Promise<TechnicalLog[]> {
-  return apiFetch('/api/ihm/audit/technical-logs', {}, 'Failed to list technical logs')
+export interface TechnicalLogFilters {
+  created_from?: string
+  created_to?: string
+  log_type?: string
+  origin?: string
+  company_id?: number
+  status?: string
+  new_count?: number
+  updated_count?: number
+  details?: string
 }
 
-export function listAuditLogs(): Promise<AuditLogEntry[]> {
-  return apiFetch('/api/ihm/audit/audit-logs', {}, 'Failed to list audit logs')
+export interface AuditLogFilters {
+  created_from?: string
+  created_to?: string
+  user_email?: string
+  action?: string
+  target?: string
+  ip_address?: string
+}
+
+function toQueryString(filters: object): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  }
+  return params.toString()
+}
+
+export function listFlowTraces(filters: FlowTraceFilters = {}): Promise<FlowTrace[]> {
+  return apiFetch(`/api/ihm/audit/flow-traces?${toQueryString(filters)}`, {}, 'Failed to list flow traces')
+}
+
+export function listTechnicalLogs(filters: TechnicalLogFilters = {}): Promise<TechnicalLog[]> {
+  return apiFetch(
+    `/api/ihm/audit/technical-logs?${toQueryString(filters)}`,
+    {},
+    'Failed to list technical logs',
+  )
+}
+
+export function listAuditLogs(filters: AuditLogFilters = {}): Promise<AuditLogEntry[]> {
+  return apiFetch(`/api/ihm/audit/audit-logs?${toQueryString(filters)}`, {}, 'Failed to list audit logs')
 }

@@ -10,41 +10,24 @@ import {
   type TargetApplication,
   type TargetApplicationCreated,
 } from '../api/targetApplications'
+import TargetApplicationFormFields, {
+  emptyTargetApplicationFieldsState,
+  type TargetApplicationFieldsState,
+} from '../components/TargetApplicationFormFields.vue'
 import { useErrorMessage } from '../composables/useErrorMessage'
 
 const targetApplications = ref<TargetApplication[]>([])
 const companies = ref<Company[]>([])
-const name = ref('')
 const routingMethod = ref<RoutingMethod>('mail')
 const companyId = ref<number | null>(null)
-
-// Paramètres méthode "mail" (§ 4.9.1)
-const to = ref('')
-const cc = ref('')
-const bcc = ref('')
-
-// Paramètres méthode "afnor_api" (§ 4.9.2)
-const redirectUrls = ref('')
-const preferredConversionFormat = ref('')
-const appType = ref<'confidential' | 'public'>('confidential')
-const webhookUrl = ref('')
+const formState = ref<TargetApplicationFieldsState>(emptyTargetApplicationFieldsState())
 
 const { error, guard } = useErrorMessage()
 const createdCredentials = ref<TargetApplicationCreated | null>(null)
 
 // Édition en place des paramètres d'une application existante.
 const editingId = ref<number | null>(null)
-interface EditState {
-  name: string
-  to: string
-  cc: string
-  bcc: string
-  redirectUrls: string
-  preferredConversionFormat: string
-  appType: 'confidential' | 'public'
-  webhookUrl: string
-}
-const edits = reactive<Record<number, EditState>>({})
+const edits = reactive<Record<number, TargetApplicationFieldsState>>({})
 
 function companyLabel(companyId: number): string {
   const company = companies.value.find((c) => c.id === companyId)
@@ -58,9 +41,28 @@ function splitList(value: string): string[] {
     .filter(Boolean)
 }
 
+/** Construit `parameters` selon la méthode de routage (§ 4.9.1/4.9.2) — partagé
+ * entre création et édition, qui suivent la même logique sur les mêmes champs. */
+function buildParameters(method: RoutingMethod, state: TargetApplicationFieldsState) {
+  return method === 'mail'
+    ? {
+        from: state.fromAddress || null,
+        to: splitList(state.to),
+        cc: splitList(state.cc),
+        bcc: splitList(state.bcc),
+      }
+    : {
+        redirect_urls: splitList(state.redirectUrls),
+        preferred_conversion_format: state.preferredConversionFormat || null,
+        app_type: state.appType,
+        webhook_url: state.webhookUrl || null,
+      }
+}
+
 function startEdit(ta: TargetApplication) {
   edits[ta.id] = {
     name: ta.name,
+    fromAddress: (ta.parameters.from as string | undefined) ?? '',
     to: ((ta.parameters.to as string[] | undefined) ?? []).join(', '),
     cc: ((ta.parameters.cc as string[] | undefined) ?? []).join(', '),
     bcc: ((ta.parameters.bcc as string[] | undefined) ?? []).join(', '),
@@ -77,18 +79,9 @@ function cancelEdit() {
 }
 
 async function saveEdit(ta: TargetApplication) {
-  const edit = edits[ta.id]
-  const parameters =
-    ta.routing_method === 'mail'
-      ? { to: splitList(edit.to), cc: splitList(edit.cc), bcc: splitList(edit.bcc) }
-      : {
-          redirect_urls: splitList(edit.redirectUrls),
-          preferred_conversion_format: edit.preferredConversionFormat || null,
-          app_type: edit.appType,
-          webhook_url: edit.webhookUrl || null,
-        }
+  const parameters = buildParameters(ta.routing_method, edits[ta.id])
   await guard(async () => {
-    await updateTargetApplication(ta.id, { name: edit.name, parameters })
+    await updateTargetApplication(ta.id, { name: edits[ta.id].name, parameters })
     editingId.value = null
     await refresh()
   })
@@ -107,19 +100,11 @@ async function submit() {
     return
   }
 
-  const parameters =
-    routingMethod.value === 'mail'
-      ? { to: splitList(to.value), cc: splitList(cc.value), bcc: splitList(bcc.value) }
-      : {
-          redirect_urls: splitList(redirectUrls.value),
-          preferred_conversion_format: preferredConversionFormat.value || null,
-          app_type: appType.value,
-          webhook_url: webhookUrl.value || null,
-        }
+  const parameters = buildParameters(routingMethod.value, formState.value)
 
   await guard(async () => {
     const created = await createTargetApplication({
-      name: name.value,
+      name: formState.value.name,
       routing_method: routingMethod.value,
       company_id: selectedCompanyId,
       parameters,
@@ -127,14 +112,8 @@ async function submit() {
     if (created.oauth_client_id && created.oauth_client_secret) {
       createdCredentials.value = created
     }
-    name.value = ''
+    formState.value = emptyTargetApplicationFieldsState()
     companyId.value = null
-    to.value = ''
-    cc.value = ''
-    bcc.value = ''
-    redirectUrls.value = ''
-    preferredConversionFormat.value = ''
-    webhookUrl.value = ''
     await refresh()
   })
 }
@@ -164,7 +143,7 @@ onMounted(async () => {
       <form @submit.prevent="submit">
         <div class="field">
           <label for="ta-name-input">Nom</label>
-          <input id="ta-name-input" v-model="name" placeholder="Nom" required data-testid="ta-name-input" />
+          <input id="ta-name-input" v-model="formState.name" placeholder="Nom" required data-testid="ta-name-input" />
         </div>
         <div class="field">
           <label for="ta-method-select">Méthode de routage</label>
@@ -184,50 +163,21 @@ onMounted(async () => {
           </select>
         </div>
 
-        <div v-if="routingMethod === 'mail'" class="subsection">
-          <div class="subsection-title">Destinataires</div>
-          <input v-model="to" placeholder="À (séparés par des virgules)" data-testid="ta-to-input" />
-          <input v-model="cc" placeholder="CC" data-testid="ta-cc-input" />
-          <input v-model="bcc" placeholder="CCI" data-testid="ta-bcc-input" />
-        </div>
-
-        <div v-else class="subsection">
-          <div class="subsection-title">Application OAuth</div>
-          <div class="field">
-            <label for="ta-redirect-urls-input">URLs de redirection</label>
-            <input
-              id="ta-redirect-urls-input"
-              v-model="redirectUrls"
-              placeholder="URLs de redirection (séparées par des virgules)"
-              data-testid="ta-redirect-urls-input"
-            />
-          </div>
-          <div class="field">
-            <label for="ta-conversion-format-select">Format préféré de conversion</label>
-            <select id="ta-conversion-format-select" v-model="preferredConversionFormat" data-testid="ta-conversion-format-select">
-              <option value="">Aucun (facultatif)</option>
-              <option value="Factur-X">Factur-X</option>
-              <option value="UBL">UBL</option>
-              <option value="CII">CII</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="ta-app-type-select">Type d'application</label>
-            <select id="ta-app-type-select" v-model="appType" data-testid="ta-app-type-select">
-              <option value="confidential">Confidentielle</option>
-              <option value="public">Publique</option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="ta-webhook-url-input">URL de webhook</label>
-            <input
-              id="ta-webhook-url-input"
-              v-model="webhookUrl"
-              placeholder="URL de webhook"
-              data-testid="ta-webhook-url-input"
-            />
-          </div>
-        </div>
+        <TargetApplicationFormFields
+          v-model="formState"
+          :routing-method="routingMethod"
+          id-prefix="ta"
+          :test-ids="{
+            from: 'ta-from-input',
+            to: 'ta-to-input',
+            cc: 'ta-cc-input',
+            bcc: 'ta-bcc-input',
+            redirectUrls: 'ta-redirect-urls-input',
+            conversionFormat: 'ta-conversion-format-select',
+            appType: 'ta-app-type-select',
+            webhookUrl: 'ta-webhook-url-input',
+          }"
+        />
 
         <button type="submit" data-testid="ta-submit-button">Ajouter</button>
       </form>
@@ -313,68 +263,22 @@ onMounted(async () => {
                     />
                   </div>
 
-                  <div v-if="ta.routing_method === 'mail'" class="subsection">
-                    <div class="subsection-title">Destinataires</div>
-                    <input
-                      v-model="edits[ta.id].to"
-                      placeholder="À (séparés par des virgules)"
-                      :data-testid="`target-application-edit-to-${ta.id}`"
-                    />
-                    <input v-model="edits[ta.id].cc" placeholder="CC" />
-                    <input v-model="edits[ta.id].bcc" placeholder="CCI" />
-                  </div>
-
-                  <div v-else class="subsection">
-                    <div class="subsection-title">Application OAuth</div>
-                    <div v-if="ta.oauth_application" class="field">
-                      <label>Client ID</label>
-                      <code :data-testid="`target-application-edit-client-id-${ta.id}`">
-                        {{ ta.oauth_application.client_id }}
-                      </code>
-                    </div>
-                    <div class="field">
-                      <label :for="`ta-edit-redirect-urls-${ta.id}`">URLs de redirection</label>
-                      <textarea
-                        :id="`ta-edit-redirect-urls-${ta.id}`"
-                        v-model="edits[ta.id].redirectUrls"
-                        placeholder="URLs de redirection (une par ligne)"
-                        :data-testid="`target-application-edit-redirect-urls-${ta.id}`"
-                      />
-                    </div>
-                    <div class="field">
-                      <label :for="`ta-edit-conversion-format-${ta.id}`">Format préféré de conversion</label>
-                      <select
-                        :id="`ta-edit-conversion-format-${ta.id}`"
-                        v-model="edits[ta.id].preferredConversionFormat"
-                        :data-testid="`target-application-edit-conversion-format-${ta.id}`"
-                      >
-                        <option value="">Aucun format préféré (facultatif)</option>
-                        <option value="Factur-X">Factur-X</option>
-                        <option value="UBL">UBL</option>
-                        <option value="CII">CII</option>
-                      </select>
-                    </div>
-                    <div class="field">
-                      <label :for="`ta-edit-app-type-${ta.id}`">Type d'application</label>
-                      <select
-                        :id="`ta-edit-app-type-${ta.id}`"
-                        v-model="edits[ta.id].appType"
-                        :data-testid="`target-application-edit-app-type-${ta.id}`"
-                      >
-                        <option value="confidential">Confidentielle</option>
-                        <option value="public">Publique</option>
-                      </select>
-                    </div>
-                    <div class="field">
-                      <label :for="`ta-edit-webhook-url-${ta.id}`">URL de webhook</label>
-                      <input
-                        :id="`ta-edit-webhook-url-${ta.id}`"
-                        v-model="edits[ta.id].webhookUrl"
-                        placeholder="URL de webhook"
-                        :data-testid="`target-application-edit-webhook-url-${ta.id}`"
-                      />
-                    </div>
-                  </div>
+                  <TargetApplicationFormFields
+                    v-model="edits[ta.id]"
+                    :routing-method="ta.routing_method"
+                    :id-prefix="`ta-edit-${ta.id}`"
+                    :oauth-client-id="ta.oauth_application?.client_id"
+                    :test-ids="{
+                      from: `target-application-edit-from-${ta.id}`,
+                      to: `target-application-edit-to-${ta.id}`,
+                      cc: `target-application-edit-cc-${ta.id}`,
+                      bcc: `target-application-edit-bcc-${ta.id}`,
+                      redirectUrls: `target-application-edit-redirect-urls-${ta.id}`,
+                      conversionFormat: `target-application-edit-conversion-format-${ta.id}`,
+                      appType: `target-application-edit-app-type-${ta.id}`,
+                      webhookUrl: `target-application-edit-webhook-url-${ta.id}`,
+                    }"
+                  />
 
                   <div class="cluster">
                     <button type="submit" class="btn-sm" :data-testid="`target-application-edit-save-${ta.id}`">

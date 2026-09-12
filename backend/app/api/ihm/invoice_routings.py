@@ -5,7 +5,7 @@ from app.auth.perimeter import apply_company_scope, ensure_company_in_scope
 from app.auth.session import get_current_user
 from app.db.session import get_db
 from app.models.invoicing import Invoice, InvoiceRouting, TransferStatus
-from app.models.referential import User
+from app.models.referential import TargetApplication, User
 from app.schemas.invoice_routing import (
     FailedInvoiceRoutingRead,
     ReplayRoutingResult,
@@ -22,14 +22,37 @@ FAILURE_STATUSES = (TransferStatus.RETRYING, TransferStatus.FAILED_FINAL)
 
 @router.get("/failed", response_model=list[FailedInvoiceRoutingRead])
 def list_failed_routings(
-    db: Session = Depends(get_db), user: User | None = Depends(get_current_user)
+    invoice_number: str | None = None,
+    emitter_siren: str | None = None,
+    target_application_name: str | None = None,
+    transfer_status: TransferStatus | None = None,
+    attempt_count: int | None = None,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
 ):
+    """§ 8.3 : un filtre par colonne du tableau des échecs de routage."""
     query = (
         db.query(InvoiceRouting)
         .join(Invoice, InvoiceRouting.invoice_id == Invoice.id)
         .filter(InvoiceRouting.transfer_status.in_(FAILURE_STATUSES))
     )
     query = apply_company_scope(query, user=user, company_id_column=Invoice.company_id)
+    if invoice_number is not None:
+        query = query.filter(Invoice.invoice_number.contains(invoice_number))
+    if emitter_siren is not None:
+        query = query.filter(Invoice.emitter_siren.contains(emitter_siren))
+    if target_application_name is not None:
+        query = query.filter(
+            InvoiceRouting.target_application_id.in_(
+                db.query(TargetApplication.id).filter(
+                    TargetApplication.name.ilike(f"%{target_application_name}%")
+                )
+            )
+        )
+    if transfer_status is not None:
+        query = query.filter(InvoiceRouting.transfer_status == transfer_status)
+    if attempt_count is not None:
+        query = query.filter(InvoiceRouting.attempt_count == attempt_count)
     rows = query.order_by(InvoiceRouting.id).all()
     return [
         FailedInvoiceRoutingRead(

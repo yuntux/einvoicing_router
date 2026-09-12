@@ -1,4 +1,4 @@
-"""LifecycleService en mode `superpdp_client_mode = "pyfrctc"` (spec.md § 4.2, lot 6) :
+"""LifecycleService en mode `certified_platform_client_mode = "pyfrctc"` (spec.md § 4.2, lot 6) :
 génération CDAR réelle + transmission via AfnorClientAdapter (mockée, sans réseau)."""
 
 from datetime import date
@@ -15,7 +15,7 @@ from app.services.lifecycle_service import ManualEventInput, create_manual_event
 
 @pytest.fixture(autouse=True)
 def _pyfrctc_mode(monkeypatch):
-    monkeypatch.setattr(settings, "superpdp_client_mode", "pyfrctc")
+    monkeypatch.setattr(settings, "certified_platform_client_mode", "pyfrctc")
     yield
 
 
@@ -31,7 +31,7 @@ def _make_invoice(db):
         invoice_number="F-1",
         invoice_date=date(2026, 1, 1),
         file_path="/tmp/x.pdf",
-        superpdp_flow_id="flow-abc",
+        certified_platform_flow_id="flow-abc",
     )
     db.add(invoice)
     db.commit()

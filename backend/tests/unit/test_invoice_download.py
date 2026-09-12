@@ -4,7 +4,7 @@
 from datetime import date
 
 from app.afnor.client.base import RawInvoice
-from app.afnor.client.fake import FakeSuperPDPClient
+from app.afnor.client.fake import FakeCertifiedPlatformClient
 from app.models.audit import AuditLog
 from app.models.referential import Company
 from app.services.invoice_ingestion_service import ingest_from_client
@@ -12,14 +12,14 @@ from app.services.invoice_ingestion_service import ingest_from_client
 
 def _make_invoice(db, company):
     raw = RawInvoice(
-        superpdp_flow_id="flow-dl-1",
+        certified_platform_flow_id="flow-dl-1",
         emitter_siren="987654321",
         invoice_number="F-dl-1",
         invoice_date=date(2026, 1, 1),
         file_name="F-dl-1.pdf",
         file_content=b"%PDF-fake-content",
     )
-    result = ingest_from_client(db, company=company, client=FakeSuperPDPClient([raw]))
+    result = ingest_from_client(db, company=company, client=FakeCertifiedPlatformClient([raw]))
     return result.created[0]
 
 
@@ -83,10 +83,10 @@ def test_list_invoices_filter_by_downloaded_status(client, db_session):
     not_downloaded_invoice = ingest_from_client(
         db_session,
         company=company,
-        client=FakeSuperPDPClient(
+        client=FakeCertifiedPlatformClient(
             [
                 RawInvoice(
-                    superpdp_flow_id="flow-dl-2",
+                    certified_platform_flow_id="flow-dl-2",
                     emitter_siren="987654321",
                     invoice_number="F-dl-2",
                     invoice_date=date(2026, 1, 2),
@@ -117,10 +117,10 @@ def test_list_invoices_shows_last_download_via_join(client, db_session):
     other_invoice = ingest_from_client(
         db_session,
         company=company,
-        client=FakeSuperPDPClient(
+        client=FakeCertifiedPlatformClient(
             [
                 RawInvoice(
-                    superpdp_flow_id="flow-dl-3",
+                    certified_platform_flow_id="flow-dl-3",
                     emitter_siren="987654321",
                     invoice_number="F-dl-3",
                     invoice_date=date(2026, 1, 3),

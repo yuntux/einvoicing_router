@@ -20,11 +20,11 @@ test('configures SuperPDP credentials for a company', async ({ page }) => {
   const clientId = `sandbox-client-id-${unique}`
 
   await row.getByRole('button', { name: 'Configurer' }).click()
-  await row.getByTestId('superpdp-client-id-input').fill(clientId)
-  await row.getByTestId('superpdp-client-secret-input').fill('sandbox-client-secret')
-  await row.getByTestId('superpdp-credentials-submit-button').click()
+  await row.getByTestId('certified-platform-client-id-input').fill(clientId)
+  await row.getByTestId('certified-platform-client-secret-input').fill('sandbox-client-secret')
+  await row.getByTestId('certified-platform-credentials-submit-button').click()
 
-  await expect(page.getByTestId('superpdp-credentials-test-success')).toContainText('Test de connexion OK')
+  await expect(page.getByTestId('certified-platform-credentials-test-success')).toContainText('Test de connexion OK')
   await expect(row).toContainText(`Configurés (${clientId})`)
   await expect(row).not.toContainText('sandbox-client-secret')
 })

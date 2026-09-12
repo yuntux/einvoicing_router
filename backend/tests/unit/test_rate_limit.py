@@ -5,26 +5,30 @@ explicitement ici."""
 from app.auth.oauth import generate_client_credentials, hash_secret
 from app.auth.rate_limit import reset_rate_limits
 from app.config import settings
-from app.models.referential import Company, OAuthAppType, OAuthApplication, OAuthScope
+from app.models.referential import Company, RoutingMethod, TargetApplication
 
 
 def _make_oauth_app(db, client_secret="s3cret-value"):
+    """Une application `afnor_api` EST le "client" OAuth (§ 4.9.2/§ 4.10)."""
     company = Company(siren="123456789", name="Ma Société")
     db.add(company)
     db.commit()
     db.refresh(company)
 
-    oauth_app = OAuthApplication(
+    target = TargetApplication(
+        name="Odoo",
+        routing_method=RoutingMethod.AFNOR_API,
         company_id=company.id,
-        client_id=generate_client_credentials()[0],
-        client_secret_hash=hash_secret(client_secret),
-        app_type=OAuthAppType.CONFIDENTIAL,
-        scope=OAuthScope.CONSUMER_TO_ROUTER,
+        parameters={
+            "client_id": generate_client_credentials()[0],
+            "client_secret_hash": hash_secret(client_secret),
+            "app_type": "confidential",
+        },
     )
-    db.add(oauth_app)
+    db.add(target)
     db.commit()
-    db.refresh(oauth_app)
-    return oauth_app
+    db.refresh(target)
+    return target
 
 
 def test_oauth_token_endpoint_is_rate_limited(client, db_session, monkeypatch):

@@ -4,11 +4,11 @@ import { type Company, createCompany, listCompanies } from '../api/companies'
 import { useErrorMessage } from '../composables/useErrorMessage'
 import {
   type AfnorPlatform,
-  getSuperPDPCredentialsStatus,
+  getCertifiedPlatformCredentialsStatus,
   listAfnorPlatforms,
-  setSuperPDPCredentials,
-  type SuperPDPCredentialsStatus,
-} from '../api/superpdpCredentials'
+  setCertifiedPlatformCredentials,
+  type CertifiedPlatformCredentialsStatus,
+} from '../api/certifiedPlatformCredentials'
 
 const companies = ref<Company[]>([])
 const siren = ref('')
@@ -17,7 +17,7 @@ const { error, guard } = useErrorMessage()
 const credentialsSuccess = ref('')
 
 const afnorPlatforms = ref<AfnorPlatform[]>([])
-const credentialsStatus = reactive<Record<number, SuperPDPCredentialsStatus>>({})
+const credentialsStatus = reactive<Record<number, CertifiedPlatformCredentialsStatus>>({})
 const openCredentialsForm = ref<number | null>(null)
 const credentialsClientId = ref('')
 const credentialsClientSecret = ref('')
@@ -32,7 +32,7 @@ function platformLabel(key: string | null): string | null {
 async function refresh() {
   companies.value = await listCompanies()
   for (const company of companies.value) {
-    credentialsStatus[company.id] = await getSuperPDPCredentialsStatus(company.id)
+    credentialsStatus[company.id] = await getCertifiedPlatformCredentialsStatus(company.id)
   }
 }
 
@@ -58,7 +58,7 @@ async function submitCredentials(companyId: number) {
   credentialsSuccess.value = ''
   credentialsSubmitting.value = true
   await guard(async () => {
-    credentialsStatus[companyId] = await setSuperPDPCredentials(
+    credentialsStatus[companyId] = await setCertifiedPlatformCredentials(
       companyId,
       credentialsClientId.value,
       credentialsClientSecret.value,
@@ -99,7 +99,7 @@ onMounted(async () => {
     </section>
 
     <p v-if="error" role="alert">{{ error }}</p>
-    <p v-if="credentialsSuccess" role="status" data-testid="superpdp-credentials-test-success">
+    <p v-if="credentialsSuccess" role="status" data-testid="certified-platform-credentials-test-success">
       {{ credentialsSuccess }}
     </p>
 
@@ -118,7 +118,7 @@ onMounted(async () => {
           <tr v-for="company in companies" :key="company.id" :data-testid="`company-row-${company.id}`">
             <td>{{ company.siren }}</td>
             <td>{{ company.name }}</td>
-            <td :data-testid="`superpdp-credentials-status-${company.id}`">
+            <td :data-testid="`certified-platform-credentials-status-${company.id}`">
               <span class="badge" :class="credentialsStatus[company.id]?.configured ? 'badge-success' : 'badge-warning'">
                 {{
                   credentialsStatus[company.id]?.configured
@@ -139,16 +139,16 @@ onMounted(async () => {
                   v-model="credentialsClientId"
                   placeholder="Client ID API AFNOR"
                   required
-                  data-testid="superpdp-client-id-input"
+                  data-testid="certified-platform-client-id-input"
                 />
                 <input
                   v-model="credentialsClientSecret"
                   type="password"
                   placeholder="Client secret API AFNOR"
                   required
-                  data-testid="superpdp-client-secret-input"
+                  data-testid="certified-platform-client-secret-input"
                 />
-                <select v-model="credentialsPlatform" data-testid="superpdp-platform-select">
+                <select v-model="credentialsPlatform" data-testid="certified-platform-select">
                   <option value="">Plateforme par défaut du serveur</option>
                   <option v-for="p in afnorPlatforms" :key="p.key" :value="p.key">{{ p.label }}</option>
                 </select>
@@ -156,7 +156,7 @@ onMounted(async () => {
                   type="submit"
                   class="btn-sm"
                   :disabled="credentialsSubmitting"
-                  data-testid="superpdp-credentials-submit-button"
+                  data-testid="certified-platform-credentials-submit-button"
                 >
                   {{ credentialsSubmitting ? 'Test de connexion…' : 'Enregistrer' }}
                 </button>
@@ -166,7 +166,7 @@ onMounted(async () => {
               <button
                 type="button"
                 class="btn-secondary btn-sm"
-                :data-testid="`superpdp-credentials-toggle-${company.id}`"
+                :data-testid="`certified-platform-credentials-toggle-${company.id}`"
                 @click="toggleCredentialsForm(company.id)"
               >
                 {{ credentialsStatus[company.id]?.configured ? 'Modifier' : 'Configurer' }}

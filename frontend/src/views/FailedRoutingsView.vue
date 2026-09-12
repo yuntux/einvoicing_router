@@ -5,6 +5,7 @@ import {
   replayRoutings,
   runSendCycle,
   type FailedInvoiceRouting,
+  type FailedRoutingFilters,
 } from '../api/invoiceRoutings'
 import StatusBadge from '../components/StatusBadge.vue'
 import { useErrorMessage } from '../composables/useErrorMessage'
@@ -14,8 +15,21 @@ const selected = ref<Set<number>>(new Set())
 const { error, guard } = useErrorMessage()
 const message = ref('')
 
+// Filtres (§ 8.3), dans le même ordre que les colonnes du tableau ci-dessous.
+const filterInvoiceNumber = ref('')
+const filterEmitterSiren = ref('')
+const filterTargetApplicationName = ref('')
+const filterTransferStatus = ref('')
+const filterAttemptCount = ref('')
+
 async function refresh() {
-  routings.value = await listFailedRoutings()
+  const filters: FailedRoutingFilters = {}
+  if (filterInvoiceNumber.value) filters.invoice_number = filterInvoiceNumber.value
+  if (filterEmitterSiren.value) filters.emitter_siren = filterEmitterSiren.value
+  if (filterTargetApplicationName.value) filters.target_application_name = filterTargetApplicationName.value
+  if (filterTransferStatus.value) filters.transfer_status = filterTransferStatus.value
+  if (filterAttemptCount.value) filters.attempt_count = Number(filterAttemptCount.value)
+  routings.value = await listFailedRoutings(filters)
   selected.value = new Set()
 }
 
@@ -80,6 +94,41 @@ async function replaySelected() {
 
       <p v-if="message" role="status">{{ message }}</p>
       <p v-if="error" role="alert">{{ error }}</p>
+    </section>
+
+    <section class="card">
+      <h2>Filtres</h2>
+      <form @submit.prevent="refresh">
+        <input
+          v-model="filterInvoiceNumber"
+          placeholder="Facture"
+          data-testid="failed-routing-filter-invoice-number"
+        />
+        <input
+          v-model="filterEmitterSiren"
+          placeholder="SIREN émetteur"
+          data-testid="failed-routing-filter-emitter-siren"
+        />
+        <input
+          v-model="filterTargetApplicationName"
+          placeholder="Cible"
+          data-testid="failed-routing-filter-target-application"
+        />
+        <select v-model="filterTransferStatus" data-testid="failed-routing-filter-status">
+          <option value="">Tous les statuts</option>
+          <option value="retrying">Nouvel essai prévu</option>
+          <option value="failed_final">Échec définitif</option>
+        </select>
+        <input
+          v-model="filterAttemptCount"
+          type="number"
+          placeholder="Tentatives"
+          data-testid="failed-routing-filter-attempt-count"
+        />
+        <button type="submit" class="btn-secondary" data-testid="failed-routing-filter-submit-button">
+          Filtrer
+        </button>
+      </form>
     </section>
 
     <section class="card">

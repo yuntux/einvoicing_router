@@ -44,18 +44,30 @@ from sqlalchemy.orm import Session
 
 from app.afnor.client.adapter import afnor_client_adapter
 from app.afnor.server import afnor_server_controller
-from app.afnor.server.afnor_server_controller import call_superpdp
-from app.auth.oauth import get_current_oauth_application
+from app.afnor.server.afnor_server_controller import call_certified_platform
+from app.auth.oauth import get_current_target_application
 from app.config import settings
 from app.db.session import get_db
-from app.models.referential import Company, OAuthApplication
+from app.models.referential import Company, TargetApplication
 from app.schemas.afnor_flow import FlowInfoIn, SearchFlowContentOut, SearchFlowParamsIn
 from app.services import audit_trace_service
 
 _UPLOAD_CHUNK_SIZE = 64 * 1024
 
+# Chemins réutilisés à la fois par le décorateur `@router...` et par le libellé de
+# trace (`endpoint=`, § NF1) des quelques endpoints qui n'utilisent pas `passthrough`
+# (lequel dérive déjà son libellé de `method`/`service`/`path`, cf. plus bas) — source
+# unique plutôt que de recopier le même chemin à la main aux deux endroits. Absents
+# ici : `GET /afnor-flow/flows/{flow_id}` (le libellé de contrat AFNOR utilise
+# `{flowId}`, différent du nom de paramètre Python — pas mécaniquement dérivable sans
+# changer le texte déjà stocké dans les `FlowTrace` existants).
+_FLOWS_PATH = "/afnor-flow/flows"
+_FLOWS_SEARCH_PATH = "/afnor-flow/flows/search"
+_LOOKUP_SIREN_PATH = "/afnor-directory/siren/code-insee:{siren}"
+_LOOKUP_SIRET_PATH = "/afnor-directory/siret/code-insee:{siret}"
 
-def company_for(db: Session, oauth_app: OAuthApplication) -> Company:
+
+def company_for(db: Session, oauth_app: TargetApplication) -> Company:
     company = db.get(Company, oauth_app.company_id)
     if company is None:
         raise HTTPException(status_code=500, detail="Application OAuth sans entreprise associée")
@@ -85,19 +97,26 @@ async def read_upload_capped(file: UploadFile, *, max_bytes: int | None = None) 
 def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
     def passthrough(
         request: Request,
-        oauth_app: OAuthApplication,
+        oauth_app: TargetApplication,
         db: Session,
         *,
         method: str,
         service: str,
         path: str,
-        endpoint_label: str,
+        endpoint_label: str | None = None,
         json_body: dict | None = None,
         params: dict | None = None,
         extra_trace_fields: dict | None = None,
     ) -> Response:
         """Passe-plat générique (cf. docstring du module) : le statut et le corps
-        renvoyés par SuperPDP sont retransmis à l'identique, jamais réinterprétés."""
+        renvoyés par SuperPDP sont retransmis à l'identique, jamais réinterprétés.
+
+        `endpoint_label` ne doit être fourni explicitement que lorsque `path` contient
+        des valeurs réellement interpolées (identifiants réels, pour l'appel HTTP) —
+        le libellé de trace doit alors rester au gabarit du contrat (`{routing-
+        identifier}`...), pas à la valeur. Sans ça, il est dérivé de `method`/
+        `service`/`path` (identiques dans ce cas), évitant de le répéter à la main."""
+        endpoint_label = endpoint_label or f"{method} /{service}/{path}"
         company = company_for(db, oauth_app)
         status_code, body = afnor_client_adapter.raw_passthrough(
             db,
@@ -125,12 +144,12 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
 
     # ---------------------------------------------------------------- Flow Service
 
-    @router.post("/afnor-flow/flows", status_code=202)
+    @router.post(_FLOWS_PATH, status_code=202)
     async def create_flow(
         request: Request,
         file: UploadFile,
         flowInfo: str = Form(...),
-        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        oauth_app: TargetApplication = Depends(get_current_target_application),
         db: Session = Depends(get_db),
     ):
         """Soumission d'un flux (§ 4.4) : proxy transparent vers SuperPDP, jamais
@@ -158,7 +177,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             db,
             request,
             afnor_api_version=afnor_api_version,
-            endpoint="POST /afnor-flow/flows",
+            endpoint=f"POST {_FLOWS_PATH}",
             filename=filename,
             flow_syntax=flow_info.flowSyntax,
             processing_rule=flow_info.processingRule,
@@ -169,7 +188,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
         )
 
         if flow_info.flowSyntax == "CDAR":
-            return call_superpdp(
+            return call_certified_platform(
                 lambda: afnor_client_adapter.send_cdar(
                     db,
                     company=company,
@@ -178,7 +197,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
                     correlation_id=correlation_id,
                 )
             )
-        return call_superpdp(
+        return call_certified_platform(
             lambda: afnor_client_adapter.send_invoice(
                 db,
                 company=company,
@@ -191,14 +210,14 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
         )
 
     @router.post(
-        "/afnor-flow/flows/search",
+        _FLOWS_SEARCH_PATH,
         response_model=SearchFlowContentOut,
         response_model_exclude_none=True,
     )
     def search_flows(
         params: SearchFlowParamsIn,
         request: Request,
-        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        oauth_app: TargetApplication = Depends(get_current_target_application),
         db: Session = Depends(get_db),
     ):
         """Recherche de flux (§ 4.4) : ne retourne que les factures flaggées comme
@@ -208,14 +227,14 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
         pour rester conformes au contrat mais n'ont pas d'effet filtrant tant qu'aucun
         autre type de flux n'est exposé. Pas de pagination réelle (`nextCursor` toujours
         `null`) : tous les résultats sont retournés en une page."""
-        invoices = afnor_server_controller.list_invoices_for_consumer(db, oauth_app=oauth_app)
+        invoices = afnor_server_controller.list_invoices_for_consumer(db, target_application=oauth_app)
         results = [afnor_server_controller.flow_from_invoice(invoice) for invoice in invoices]
 
         audit_trace_service.record_odoo_flow_trace(
             db,
             request,
             afnor_api_version=afnor_api_version,
-            endpoint="POST /afnor-flow/flows/search",
+            endpoint=f"POST {_FLOWS_SEARCH_PATH}",
             client_id=oauth_app.client_id,
             response={"count": len(results)},
             http_status=200,
@@ -227,7 +246,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
         flow_id: str,
         request: Request,
         docType: str = "Metadata",
-        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        oauth_app: TargetApplication = Depends(get_current_target_application),
         db: Session = Depends(get_db),
     ):
         """Téléchargement d'un flux par identifiant (§ 4.4) — `docType=Metadata`
@@ -236,7 +255,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
         conversion de format) : 501, conformément au contrat. Restreint aux factures
         routées vers ce consommateur (NF2, comme `POST /flows/search`)."""
         invoice = afnor_server_controller.find_invoice_for_consumer_by_flow_id(
-            db, oauth_app=oauth_app, flow_id=flow_id
+            db, target_application=oauth_app, flow_id=flow_id
         )
         if invoice is None:
             raise HTTPException(status_code=404, detail="Flow not found")
@@ -270,7 +289,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
     @router.get("/afnor-flow/healthcheck")
     def flow_healthcheck(
         request: Request,
-        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        oauth_app: TargetApplication = Depends(get_current_target_application),
         db: Session = Depends(get_db),
     ):
         return passthrough(
@@ -280,16 +299,15 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             method="GET",
             service="afnor-flow",
             path="healthcheck",
-            endpoint_label="GET /afnor-flow/healthcheck",
         )
 
     # ----------------------------------------------------------- Directory Service
 
-    @router.get("/afnor-directory/siren/code-insee:{siren}")
+    @router.get(_LOOKUP_SIREN_PATH)
     def lookup_siren(
         siren: str,
         request: Request,
-        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        oauth_app: TargetApplication = Depends(get_current_target_application),
         db: Session = Depends(get_db),
     ):
         """Proxy transparent de consultation d'annuaire par SIREN (§ 4.4) — aucune
@@ -302,7 +320,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
         `include` du contrat — contrairement aux autres endpoints de ce module, qui
         utilisent `raw_passthrough` et les transmettent tels quels."""
         company = company_for(db, oauth_app)
-        result = call_superpdp(
+        result = call_certified_platform(
             lambda: afnor_client_adapter.lookup_directory_siren(
                 db, company=company, siren=siren, afnor_api_version=afnor_api_version
             )
@@ -311,7 +329,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             db,
             request,
             afnor_api_version=afnor_api_version,
-            endpoint="GET /afnor-directory/siren/code-insee:{siren}",
+            endpoint=f"GET {_LOOKUP_SIREN_PATH}",
             siren=siren,
             client_id=oauth_app.client_id,
             response=result,
@@ -323,7 +341,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
     def search_siren(
         body: dict,
         request: Request,
-        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        oauth_app: TargetApplication = Depends(get_current_target_application),
         db: Session = Depends(get_db),
     ):
         return passthrough(
@@ -333,22 +351,21 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             method="POST",
             service="afnor-directory",
             path="siren/search",
-            endpoint_label="POST /afnor-directory/siren/search",
             json_body=body,
         )
 
-    @router.get("/afnor-directory/siret/code-insee:{siret}")
+    @router.get(_LOOKUP_SIRET_PATH)
     def lookup_siret(
         siret: str,
         request: Request,
-        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        oauth_app: TargetApplication = Depends(get_current_target_application),
         db: Session = Depends(get_db),
     ):
         """Symétrique de `lookup_siren` pour un SIRET — même absence d'interprétation
         (§ 4.3/§ 4.4) et même limite connue (`fields`/`include` non relayés, cf.
         docstring de `lookup_siren`)."""
         company = company_for(db, oauth_app)
-        result = call_superpdp(
+        result = call_certified_platform(
             lambda: afnor_client_adapter.lookup_directory_siret(
                 db, company=company, siret=siret, afnor_api_version=afnor_api_version
             )
@@ -357,7 +374,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             db,
             request,
             afnor_api_version=afnor_api_version,
-            endpoint="GET /afnor-directory/siret/code-insee:{siret}",
+            endpoint=f"GET {_LOOKUP_SIRET_PATH}",
             siret=siret,
             client_id=oauth_app.client_id,
             response=result,
@@ -369,7 +386,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
     def search_siret(
         body: dict,
         request: Request,
-        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        oauth_app: TargetApplication = Depends(get_current_target_application),
         db: Session = Depends(get_db),
     ):
         return passthrough(
@@ -379,7 +396,6 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             method="POST",
             service="afnor-directory",
             path="siret/search",
-            endpoint_label="POST /afnor-directory/siret/search",
             json_body=body,
         )
 
@@ -388,7 +404,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
         siret: str,
         routing_identifier: str,
         request: Request,
-        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        oauth_app: TargetApplication = Depends(get_current_target_application),
         db: Session = Depends(get_db),
     ):
         return passthrough(
@@ -406,7 +422,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
     def search_routing_code(
         body: dict,
         request: Request,
-        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        oauth_app: TargetApplication = Depends(get_current_target_application),
         db: Session = Depends(get_db),
     ):
         return passthrough(
@@ -416,7 +432,6 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             method="POST",
             service="afnor-directory",
             path="routing-code/search",
-            endpoint_label="POST /afnor-directory/routing-code/search",
             json_body=body,
         )
 
@@ -424,7 +439,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
     def lookup_directory_line(
         addressing_identifier: str,
         request: Request,
-        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        oauth_app: TargetApplication = Depends(get_current_target_application),
         db: Session = Depends(get_db),
     ):
         return passthrough(
@@ -443,7 +458,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
     def search_directory_line(
         body: dict,
         request: Request,
-        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        oauth_app: TargetApplication = Depends(get_current_target_application),
         db: Session = Depends(get_db),
     ):
         return passthrough(
@@ -453,14 +468,13 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             method="POST",
             service="afnor-directory",
             path="directory-line/search",
-            endpoint_label="POST /afnor-directory/directory-line/search",
             json_body=body,
         )
 
     @router.get("/afnor-directory/healthcheck")
     def directory_healthcheck(
         request: Request,
-        oauth_app: OAuthApplication = Depends(get_current_oauth_application),
+        oauth_app: TargetApplication = Depends(get_current_target_application),
         db: Session = Depends(get_db),
     ):
         return passthrough(
@@ -470,5 +484,4 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             method="GET",
             service="afnor-directory",
             path="healthcheck",
-            endpoint_label="GET /afnor-directory/healthcheck",
         )

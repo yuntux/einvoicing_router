@@ -1,6 +1,6 @@
 import { apiFetch } from './http'
 
-export interface SuperPDPCredentialsStatus {
+export interface CertifiedPlatformCredentialsStatus {
   configured: boolean
   client_id: string | null
   platform: string | null
@@ -15,26 +15,26 @@ export function listAfnorPlatforms(): Promise<AfnorPlatform[]> {
   return apiFetch('/api/ihm/companies/afnor-platforms', {}, 'Failed to list AFNOR platforms')
 }
 
-export function getSuperPDPCredentialsStatus(companyId: number): Promise<SuperPDPCredentialsStatus> {
+export function getCertifiedPlatformCredentialsStatus(companyId: number): Promise<CertifiedPlatformCredentialsStatus> {
   return apiFetch(
-    `/api/ihm/companies/${companyId}/superpdp-credentials`,
+    `/api/ihm/companies/${companyId}/certified-platform-credentials`,
     {},
-    'Failed to get SuperPDP credentials status',
+    'Failed to get certified platform credentials status',
   )
 }
 
-export function setSuperPDPCredentials(
+export function setCertifiedPlatformCredentials(
   companyId: number,
   clientId: string,
   clientSecret: string,
   platform: string | null,
-): Promise<SuperPDPCredentialsStatus> {
+): Promise<CertifiedPlatformCredentialsStatus> {
   return apiFetch(
-    `/api/ihm/companies/${companyId}/superpdp-credentials`,
+    `/api/ihm/companies/${companyId}/certified-platform-credentials`,
     {
       method: 'PUT',
       json: { client_id: clientId, client_secret: clientSecret, platform: platform || null },
     },
-    'Failed to set SuperPDP credentials',
+    'Failed to set certified platform credentials',
   )
 }

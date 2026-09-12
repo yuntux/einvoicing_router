@@ -25,11 +25,6 @@ class RoutingMethod(str, enum.Enum):
     AFNOR_API = "afnor_api"
 
 
-class OAuthScope(str, enum.Enum):
-    ROUTER_TO_SUPERPDP = "router_to_superpdp"
-    CONSUMER_TO_ROUTER = "consumer_to_router"
-
-
 class OAuthAppType(str, enum.Enum):
     CONFIDENTIAL = "confidential"
     PUBLIC = "public"
@@ -49,6 +44,27 @@ class Company(AuditColumnsMixin, Base):
     # tout l'historique (depuis l'an 2000) à chaque déclenchement, § lot 9.
     last_polled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # Identifiants OAuth2 que la plateforme certifiée (SuperPDP) fournit AU ROUTEUR
+    # pour s'authentifier auprès d'elle (§ 4.10, scope "router_to_superpdp") — un seul
+    # jeu par entreprise gérée, porté directement ici plutôt que par une table
+    # `oauth_applications` à part : le modèle précédent (une table unique gérant deux
+    # scopes aux colonnes disjointes selon le scope) était source de confusion, ces
+    # identifiants sont en réalité un attribut de l'entreprise elle-même, pas une
+    # entité indépendante. Secret chiffré (réversible, cf.
+    # `app.services.secrets_encryption`) car nécessaire en clair à chaque
+    # rafraîchissement de jeton OAuth2 pyfrctc (contrairement au secret émis par le
+    # routeur à ses propres consommateurs, cf. `TargetApplication.parameters`, qui lui
+    # reste un hash irréversible).
+    certified_platform_client_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    certified_platform_client_secret_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Jeton/refresh token pyfrctc en cache entre deux appels (§ 4.1/§ 4.8).
+    certified_platform_token_cache: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Plateforme AFNOR certifiée à utiliser pour cette entreprise — une clé du dict
+    # `pyfrctc.pyfrctc.PLATFORMS` (§ 4.10, ex. "superpdp"). `None` = plateforme par
+    # défaut du serveur (`settings.certified_platform`) : permet de pointer une
+    # entreprise vers un environnement AFNOR distinct sans redéployer le routeur.
+    certified_platform: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
 
 class PartnerDirectory(AuditColumnsMixin, Base):
     """Annuaire des émetteurs/tiers connus du routeur (spec.md § 6.1)."""
@@ -67,12 +83,20 @@ class PartnerDirectory(AuditColumnsMixin, Base):
 class TargetApplication(AuditColumnsMixin, Base):
     """Application cible (spec.md § 6.1 / § 4.9).
 
-    Pour la méthode `afnor_api`, les paramètres décrits au § 4.9.2 (URLs de
-    redirection, format de conversion préféré, type d'application, URL de webhook)
-    sont portés par l'`OAuthApplication` liée (`oauth_application_id`) — c'est elle
-    qui détient les identifiants OAuth réels (§ 4.10), pas `parameters`, pour éviter
-    de dupliquer ces champs à deux endroits du modèle (redondance identifiée au lot 1,
-    résolue au lot 4 en branchant l'authentification réelle).
+    `parameters` (JSON) porte les paramètres propres à la méthode de routage choisie,
+    quelle qu'elle soit — `from`/`to`/`cc`/`bcc` pour `mail` (§ 4.9.1 ; `from`
+    facultatif, surcharge par application cible de l'adresse d'expédition globale
+    `RouterSettings.smtp_from_address` sinon utilisée par défaut), et pour `afnor_api`
+    (§ 4.9.2/§ 4.10) : `client_id`, `client_secret_hash` (hash irréversible, le secret
+    en clair n'étant révélé qu'une fois à la création), `app_type`, `redirect_urls`,
+    `preferred_conversion_format`, `webhook_url`. Une seule colonne pour les deux
+    méthodes plutôt qu'une table `oauth_applications` séparée : ces champs ne sont
+    jamais qu'une variante des "paramètres de la méthode de routage", pas une entité
+    indépendante — les propriétés ci-dessous (`client_id`, `webhook_url`...) exposent
+    un accès typé pratique à ces clés pour le reste du code, sans dupliquer le
+    stockage. Client_id/secret sont générés par le routeur lui-même (jamais fournis
+    par l'appelant), analogue au comportement du formulaire d'enregistrement
+    d'application de SuperPDP.
 
     `company_id` est obligatoire quelle que soit `routing_method` (y compris `mail`) :
     une application cible sans entreprise rattachée ne peut pas être distinguée par
@@ -87,11 +111,6 @@ class TargetApplication(AuditColumnsMixin, Base):
     name: Mapped[str] = mapped_column(String(255))
     routing_method: Mapped[RoutingMethod] = mapped_column(String(20))
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"))
-    oauth_application_id: Mapped[int | None] = mapped_column(
-        ForeignKey("oauth_applications.id"), nullable=True
-    )
-    # Paramètres propres à la méthode mail (§ 4.9.1 : to/cc/bcc). Vide/non utilisé
-    # pour la méthode afnor_api (cf. docstring ci-dessus).
     parameters: Mapped[dict] = mapped_column(JSON, default=dict)
     # Désactivation sans suppression (conserve l'historique de routage, § 6.1) : une
     # application inactive n'est plus jamais retenue par RoutingRuleService.resolve
@@ -99,8 +118,63 @@ class TargetApplication(AuditColumnsMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
 
     company: Mapped[Company] = relationship()
-    oauth_application: Mapped["OAuthApplication | None"] = relationship()
     routing_rules: Mapped[list["RoutingRule"]] = relationship(back_populates="target_application")
+
+    # Accès typé aux clés de `parameters` utilisées par la méthode `afnor_api`
+    # (§ 4.9.2/§ 4.10) — `None` pour une application `mail`, ou une clé absente.
+    @property
+    def client_id(self) -> str | None:
+        return self.parameters.get("client_id") if self.routing_method == RoutingMethod.AFNOR_API else None
+
+    @property
+    def client_secret_hash(self) -> str | None:
+        return (
+            self.parameters.get("client_secret_hash")
+            if self.routing_method == RoutingMethod.AFNOR_API
+            else None
+        )
+
+    @property
+    def app_type(self) -> str | None:
+        return self.parameters.get("app_type") if self.routing_method == RoutingMethod.AFNOR_API else None
+
+    @property
+    def redirect_urls(self) -> str | None:
+        return (
+            self.parameters.get("redirect_urls")
+            if self.routing_method == RoutingMethod.AFNOR_API
+            else None
+        )
+
+    @property
+    def preferred_conversion_format(self) -> str | None:
+        return (
+            self.parameters.get("preferred_conversion_format")
+            if self.routing_method == RoutingMethod.AFNOR_API
+            else None
+        )
+
+    @property
+    def webhook_url(self) -> str | None:
+        return self.parameters.get("webhook_url") if self.routing_method == RoutingMethod.AFNOR_API else None
+
+    # Accès typé aux clés de `parameters` utilisées par la méthode `mail` (§ 4.9.1) —
+    # `None`/liste vide pour une application `afnor_api`, ou une clé absente.
+    @property
+    def from_address(self) -> str | None:
+        return self.parameters.get("from") if self.routing_method == RoutingMethod.MAIL else None
+
+    @property
+    def to(self) -> list[str]:
+        return list(self.parameters.get("to") or []) if self.routing_method == RoutingMethod.MAIL else []
+
+    @property
+    def cc(self) -> list[str]:
+        return list(self.parameters.get("cc") or []) if self.routing_method == RoutingMethod.MAIL else []
+
+    @property
+    def bcc(self) -> list[str]:
+        return list(self.parameters.get("bcc") or []) if self.routing_method == RoutingMethod.MAIL else []
 
 
 class RoutingRule(AuditColumnsMixin, Base):
@@ -124,43 +198,6 @@ class RoutingRule(AuditColumnsMixin, Base):
 
     partner: Mapped[PartnerDirectory] = relationship(back_populates="routing_rules")
     target_application: Mapped[TargetApplication] = relationship(back_populates="routing_rules")
-
-
-class OAuthApplication(AuditColumnsMixin, Base):
-    """Jeton d'accès par entreprise (spec.md § 6.1 / § 4.10) — deux usages distincts
-    selon `scope` :
-
-    - `consumer_to_router` (§ 4.9.2, lot 4) : identifiants que le routeur **émet**
-      lui-même pour un consommateur (Odoo) — `client_secret_hash` suffit (hash
-      irréversible, § 4.9.2), le secret en clair n'étant révélé qu'une fois à la
-      création.
-    - `router_to_superpdp` (§ 4.10, lot 6) : identifiants que **SuperPDP fournit** au
-      routeur pour s'authentifier auprès d'elle — le secret doit être récupérable pour
-      chaque rafraîchissement de jeton OAuth2, d'où `client_secret_encrypted` (chiffrement
-      réversible, cf. `app.services.secrets_encryption`) plutôt qu'un hash. `token_cache`
-      persiste le jeton/refresh token pyfrctc entre deux appels (§ 4.1/§ 4.8)."""
-
-    __tablename__ = "oauth_applications"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"))
-    client_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    client_secret_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    client_secret_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
-    token_cache: Mapped[str | None] = mapped_column(Text, nullable=True)
-    app_type: Mapped[OAuthAppType] = mapped_column(String(20))
-    scope: Mapped[OAuthScope] = mapped_column(String(30))
-    redirect_urls: Mapped[str | None] = mapped_column(String(2000), nullable=True)
-    preferred_conversion_format: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    afnor_api_version: Mapped[str | None] = mapped_column(String(10), nullable=True)
-    webhook_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    # Plateforme AFNOR à utiliser pour cette entreprise (scope `router_to_superpdp`) —
-    # une clé du dict `pyfrctc.pyfrctc.PLATFORMS` (§ 4.10). `None` = plateforme par
-    # défaut du serveur (`settings.superpdp_platform`) : permet de pointer une
-    # entreprise vers un environnement AFNOR distinct sans redéployer le routeur.
-    platform: Mapped[str | None] = mapped_column(String(50), nullable=True)
-
-    company: Mapped[Company] = relationship()
 
 
 company_users = Table(

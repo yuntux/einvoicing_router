@@ -1,7 +1,7 @@
 """LifecycleService — saisie manuelle des messages de cycle de vie (spec.md § 4.2/§ 6.2).
 
 Lot 3 : la génération CDAR réelle (pyfrctc) n'était pas encore branchée — `AfnorFlow`
-restait à l'état `created`. Lot 6 : en mode `settings.superpdp_client_mode ==
+restait à l'état `created`. Lot 6 : en mode `settings.certified_platform_client_mode ==
 "pyfrctc"`, le flux est réellement généré (`cdar_service`, validé XSD) puis transmis à
 SuperPDP (`AfnorClientAdapter.send_cdar`) ; en mode `"fake"` (défaut dev/tests), le
 comportement du lot 3 est conservé à l'identique. Un échec de génération/transmission
@@ -100,7 +100,7 @@ def create_manual_event(
     db.commit()
     db.refresh(event)
 
-    if settings.superpdp_client_mode == "pyfrctc":
+    if settings.certified_platform_client_mode == "pyfrctc":
         _generate_and_send_cdar(db, invoice=invoice, flow=flow, data=data)
 
     # Notification best-effort vers Odoo (§ 4.4/§ 4.7) — un échec ici est sans

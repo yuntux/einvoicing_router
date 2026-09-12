@@ -6,6 +6,16 @@ from app.schemas.lifecycle import AfnorFlowRead
 from app.schemas.validators import validate_siren, validate_siret
 
 
+class InvoiceRoutingRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    target_application_id: int
+    transfer_status: str
+    attempt_count: int
+    next_attempt_at: datetime | None
+
+
 class InvoiceRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -20,9 +30,9 @@ class InvoiceRead(BaseModel):
     invoice_type: str
     lifecycle_status: str | None
     file_path: str
-    superpdp_flow_id: str
-    superpdp_submitted_at: datetime | None
-    superpdp_updated_at: datetime | None
+    certified_platform_flow_id: str
+    certified_platform_submitted_at: datetime | None
+    certified_platform_updated_at: datetime | None
     amount_total: float | None
     amount_excl_tax: float | None
     currency: str | None
@@ -43,20 +53,13 @@ class InvoiceRead(BaseModel):
     # Obtenus par jointure sur AuditLog (§ 6.1) — jamais dénormalisés sur Invoice.
     last_download_at: datetime | None = None
     last_download_by: str | None = None
-
-
-class InvoiceRoutingRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    target_application_id: int
-    transfer_status: str
-    attempt_count: int
-    next_attempt_at: datetime | None
+    # Statut de routage par application cible (§ 4.7/§ 8.3) — utilisé par la liste
+    # des factures pour afficher un badge par application de l'entreprise, sans
+    # nécessiter un aller-retour par facture vers le détail.
+    routings: list[InvoiceRoutingRead] = Field(default_factory=list)
 
 
 class InvoiceDetailRead(InvoiceRead):
-    routings: list[InvoiceRoutingRead]
     emitter_name: str | None = None
     # Renseigné explicitement par l'endpoint (§ 6.2) — `has_file` dérivé, pas de
     # conversion `from_attributes` automatique possible pour ce sous-schéma.

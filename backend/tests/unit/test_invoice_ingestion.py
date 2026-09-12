@@ -2,7 +2,7 @@ from datetime import date
 from pathlib import Path
 
 from app.afnor.client.base import RawInvoice
-from app.afnor.client.fake import FakeSuperPDPClient
+from app.afnor.client.fake import FakeCertifiedPlatformClient
 from app.models.invoicing import Invoice
 from app.models.referential import Company, PartnerDirectory, RoutingMethod, TargetApplication
 from app.services import invoice_ingestion_service, retry_scheduler_service, routing_rule_service
@@ -19,7 +19,7 @@ def _make_company(db, siren="111111111"):
 
 def _raw_invoice(**overrides):
     defaults = dict(
-        superpdp_flow_id="flow-1",
+        certified_platform_flow_id="flow-1",
         emitter_siren="222222222",
         invoice_number="F-2026-001",
         invoice_date=date(2026, 1, 15),
@@ -32,7 +32,7 @@ def _raw_invoice(**overrides):
 
 def test_ingest_stores_file_and_creates_invoice(db_session, tmp_path):
     company = _make_company(db_session)
-    client = FakeSuperPDPClient([_raw_invoice()])
+    client = FakeCertifiedPlatformClient([_raw_invoice()])
 
     result = ingest_from_client(db_session, company=company, client=client)
 
@@ -40,14 +40,14 @@ def test_ingest_stores_file_and_creates_invoice(db_session, tmp_path):
     invoice = result.created[0]
     assert invoice.emitter_siren == "222222222"
     assert invoice.invoice_number == "F-2026-001"
-    assert invoice.superpdp_flow_id == "flow-1"
+    assert invoice.certified_platform_flow_id == "flow-1"
     assert Path(invoice.file_path).exists()
     assert Path(invoice.file_path).read_bytes() == b"%PDF-fake-content"
 
 
 def test_ingest_is_idempotent_on_flow_id(db_session):
     company = _make_company(db_session)
-    client = FakeSuperPDPClient([_raw_invoice()])
+    client = FakeCertifiedPlatformClient([_raw_invoice()])
 
     first = ingest_from_client(db_session, company=company, client=client)
     second = ingest_from_client(db_session, company=company, client=client)
@@ -60,7 +60,7 @@ def test_ingest_is_idempotent_on_flow_id(db_session):
 
 def test_ingest_flags_invoice_with_no_routing_rule(db_session):
     company = _make_company(db_session)
-    client = FakeSuperPDPClient([_raw_invoice()])
+    client = FakeCertifiedPlatformClient([_raw_invoice()])
 
     result = ingest_from_client(db_session, company=company, client=client)
 
@@ -87,7 +87,7 @@ def test_ingest_from_unknown_supplier_creates_partner_and_alerts_once(db_session
     )
 
     company = _make_company(db_session)
-    client = FakeSuperPDPClient([_raw_invoice(emitter_siren="222222222")])
+    client = FakeCertifiedPlatformClient([_raw_invoice(emitter_siren="222222222")])
     result = ingest_from_client(db_session, company=company, client=client)
 
     partner = (
@@ -103,7 +103,7 @@ def test_ingest_uses_emitter_name_from_flow_when_available(db_session):
     """§ 4.4 : quand le flux AFNOR porte la raison sociale de l'émetteur, elle est
     utilisée directement plutôt que le placeholder générique."""
     company = _make_company(db_session)
-    client = FakeSuperPDPClient(
+    client = FakeCertifiedPlatformClient(
         [_raw_invoice(emitter_siren="222222222", emitter_name="Fournisseur Réel SAS")]
     )
     ingest_from_client(db_session, company=company, client=client)
@@ -120,7 +120,7 @@ def test_ingest_backfills_placeholder_partner_name_once_available(db_session):
     arriver sur une facture suivante — plutôt que de rester générique indéfiniment."""
     company = _make_company(db_session)
     ingest_from_client(
-        db_session, company=company, client=FakeSuperPDPClient([_raw_invoice(emitter_siren="222222222")])
+        db_session, company=company, client=FakeCertifiedPlatformClient([_raw_invoice(emitter_siren="222222222")])
     )
     partner = (
         db_session.query(PartnerDirectory).filter(PartnerDirectory.siren == "222222222").first()
@@ -130,10 +130,10 @@ def test_ingest_backfills_placeholder_partner_name_once_available(db_session):
     ingest_from_client(
         db_session,
         company=company,
-        client=FakeSuperPDPClient(
+        client=FakeCertifiedPlatformClient(
             [
                 _raw_invoice(
-                    superpdp_flow_id="flow-2",
+                    certified_platform_flow_id="flow-2",
                     emitter_siren="222222222",
                     emitter_name="Fournisseur Réel SAS",
                 )
@@ -161,12 +161,12 @@ def test_ingest_does_not_repeat_generic_unrouted_alert_on_next_poll(db_session, 
     db_session.commit()
 
     raw = _raw_invoice()
-    ingest_from_client(db_session, company=company, client=FakeSuperPDPClient([raw]))
+    ingest_from_client(db_session, company=company, client=FakeCertifiedPlatformClient([raw]))
     assert len(unrouted_calls) == 1
 
     # Même flux re-scanné (ex. avant que le curseur de polling n'avance) : toujours
     # aucune cible, mais l'alerte ne doit pas repartir une seconde fois.
-    ingest_from_client(db_session, company=company, client=FakeSuperPDPClient([raw]))
+    ingest_from_client(db_session, company=company, client=FakeCertifiedPlatformClient([raw]))
     assert len(unrouted_calls) == 1
 
 
@@ -174,7 +174,7 @@ def test_reroute_unrouted_invoices_for_partner_after_rule_added(db_session):
     """Ajouter une règle de routage pour un fournisseur doit immédiatement router ses
     factures déjà reçues et restées sans cible, sans attendre le prochain polling."""
     company = _make_company(db_session)
-    client = FakeSuperPDPClient([_raw_invoice(emitter_siren="222222222")])
+    client = FakeCertifiedPlatformClient([_raw_invoice(emitter_siren="222222222")])
     result = ingest_from_client(db_session, company=company, client=client)
     invoice = result.created[0]
     assert invoice.routings == []
@@ -209,7 +209,7 @@ def test_reroute_unrouted_invoices_for_partner_fans_out_to_second_target(db_sess
     les factures déjà routées vers le premier : elle doivent recevoir un routage
     supplémentaire vers le nouveau canal, sans dupliquer celui déjà en place."""
     company = _make_company(db_session)
-    client = FakeSuperPDPClient([_raw_invoice(emitter_siren="222222222")])
+    client = FakeCertifiedPlatformClient([_raw_invoice(emitter_siren="222222222")])
     result = ingest_from_client(db_session, company=company, client=client)
     invoice = result.created[0]
 
@@ -274,7 +274,7 @@ def test_ingest_creates_routing_when_rule_matches(db_session):
         active=True,
     )
 
-    client = FakeSuperPDPClient([_raw_invoice()])
+    client = FakeCertifiedPlatformClient([_raw_invoice()])
     result = ingest_from_client(db_session, company=company, client=client)
 
     assert result.unrouted_invoice_ids == []
@@ -308,7 +308,7 @@ def test_ingest_does_not_leak_invoice_to_other_company_afnor_target(db_session):
     )
 
     # Le même fournisseur envoie aussi une facture à l'entreprise B.
-    client_b = FakeSuperPDPClient([_raw_invoice(superpdp_flow_id="flow-b")])
+    client_b = FakeCertifiedPlatformClient([_raw_invoice(certified_platform_flow_id="flow-b")])
     result_b = ingest_from_client(db_session, company=company_b, client=client_b)
 
     invoice_b = result_b.created[0]
@@ -316,7 +316,7 @@ def test_ingest_does_not_leak_invoice_to_other_company_afnor_target(db_session):
     assert result_b.unrouted_invoice_ids == [invoice_b.id]
 
     # La facture reçue par l'entreprise A, elle, doit toujours être routée normalement.
-    client_a = FakeSuperPDPClient([_raw_invoice(superpdp_flow_id="flow-a")])
+    client_a = FakeCertifiedPlatformClient([_raw_invoice(certified_platform_flow_id="flow-a")])
     result_a = ingest_from_client(db_session, company=company_a, client=client_a)
 
     invoice_a = result_a.created[0]

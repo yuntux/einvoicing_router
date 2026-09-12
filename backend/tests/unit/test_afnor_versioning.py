@@ -13,7 +13,7 @@ from app.auth.oauth import generate_client_credentials, hash_secret
 from app.config import settings
 from app.db.session import get_db
 from app.main import create_app
-from app.models.referential import Company, OAuthAppType, OAuthApplication, OAuthScope
+from app.models.referential import Company, RoutingMethod, TargetApplication
 
 
 def _make_company(db, siren="123456789"):
@@ -25,17 +25,21 @@ def _make_company(db, siren="123456789"):
 
 
 def _make_oauth_app(db, company, client_secret="s3cret-value"):
-    oauth_app = OAuthApplication(
+    """Une application `afnor_api` EST le "client" OAuth (§ 4.9.2/§ 4.10)."""
+    target = TargetApplication(
+        name="Odoo",
+        routing_method=RoutingMethod.AFNOR_API,
         company_id=company.id,
-        client_id=generate_client_credentials()[0],
-        client_secret_hash=hash_secret(client_secret),
-        app_type=OAuthAppType.CONFIDENTIAL,
-        scope=OAuthScope.CONSUMER_TO_ROUTER,
+        parameters={
+            "client_id": generate_client_credentials()[0],
+            "client_secret_hash": hash_secret(client_secret),
+            "app_type": "confidential",
+        },
     )
-    db.add(oauth_app)
+    db.add(target)
     db.commit()
-    db.refresh(oauth_app)
-    return oauth_app
+    db.refresh(target)
+    return target
 
 
 def test_registry_contains_only_v1_today():

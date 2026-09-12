@@ -13,12 +13,12 @@ from app.auth.oauth import (
     _ClientWrapper,
     _generate_bearer_token,
     generate_client_credentials,
-    get_current_oauth_application,
+    get_current_target_application,
     hash_secret,
 )
 from app.auth.session import _decode_session_token, issue_session_token
 from app.config import settings
-from app.models.referential import Company, OAuthAppType, OAuthApplication, OAuthScope, User
+from app.models.referential import Company, RoutingMethod, TargetApplication, User
 from app.services.secrets_encryption import decrypt_secret, encrypt_secret
 
 
@@ -31,23 +31,27 @@ def _make_user(db, email="user@example.com", role="user"):
 
 
 def _make_oauth_app(db):
+    """Une application `afnor_api` EST le "client" OAuth (§ 4.9.2/§ 4.10)."""
     company = Company(siren="123456789", name="Test")
     db.add(company)
     db.commit()
     db.refresh(company)
 
     client_id, secret = generate_client_credentials()
-    oauth_app = OAuthApplication(
+    target = TargetApplication(
+        name="Odoo",
+        routing_method=RoutingMethod.AFNOR_API,
         company_id=company.id,
-        client_id=client_id,
-        client_secret_hash=hash_secret(secret),
-        app_type=OAuthAppType.CONFIDENTIAL,
-        scope=OAuthScope.CONSUMER_TO_ROUTER,
+        parameters={
+            "client_id": client_id,
+            "client_secret_hash": hash_secret(secret),
+            "app_type": "confidential",
+        },
     )
-    db.add(oauth_app)
+    db.add(target)
     db.commit()
-    db.refresh(oauth_app)
-    return oauth_app
+    db.refresh(target)
+    return target
 
 
 def test_session_token_rejected_as_oauth_bearer_token(db_session):
@@ -57,7 +61,7 @@ def test_session_token_rejected_as_oauth_bearer_token(db_session):
     session_token = issue_session_token(user)
 
     with pytest.raises(HTTPException) as exc_info:
-        get_current_oauth_application(authorization=f"Bearer {session_token}", db=db_session)
+        get_current_target_application(authorization=f"Bearer {session_token}", db=db_session)
     assert exc_info.value.status_code == 401
 
 

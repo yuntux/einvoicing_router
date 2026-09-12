@@ -51,10 +51,10 @@ def test_restricted_user_cannot_list_companies(client, monkeypatch):
 
     assert client.get("/api/ihm/companies").status_code == 403
     assert client.get("/api/ihm/companies/afnor-platforms").status_code == 403
-    assert client.get(f"/api/ihm/companies/{company_a}/superpdp-credentials").status_code == 403
+    assert client.get(f"/api/ihm/companies/{company_a}/certified-platform-credentials").status_code == 403
     assert (
         client.put(
-            f"/api/ihm/companies/{company_a}/superpdp-credentials",
+            f"/api/ihm/companies/{company_a}/certified-platform-credentials",
             json={"client_id": "x", "client_secret": "y"},
         ).status_code
         == 403

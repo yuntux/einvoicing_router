@@ -6,7 +6,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from app.afnor.client.base import RawInvoice, SuperPDPClientProtocol
+from app.afnor.client.base import RawInvoice, CertifiedPlatformClientProtocol
 from app.models.referential import Company, PartnerDirectory
 from app.models.invoicing import Invoice, InvoiceRouting
 from app.services import directory_service, retry_scheduler_service, routing_rule_service
@@ -25,7 +25,7 @@ def _upsert_invoice(db: Session, company: Company, raw: RawInvoice) -> tuple[Inv
         db.query(Invoice)
         .filter(
             Invoice.company_id == company.id,
-            Invoice.superpdp_flow_id == raw.superpdp_flow_id,
+            Invoice.certified_platform_flow_id == raw.certified_platform_flow_id,
         )
         .first()
     )
@@ -35,7 +35,7 @@ def _upsert_invoice(db: Session, company: Company, raw: RawInvoice) -> tuple[Inv
     received_at = datetime.utcnow()
     file_path = save_invoice_file(
         company_siren=company.siren,
-        flow_id=raw.superpdp_flow_id,
+        flow_id=raw.certified_platform_flow_id,
         file_name=raw.file_name,
         content=raw.file_content,
         received_at=received_at,
@@ -50,9 +50,9 @@ def _upsert_invoice(db: Session, company: Company, raw: RawInvoice) -> tuple[Inv
         due_date=raw.due_date,
         invoice_type=raw.invoice_type,
         file_path=file_path,
-        superpdp_flow_id=raw.superpdp_flow_id,
-        superpdp_submitted_at=raw.superpdp_submitted_at,
-        superpdp_updated_at=raw.superpdp_updated_at,
+        certified_platform_flow_id=raw.certified_platform_flow_id,
+        certified_platform_submitted_at=raw.certified_platform_submitted_at,
+        certified_platform_updated_at=raw.certified_platform_updated_at,
         amount_total=raw.amount_total,
         amount_excl_tax=raw.amount_excl_tax,
         currency=raw.currency,
@@ -172,7 +172,7 @@ def ingest_from_client(
     db: Session,
     *,
     company: Company,
-    client: SuperPDPClientProtocol,
+    client: CertifiedPlatformClientProtocol,
     since: datetime | None = None,
 ) -> IngestResult:
     raw_invoices = client.fetch_received_invoices(company_siren=company.siren, since=since)

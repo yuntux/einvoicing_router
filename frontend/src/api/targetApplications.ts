@@ -15,7 +15,6 @@ export interface TargetApplication {
   name: string
   routing_method: RoutingMethod
   company_id: number
-  oauth_application_id: number | null
   oauth_application: TargetApplicationOAuth | null
   parameters: Record<string, unknown>
   is_active: boolean

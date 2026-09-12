@@ -1,10 +1,10 @@
-"""PyfrctcSuperPDPClient — mapping pyfrctc -> RawInvoice (spec.md § 4.1/NF7, lot 6),
+"""PyfrctcCertifiedPlatformClient — mapping pyfrctc -> RawInvoice (spec.md § 4.1/NF7, lot 6),
 avec une session mockée (aucun réseau)."""
 
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
-from app.afnor.client.pyfrctc_client import PyfrctcSuperPDPClient
+from app.afnor.client.pyfrctc_client import PyfrctcCertifiedPlatformClient
 
 
 _CII_SAMPLE = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -78,7 +78,7 @@ def test_fetch_received_invoices_maps_flow_to_raw_invoice():
         ) as get_metadata,
         patch("app.afnor.client.pyfrctc_client.core.get_flow", return_value=_CII_SAMPLE) as get_flow,
     ):
-        client = PyfrctcSuperPDPClient(session)
+        client = PyfrctcCertifiedPlatformClient(session)
         invoices = client.fetch_received_invoices(company_siren="123456789")
 
     search.assert_called_once()
@@ -87,7 +87,7 @@ def test_fetch_received_invoices_maps_flow_to_raw_invoice():
 
     assert len(invoices) == 1
     invoice = invoices[0]
-    assert invoice.superpdp_flow_id == "flow-1"
+    assert invoice.certified_platform_flow_id == "flow-1"
     assert invoice.invoice_number == "F-2026-01"
     assert invoice.emitter_siren == "123456789"
     assert invoice.emitter_name == "Fournisseur Test SAS"
@@ -108,7 +108,7 @@ def test_fetch_received_invoices_maps_flow_to_raw_invoice():
 def test_fetch_received_invoices_skips_flow_without_id():
     session = MagicMock()
     with patch("app.afnor.client.pyfrctc_client.core.search_flows_parsed", return_value=[{}]):
-        client = PyfrctcSuperPDPClient(session)
+        client = PyfrctcCertifiedPlatformClient(session)
         invoices = client.fetch_received_invoices(company_siren="123456789")
     assert invoices == []
 
@@ -116,6 +116,6 @@ def test_fetch_received_invoices_skips_flow_without_id():
 def test_fetch_received_invoices_empty_when_no_flows():
     session = MagicMock()
     with patch("app.afnor.client.pyfrctc_client.core.search_flows_parsed", return_value=[]):
-        client = PyfrctcSuperPDPClient(session)
+        client = PyfrctcCertifiedPlatformClient(session)
         invoices = client.fetch_received_invoices(company_siren="123456789")
     assert invoices == []

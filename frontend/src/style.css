@@ -570,6 +570,78 @@ tbody tr.row-danger td {
   color: var(--color-info);
 }
 
+/* ---------- Légende d'aide sur en-tête de colonne ---------- */
+
+.legend-help-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--color-border);
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.legend-popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 20;
+  margin-top: 6px;
+  min-width: 260px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 10px 12px;
+  font-weight: 400;
+  text-transform: none;
+  white-space: normal;
+  text-align: left;
+}
+
+.legend-popover-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  border: none;
+  background: transparent;
+  color: var(--color-neutral);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.legend-popover ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.legend-popover li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.legend-popover .badge {
+  min-width: 14px;
+  padding: 2px;
+}
+
 /* ---------- Alertes / messages ---------- */
 
 [role='alert'] {

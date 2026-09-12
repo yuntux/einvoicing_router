@@ -146,8 +146,9 @@ ROUTER_JWT_SECRET=<openssl rand -hex 32>
 ROUTER_SESSION_SECRET=<openssl rand -hex 32>
 ROUTER_SECRETS_ENCRYPTION_KEY=<openssl rand -hex 32>
 
-# Client AFNOR réel contre SuperPDP (§ 4.1/§ 4.8) — "fake" reste le défaut de dev/tests
-ROUTER_SUPERPDP_CLIENT_MODE=pyfrctc
+# Client AFNOR réel contre la plateforme certifiée (SuperPDP, § 4.1/§ 4.8) — "fake"
+# reste le défaut de dev/tests
+ROUTER_CERTIFIED_PLATFORM_CLIENT_MODE=pyfrctc
 
 # Authentification IHM (NF3) — Entra ID en production, jamais "disabled"/"dev".
 # Valeurs récupérées à l'étape 4.1 ci-dessus (Directory tenant ID, Application

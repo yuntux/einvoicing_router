@@ -4,7 +4,7 @@ RouterSettings.technical_log_retention_days."""
 from datetime import date, datetime, timedelta
 
 from app.afnor.client.base import RawInvoice
-from app.afnor.client.fake import FakeSuperPDPClient
+from app.afnor.client.fake import FakeCertifiedPlatformClient
 from app.models.audit import TechnicalLog
 from app.models.referential import Company
 from app.scheduler.polling_job import run_polling_cycle
@@ -23,7 +23,7 @@ def _make_company(db, siren="123456789"):
 def test_polling_cycle_records_success_technical_log(db_session, monkeypatch):
     company = _make_company(db_session)
     raw = RawInvoice(
-        superpdp_flow_id="flow-1",
+        certified_platform_flow_id="flow-1",
         emitter_siren="987654321",
         invoice_number="F-1",
         invoice_date=date(2026, 1, 1),
@@ -32,7 +32,7 @@ def test_polling_cycle_records_success_technical_log(db_session, monkeypatch):
     )
     monkeypatch.setattr(
         "app.scheduler.polling_job.resolve_client_for_company",
-        lambda db, company: FakeSuperPDPClient([raw]),
+        lambda db, company: FakeCertifiedPlatformClient([raw]),
     )
 
     run_polling_cycle(db_session)
@@ -109,7 +109,7 @@ def test_polling_cycle_survives_client_resolution_failure_for_one_company(db_ses
     def fake_resolve(db, company):
         if company.id == unconfigured.id:
             raise ValueError("Aucun identifiant SuperPDP configuré")
-        return FakeSuperPDPClient([])
+        return FakeCertifiedPlatformClient([])
 
     monkeypatch.setattr("app.scheduler.polling_job.resolve_client_for_company", fake_resolve)
 

@@ -39,11 +39,26 @@ function recipientLabel(target: TargetApplicationLookup): string {
   return company ? company.name : '—'
 }
 
+// Filtres (§ 8.3), un par colonne du tableau : le fournisseur (colonne statique) et
+// le nom d'application cible (colonnes dynamiques) — filtrage local, la matrice est
+// déjà entièrement chargée en mémoire.
+const filterPartner = ref('')
+const filterTargetApplication = ref('')
+
 const columns = computed(() =>
-  [...targetApplications.value].sort((a, b) => (a.name < b.name ? -1 : 1)),
+  [...targetApplications.value]
+    .filter((t) => t.name.toLowerCase().includes(filterTargetApplication.value.toLowerCase()))
+    .sort((a, b) => (a.name < b.name ? -1 : 1)),
 )
 
-const rows = computed(() => [...partners.value].sort((a, b) => (a.siren < b.siren ? -1 : 1)))
+const rows = computed(() =>
+  [...partners.value]
+    .filter((p) => {
+      const needle = filterPartner.value.toLowerCase()
+      return p.siren.toLowerCase().includes(needle) || p.name.toLowerCase().includes(needle)
+    })
+    .sort((a, b) => (a.siren < b.siren ? -1 : 1)),
+)
 
 async function refresh() {
   ;[partners.value, targetApplications.value, rules.value, companies.value] = await Promise.all([
@@ -147,6 +162,20 @@ onMounted(refresh)
     </section>
 
     <p v-if="error" role="alert">{{ error }}</p>
+
+    <section class="card">
+      <h2>Filtres</h2>
+      <input
+        v-model="filterPartner"
+        placeholder="Fournisseur (SIREN ou raison sociale)"
+        data-testid="routing-rules-filter-partner"
+      />
+      <input
+        v-model="filterTargetApplication"
+        placeholder="Application cible"
+        data-testid="routing-rules-filter-target-application"
+      />
+    </section>
 
     <section class="card">
       <h2>Règles de routage</h2>

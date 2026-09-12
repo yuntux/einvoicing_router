@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { listFlowTraces, type FlowTrace } from '../api/audit'
+import { listFlowTraces, type FlowTrace, type FlowTraceFilters } from '../api/audit'
 import { useErrorMessage } from '../composables/useErrorMessage'
 
 const flowTraces = ref<FlowTrace[]>([])
@@ -12,9 +12,37 @@ function toggleFlowTrace(id: number) {
   openFlowTraceId.value = openFlowTraceId.value === id ? null : id
 }
 
+// Filtres (§ 8.3), dans le même ordre que les colonnes du tableau ci-dessous.
+const filterDateFrom = ref('')
+const filterDateTo = ref('')
+const filterDirection = ref('')
+const filterAfnorApiVersion = ref('')
+const filterHttpStatus = ref('')
+const filterCorrelationId = ref('')
+
+function dateRangeError(): string {
+  if (filterDateFrom.value && filterDateTo.value && filterDateTo.value < filterDateFrom.value) {
+    return 'Date : la borne de fin doit être supérieure ou égale à la borne de début.'
+  }
+  return ''
+}
+
 async function refresh() {
+  const rangeErr = dateRangeError()
+  if (rangeErr) {
+    error.value = rangeErr
+    return
+  }
+
+  const filters: FlowTraceFilters = {}
+  if (filterDateFrom.value) filters.created_from = filterDateFrom.value
+  if (filterDateTo.value) filters.created_to = filterDateTo.value
+  if (filterDirection.value) filters.direction = filterDirection.value
+  if (filterAfnorApiVersion.value) filters.afnor_api_version = filterAfnorApiVersion.value
+  if (filterHttpStatus.value) filters.http_status = Number(filterHttpStatus.value)
+  if (filterCorrelationId.value) filters.correlation_id = filterCorrelationId.value
   await guard(async () => {
-    flowTraces.value = await listFlowTraces()
+    flowTraces.value = await listFlowTraces(filters)
   })
 }
 
@@ -29,6 +57,54 @@ onMounted(refresh)
     </header>
 
     <p v-if="error" role="alert">{{ error }}</p>
+
+    <section class="card">
+      <h2>Filtres</h2>
+      <form @submit.prevent="refresh">
+        <div class="field">
+          <label for="ft-filter-date-from">Date</label>
+          <div class="cluster">
+            <input
+              id="ft-filter-date-from"
+              v-model="filterDateFrom"
+              type="date"
+              placeholder="Du"
+              data-testid="flow-trace-filter-date-from"
+            />
+            <input
+              v-model="filterDateTo"
+              type="date"
+              placeholder="Au"
+              data-testid="flow-trace-filter-date-to"
+            />
+          </div>
+        </div>
+        <input
+          v-model="filterDirection"
+          placeholder="Sens"
+          data-testid="flow-trace-filter-direction"
+        />
+        <input
+          v-model="filterAfnorApiVersion"
+          placeholder="Version API"
+          data-testid="flow-trace-filter-afnor-api-version"
+        />
+        <input
+          v-model="filterHttpStatus"
+          type="number"
+          placeholder="Statut HTTP"
+          data-testid="flow-trace-filter-http-status"
+        />
+        <input
+          v-model="filterCorrelationId"
+          placeholder="Correlation ID"
+          data-testid="flow-trace-filter-correlation-id"
+        />
+        <button type="submit" class="btn-secondary" data-testid="flow-trace-filter-submit-button">
+          Filtrer
+        </button>
+      </form>
+    </section>
 
     <section class="card">
       <table data-testid="flow-traces-table">

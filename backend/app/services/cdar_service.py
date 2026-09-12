@@ -41,7 +41,7 @@ def build_data_dict(
     data_dict: dict = {
         "MDT-2": BUSINESS_PROCESS_ID,
         "MDT-3": GUIDELINE_ID,
-        "MDT-4": f"cdar-{invoice.superpdp_flow_id}-{status}-{int(now.timestamp())}",
+        "MDT-4": f"cdar-{invoice.certified_platform_flow_id}-{status}-{int(now.timestamp())}",
         "MDT-8": now,
         "MDT-21": "BY",
         # Émetteur de la facture d'origine (fournisseur) — brut, cf. Invoice (§ 6.1).
@@ -57,7 +57,7 @@ def build_data_dict(
         "MDT-74": False,
         "MDT-77": ACKNOWLEDGEMENT_TYPE_CODE,
         "MDT-78": now,
-        "MDT-87": invoice.superpdp_flow_id,
+        "MDT-87": invoice.certified_platform_flow_id,
         "MDT-91": "380",
         "MDT-100": now.date(),
         "MDT-105": status_info.cdar_code,
