@@ -176,11 +176,12 @@ Le routeur agit comme émulation de PDP vis-à-vis du connecteur Odoo :
 
 #### 4.9.1 Paramètres de la méthode "routage mail"
 
+- **Adresse d'expédition "De" (From)** (par application cible, facultatif) : si renseignée, surcharge pour les envois de cette application cible l'adresse d'expédition globale (`RouterSettings.smtp_from_address`, cf. ci-dessous) — utile lorsqu'une application cible attend un expéditeur spécifique (ex. une adresse dédiée reconnue par Spendesk). Si absente, l'envoi utilise l'adresse globale, comme avant l'introduction de ce champ.
 - **Destinataires** (par application cible) :
   - une ou plusieurs adresses **À** (To) ;
   - une ou plusieurs adresses **CC** (copie) ;
   - une ou plusieurs adresses **CCI** (copie cachée).
-- **Paramètres du serveur d'envoi (SMTP)** : ne sont **pas** portés par l'application cible — ils sont mutualisés dans la **configuration générale du routeur** (un seul serveur d'envoi pour toutes les applications cibles de type mail).
+- **Paramètres du serveur d'envoi (SMTP)** : ne sont **pas** portés par l'application cible — ils sont mutualisés dans la **configuration générale du routeur** (un seul serveur d'envoi, et une adresse d'expédition par défaut, pour toutes les applications cibles de type mail — cf. `smtp_from_address` ci-dessus).
 
 #### 4.9.2 Paramètres de la méthode "mise à disposition via API AFNOR"
 
@@ -191,7 +192,7 @@ Cette méthode couvre le cas Odoo (§ 4.4) et tout futur consommateur de l'API A
 - **Format préféré de conversion AFNOR** (facultatif) : format de facture retourné pour l'option `docType=Converted` de l'API AFNOR, s'il est demandé par le consommateur.
 - **Type d'application** : *confidentielle* ou *publique*, au sens de la [RFC 6749 §2.1](https://datatracker.ietf.org/doc/html/rfc6749#section-2.1) — *confidentielle* quand `client_id`/`client_secret` sont stockés côté serveur (cas d'Odoo), *publique* quand le `client_id` est stocké côté client.
 - **URL de webhook** (facultatif) : URL de callback à laquelle le routeur pousse ses notifications (§ 4.4) — distincte des URLs de redirection OAuth ci-dessus (celles-ci servent uniquement le flux d'autorisation, pas la notification d'événements).
-- Cette structure de paramétrage — reprise du modèle d'enregistrement d'application OAuth de SuperPDP, enrichie de l'URL de webhook — permet au routeur d'exposer une expérience d'administration cohérente entre le paramétrage de son propre accès à SuperPDP et celui de ses consommateurs (Odoo, futurs consommateurs), en restant conforme au modèle OAuth2 (cf. § 4.10).
+- Cette structure de paramétrage — reprise du modèle d'enregistrement d'application OAuth de SuperPDP, enrichie de l'URL de webhook — permet au routeur d'exposer une expérience d'administration cohérente entre le paramétrage de son propre accès à SuperPDP et celui de ses consommateurs (Odoo, futurs consommateurs), en restant conforme au modèle OAuth2 (cf. § 4.10). Contrairement à la portée `Router→SuperPDP` (identifiants portés par `Company`, § 6.1), ces attributs sont stockés dans le JSON `parameters` de la `TargetApplication` elle-même (dont `client_id`/`client_secret_hash`, générés et immuables une fois l'application créée, à l'image de ce que fait SuperPDP côté § 4.10) — pas dans une entité séparée.
 
 ### 4.10 Connecteur Odoo unique, jetons distincts par entreprise (OAuth)
 
@@ -242,10 +243,9 @@ Deux rôles : **admin** (voit toutes les entreprises) et **user** (restreint à 
 
 ### 6.1 Entités générales
 
-- **Company** (entreprise gérée) : SIREN, raison sociale. (La clé/le jeton d'accès à SuperPDP n'est **pas** un attribut de `Company` : il est porté par `OAuthApplication`, à portée Router→SuperPDP, cf. ci-dessous et § 4.10 — évite de dupliquer la notion de jeton à deux endroits du modèle.)
+- **Company** (entreprise gérée) : SIREN, raison sociale, et les identifiants d'accès à SuperPDP portés directement par cette entité (`superpdp_client_id`, `superpdp_client_secret_encrypted`, `superpdp_platform`, `superpdp_token_cache`) — la portée `Router→SuperPDP` de l'ancien modèle « application OAuth » (cf. § 4.10) n'est plus une entité séparée : SuperPDP générant lui-même ces identifiants pour chaque entreprise (un seul jeu par entreprise, jamais modifiable depuis le routeur, cf. § 4.9.2), il n'y a ni scope ni pluralité à représenter à ce niveau — de simples colonnes sur `Company` suffisent et évitent une table à une ligne par entreprise.
 - **PartnerDirectory** (annuaire des émetteurs/tiers connus du routeur) : SIREN/SIRET, raison sociale, date de première apparition.
-- **TargetApplication** (application cible) : nom, méthode de routage (enum extensible), entreprise gérée de rattachement (pour la méthode API AFNOR), paramètres (JSON typé selon la méthode — cf. § 4.9.1/4.9.2).
-- **OAuthApplication** (jeton d'accès par entreprise, cf. § 4.10) : entreprise gérée, `client_id`/`client_secret` (ou token), type d'application (confidentielle/publique), **portée** (`Router→SuperPDP` ou `Odoo/consommateur→Router`), URLs de redirection, format préféré de conversion AFNOR, **version d'API AFNOR cible** (pour la portée `Router→SuperPDP` : permet la bascule progressive par entreprise décrite au § 4.8), **URL de webhook** (`webhook_url`, pour la portée `Odoo/consommateur→Router` — cf. § 4.4/§ 4.9.2, notification push vers ce consommateur).
+- **TargetApplication** (application cible) : nom, méthode de routage (enum extensible), entreprise gérée de rattachement (pour la méthode API AFNOR), paramètres (**JSON unique**, dont la forme dépend de `routing_method` — cf. § 4.9.1/4.9.2). Contrairement à la portée `Router→SuperPDP` ci-dessus, la portée `Odoo/consommateur→Router` **conserve** la notion d'application OAuth par entreprise, mais ses attributs (`client_id`, `client_secret_hash`, type d'application confidentielle/publique, URLs de redirection, format préféré de conversion AFNOR, `webhook_url`) sont stockés dans ce même JSON `parameters` — au même titre que les paramètres de la méthode mail (`from`, `to`, `cc`, `bcc`) — plutôt que dans une entité dédiée : les deux méthodes de routage partagent ainsi un seul mécanisme de paramétrage générique (cf. § 4.9), exposé par des accesseurs (`@property`) typés côté modèle plutôt que par des colonnes ou une table distinctes.
 - **RoutingRule** : **classe d'association** entre `PartnerDirectory` (émetteur) et `TargetApplication` (application cible), porteuse de la période de validité du routage (date début, date fin — nullable = sans fin) et d'un indicateur actif/inactif. C'est parce que cette période de validité n'a de sens que pour un couple (émetteur, application cible) donné que la relation ne peut pas être une simple association N-N sans attributs : elle doit être portée par une entité propre (cf. § 7.1.1, où mermaid ne disposant pas de la notation UML stricte de classe d'association, `RoutingRule` est représentée comme une classe reliée par deux associations dirigées).
 - **Invoice** (facture **reçue** uniquement — les factures émises ne sont pas indexées ici, cf. § 4.1) : identifiant, entreprise réceptrice, émetteur (SIREN/SIRET — brut, indépendant du lien optionnel vers `PartnerDirectory`, cf. ci-dessous), statut cycle de vie courant, chemin fichier, `superpdp_flow_id` (identifiant du flux côté SuperPDP), horodatages SuperPDP (dépôt, dernière mise à jour) en plus de la date de réception côté routeur, métadonnées AFNOR complètes (JSON brut, pour l'audit intégral au-delà des champs structurés), version d'API AFNOR d'origine. Le SIREN/SIRET de l'émetteur est toujours présent (porté par les métadonnées AFNOR de la facture elle-même — ce n'est pas une donnée dupliquée depuis `PartnerDirectory`), mais le **lien vers l'entrée `PartnerDirectory` correspondante peut être absent** (cardinalité `0..1` au § 7.1.2) si cet émetteur n'a encore jamais été vu par le routeur — l'entrée d'annuaire est alors créée a posteriori (typiquement lors d'une consultation d'annuaire par Odoo, § 4.4). Une facture dont l'émetteur n'a pas d'entrée `PartnerDirectory` ne peut mécaniquement correspondre à aucune `RoutingRule` : c'est l'un des cas concrets couverts par l'alerte "facture sans règle de routage active" du § 4.7.
   - **Attributs additionnels pour le filtrage/recherche dans l'IHM** : `invoice_number` (numéro de facture), `invoice_date` (date d'émission par l'émetteur, distincte de `received_at`/`superpdp_submitted_at`), `due_date` (date d'échéance, si présente), `invoice_type` (facture / avoir), `amount_total`, `amount_excl_tax`, `currency`, `syntax` (Factur-X / UBL / CII), `processing_rule` (B2B / B2G / B2C / OutOfScope). **La raison sociale de l'émetteur n'est pas dénormalisée sur `Invoice`** : elle s'obtient par jointure sur `PartnerDirectory` (absente/`NULL` si l'émetteur n'a pas encore d'entrée d'annuaire) — de même, le **statut de routage par cible** reste obtenu par jointure sur `InvoiceRouting`, jamais dupliqué sur `Invoice`.
@@ -284,17 +284,10 @@ classDiagram
         +int id
         +string siren
         +string name
-    }
-    class OAuthApplication {
-        +int id
-        +string client_id
-        +string client_secret
-        +string app_type
-        +string scope
-        +string redirect_urls
-        +string preferred_conversion_format
-        +string afnor_api_version
-        +string webhook_url
+        +string superpdp_client_id
+        +string superpdp_client_secret_encrypted
+        +string superpdp_platform
+        +string superpdp_token_cache
     }
     class PartnerDirectory {
         +int id
@@ -309,6 +302,7 @@ classDiagram
         +string routing_method
         +json parameters
     }
+    note for TargetApplication "parameters (JSON) selon routing_method :\nmail -> from, to, cc, bcc (§ 4.9.1)\nafnor_api -> client_id, client_secret_hash,\napp_type, redirect_urls,\npreferred_conversion_format, webhook_url (§ 4.9.2)"
     class RoutingRule {
         +int id
         +date start_date
@@ -324,7 +318,6 @@ classDiagram
         +bool is_active
     }
 
-    Company "1" --> "0..*" OAuthApplication : possède
     Company "0..1" --> "0..*" TargetApplication : rattache (méthode API)
     Company "0..*" -- "0..*" User : périmètre d'accès
 
@@ -574,7 +567,7 @@ classDiagram
     class PartnerDirectory
     class LifecycleEvent
     class AfnorFlow
-    class OAuthApplication
+    class Company
     class FlowTrace
     class TechnicalLog
     class AuditLog
@@ -594,13 +587,13 @@ classDiagram
     InvoiceIngestionService --> BillingManagerContact : alerte (facture non routée)
 
     AfnorClientAdapter --> FlowTrace : trace
-    AfnorClientAdapter --> OAuthApplication : s'authentifie via
+    AfnorClientAdapter --> Company : s'authentifie via (superpdp_client_id, § 4.9.2)
 
     AfnorServerController --> Invoice : filtre / expose
     AfnorServerController --> RoutingRuleService : applique les règles
     AfnorServerController --> AfnorClientAdapter : proxy émission vers SuperPDP
     AfnorServerController ..> AfnorClientAdapter : réutilise parsing/génération (pyfrctc)
-    AfnorServerController --> OAuthApplication : authentifie
+    AfnorServerController --> TargetApplication : authentifie (parameters.client_id, § 4.9.2)
     AfnorServerController --> DirectoryService : consultation annuaire
 
     MailRouterService --> InvoiceRouting : envoie
@@ -636,7 +629,7 @@ sequenceDiagram
     participant DB as Base de données
 
     Odoo->>Routeur: POST /oauth/token (client_id, client_secret de l'entreprise, grant_type=client_credentials)
-    Routeur->>DB: vérifie OAuthApplication (client_id, hash du secret)
+    Routeur->>DB: vérifie TargetApplication (parameters.client_id, hash du secret)
     alt identifiants valides
         Routeur-->>Odoo: 200 { access_token, expires_in }
     else identifiants invalides
@@ -707,7 +700,7 @@ sequenceDiagram
     Odoo->>Routeur: POST /invoices ou /lifecycle (Bearer token entreprise X, payload AFNOR)
     Routeur->>Routeur: authentifie l'application OAuth
     Routeur->>Adapter: transfère la requête (proxy)
-    Adapter->>DB: OAuthApplication Router→SuperPDP de cette entreprise (§ 4.10)
+    Adapter->>DB: Company.superpdp_client_id/superpdp_token_cache de cette entreprise (§ 4.10)
     Adapter->>SuperPDP: relaie la requête (mêmes données, jeton SuperPDP de l'entreprise)
     SuperPDP-->>Adapter: réponse (succès ou erreur)
     Adapter-->>Routeur: réponse inchangée
@@ -728,7 +721,7 @@ sequenceDiagram
     participant Odoo as Webhook Odoo (webhook_url)
 
     IHM->>Routeur: nouvel événement pour Odoo (facture routée, ou statut cycle de vie)
-    Routeur->>DB: OAuthApplication Odoo — webhook_url renseignée ?
+    Routeur->>DB: TargetApplication Odoo — parameters.webhook_url renseignée ?
     alt webhook configuré
         Routeur->>Odoo: POST webhook_url (notification événement)
         alt livraison réussie

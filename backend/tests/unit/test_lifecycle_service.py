@@ -23,7 +23,7 @@ def _make_invoice(db, company_siren="555555555"):
         invoice_number="F-001",
         invoice_date=date(2026, 1, 1),
         file_path="/tmp/fake.pdf",
-        superpdp_flow_id="flow-abc",
+        certified_platform_flow_id="flow-abc",
     )
     db.add(invoice)
     db.commit()

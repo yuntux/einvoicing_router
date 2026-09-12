@@ -19,6 +19,10 @@ class OutgoingMail:
     body: str
     attachment_filename: str | None = None
     attachment_content: bytes | None = None
+    # Adresse d'expédition propre à l'application cible (§ 4.9.1) — `None` = utiliser
+    # l'adresse globale `RouterSettings.smtp_from_address` (comportement par défaut,
+    # inchangé pour les applications qui ne définissent pas ce champ).
+    from_address: str | None = None
 
 
 class MailSenderProtocol(Protocol):
@@ -35,7 +39,7 @@ class SmtpMailSender:
     def send(self, mail: OutgoingMail, *, router_settings) -> None:
         message = EmailMessage()
         message["Subject"] = mail.subject
-        message["From"] = router_settings.smtp_from_address
+        message["From"] = mail.from_address or router_settings.smtp_from_address
         message["To"] = ", ".join(mail.to)
         if mail.cc:
             message["Cc"] = ", ".join(mail.cc)

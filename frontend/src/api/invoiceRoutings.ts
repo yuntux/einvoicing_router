@@ -17,8 +17,20 @@ export interface ReplayRoutingResult {
   success: boolean
 }
 
-export function listFailedRoutings(): Promise<FailedInvoiceRouting[]> {
-  return apiFetch('/api/ihm/invoice-routings/failed', {}, 'Failed to list failed routings')
+export interface FailedRoutingFilters {
+  invoice_number?: string
+  emitter_siren?: string
+  target_application_name?: string
+  transfer_status?: string
+  attempt_count?: number
+}
+
+export function listFailedRoutings(filters: FailedRoutingFilters = {}): Promise<FailedInvoiceRouting[]> {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== '') params.set(key, String(value))
+  }
+  return apiFetch(`/api/ihm/invoice-routings/failed?${params.toString()}`, {}, 'Failed to list failed routings')
 }
 
 export function replayRoutings(routingIds: number[]): Promise<ReplayRoutingResult[]> {

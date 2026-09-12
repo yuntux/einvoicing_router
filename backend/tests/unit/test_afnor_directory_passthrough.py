@@ -18,11 +18,10 @@ from app.auth.oauth import generate_client_credentials, hash_secret
 from app.models.audit import FlowTrace
 from app.models.referential import (
     Company,
-    OAuthAppType,
-    OAuthApplication,
-    OAuthScope,
     PartnerDirectory,
+    RoutingMethod,
     RoutingRule,
+    TargetApplication,
 )
 
 
@@ -35,17 +34,21 @@ def _make_company(db, siren="123456789"):
 
 
 def _make_oauth_app(db, company, client_secret="s3cret-value"):
-    oauth_app = OAuthApplication(
+    """Une application `afnor_api` EST le "client" OAuth (§ 4.9.2/§ 4.10)."""
+    target = TargetApplication(
+        name="Odoo",
+        routing_method=RoutingMethod.AFNOR_API,
         company_id=company.id,
-        client_id=generate_client_credentials()[0],
-        client_secret_hash=hash_secret(client_secret),
-        app_type=OAuthAppType.CONFIDENTIAL,
-        scope=OAuthScope.CONSUMER_TO_ROUTER,
+        parameters={
+            "client_id": generate_client_credentials()[0],
+            "client_secret_hash": hash_secret(client_secret),
+            "app_type": "confidential",
+        },
     )
-    db.add(oauth_app)
+    db.add(target)
     db.commit()
-    db.refresh(oauth_app)
-    return oauth_app
+    db.refresh(target)
+    return target
 
 
 def _token(client, oauth_app, secret):
@@ -108,9 +111,9 @@ def test_passthrough_forwards_success_body_and_status_verbatim(client, db_sessio
     with patch("app.afnor.client.adapter.core.get_session") as mock_get_session, patch(
         "app.afnor.client.adapter.core._get_plateform", return_value="superpdp"
     ), patch(
-        "app.services.superpdp_credentials_service.get_credentials_application"
+        "app.services.certified_platform_credentials_service.get_credentials_application"
     ) as mock_creds, patch(
-        "app.services.superpdp_credentials_service.get_decrypted_secret", return_value="secret"
+        "app.services.certified_platform_credentials_service.get_decrypted_secret", return_value="secret"
     ):
         mock_creds.return_value = MagicMock(platform="superpdp", client_id="cid", token_cache=None)
         session = MagicMock()
@@ -148,9 +151,9 @@ def test_passthrough_forwards_upstream_error_status_verbatim(client, db_session,
     with patch("app.afnor.client.adapter.core.get_session") as mock_get_session, patch(
         "app.afnor.client.adapter.core._get_plateform", return_value="superpdp"
     ), patch(
-        "app.services.superpdp_credentials_service.get_credentials_application"
+        "app.services.certified_platform_credentials_service.get_credentials_application"
     ) as mock_creds, patch(
-        "app.services.superpdp_credentials_service.get_decrypted_secret", return_value="secret"
+        "app.services.certified_platform_credentials_service.get_decrypted_secret", return_value="secret"
     ):
         mock_creds.return_value = MagicMock(platform="superpdp", client_id="cid", token_cache=None)
         session = MagicMock()
@@ -175,9 +178,9 @@ def test_passthrough_network_failure_returns_502_with_afnor_error_envelope(
     with patch("app.afnor.client.adapter.core.get_session") as mock_get_session, patch(
         "app.afnor.client.adapter.core._get_plateform", return_value="superpdp"
     ), patch(
-        "app.services.superpdp_credentials_service.get_credentials_application"
+        "app.services.certified_platform_credentials_service.get_credentials_application"
     ) as mock_creds, patch(
-        "app.services.superpdp_credentials_service.get_decrypted_secret", return_value="secret"
+        "app.services.certified_platform_credentials_service.get_decrypted_secret", return_value="secret"
     ):
         mock_creds.return_value = MagicMock(platform="superpdp", client_id="cid", token_cache=None)
         session = MagicMock()

@@ -155,10 +155,10 @@ def create_app() -> FastAPI:
 
     # Points d'entrée réservés aux tests (pytest/Playwright), hors de l'API produit
     # (/api/ihm/*, /api/afnor/*) : jamais montés quand un vrai client SuperPDP est
-    # configuré (settings.superpdp_client_mode == "pyfrctc", cas de la production) —
+    # configuré (settings.certified_platform_client_mode == "pyfrctc", cas de la production) —
     # aucune route de simulation de réception de facture n'existe alors, ni dans
     # l'IHM ni dans l'API.
-    if settings.superpdp_client_mode == "fake":
+    if settings.certified_platform_client_mode == "fake":
         app.include_router(testing_invoices_router, prefix="/api/test", tags=["testing"])
 
     return app

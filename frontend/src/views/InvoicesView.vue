@@ -9,13 +9,49 @@ import {
   type InvoiceDetail,
   type InvoiceFilters,
 } from '../api/invoices'
+import { listTargetApplicationLookups, type TargetApplicationLookup } from '../api/targetApplications'
 import LifecycleEventForm from '../components/LifecycleEventForm.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { useErrorMessage } from '../composables/useErrorMessage'
 
 const invoices = ref<Invoice[]>([])
 const selected = ref<InvoiceDetail | null>(null)
+const targetApplications = ref<TargetApplicationLookup[]>([])
 const { error, guard } = useErrorMessage()
+
+// § 4.7/§ 8.3 : un badge par application cible de l'entreprise de la facture,
+// coloré selon le statut de routage effectif (ou gris si cette application n'a pas
+// à recevoir cette facture).
+function companyTargetApplications(companyId: number): TargetApplicationLookup[] {
+  return targetApplications.value.filter((t) => t.company_id === companyId)
+}
+
+const ROUTING_BADGE_CLASS: Record<string, string> = {
+  sent: 'badge-success',
+  to_send: 'badge-info',
+  retrying: 'badge-warning',
+  failed: 'badge-danger',
+  failed_final: 'badge-danger',
+}
+
+function routingBadgeClass(invoice: Invoice, targetId: number): string {
+  const routing = invoice.routings.find((r) => r.target_application_id === targetId)
+  if (!routing) return ''
+  return ROUTING_BADGE_CLASS[routing.transfer_status] ?? ''
+}
+
+function isUnrouted(invoice: Invoice): boolean {
+  return invoice.routings.length === 0
+}
+
+const showRoutingLegend = ref(false)
+const ROUTING_LEGEND = [
+  { class: 'badge-success', label: 'Routée avec succès vers cette application' },
+  { class: 'badge-info', label: "En attente du prochain cycle d'envoi" },
+  { class: 'badge-warning', label: 'Échec, un nouvel essai est prévu' },
+  { class: 'badge-danger', label: "Échec définitif, plus aucun essai prévu" },
+  { class: '', label: "Cette application n'a pas à recevoir cette facture" },
+] as const
 
 // Filtres (§ 8.3) — dans le même ordre que les colonnes du tableau ci-dessous.
 const filterInvoiceNumber = ref('')
@@ -97,7 +133,10 @@ async function onLifecycleEventCreated() {
   }
 }
 
-onMounted(refreshInvoices)
+onMounted(async () => {
+  targetApplications.value = await listTargetApplicationLookups()
+  await refreshInvoices()
+})
 </script>
 
 <template>
@@ -222,6 +261,34 @@ onMounted(refreshInvoices)
             <th>Montant TVA</th>
             <th>Montant TTC</th>
             <th>Dernier téléchargement</th>
+            <th style="position: relative">
+              Routage
+              <button
+                type="button"
+                class="legend-help-button"
+                aria-label="Légende des couleurs de routage"
+                data-testid="routing-legend-toggle"
+                @click="showRoutingLegend = !showRoutingLegend"
+              >
+                ?
+              </button>
+              <div v-if="showRoutingLegend" class="legend-popover" data-testid="routing-legend-popover">
+                <button
+                  type="button"
+                  class="legend-popover-close"
+                  aria-label="Fermer"
+                  @click="showRoutingLegend = false"
+                >
+                  ×
+                </button>
+                <ul>
+                  <li v-for="item in ROUTING_LEGEND" :key="item.label">
+                    <span class="badge" :class="item.class">&nbsp;</span>
+                    {{ item.label }}
+                  </li>
+                </ul>
+              </div>
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -244,9 +311,29 @@ onMounted(refreshInvoices)
               </template>
               <template v-else>jamais</template>
             </td>
+            <td :data-testid="`invoice-routing-${invoice.invoice_number}`">
+              <div class="cluster" style="gap: 4px">
+                <span
+                  v-for="target in companyTargetApplications(invoice.company_id)"
+                  :key="target.id"
+                  class="badge"
+                  :class="routingBadgeClass(invoice, target.id)"
+                  :data-testid="`invoice-routing-badge-${invoice.invoice_number}-${target.id}`"
+                >
+                  {{ target.name }}
+                </span>
+                <span
+                  v-if="isUnrouted(invoice)"
+                  style="color: var(--color-danger); font-weight: 600"
+                  :data-testid="`invoice-unrouted-${invoice.invoice_number}`"
+                >
+                  Facture non routée
+                </span>
+              </div>
+            </td>
           </tr>
           <tr v-if="invoices.length === 0">
-            <td colspan="7" class="entity-list-empty">Aucune facture ne correspond aux filtres.</td>
+            <td colspan="8" class="entity-list-empty">Aucune facture ne correspond aux filtres.</td>
           </tr>
         </tbody>
       </table>

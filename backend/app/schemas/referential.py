@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.referential import OAuthAppType, RoutingMethod
 from app.schemas.mixins import AuditColumnsRead
@@ -52,16 +52,34 @@ class TargetApplicationOAuthRead(BaseModel):
 
 
 class TargetApplicationRead(AuditColumnsRead):
+    """`parameters` porte, en base, tous les paramètres de la méthode de routage
+    choisie (§ 6.1) — y compris, pour `afnor_api`, `client_secret_hash` (jamais
+    exposable). Le validateur ci-dessous sépare le sous-ensemble présentable dans
+    `oauth_application` et vide `parameters` pour cette méthode, pour ne jamais
+    laisser le hash fuiter par ce champ générique."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     name: str
     routing_method: RoutingMethod
     company_id: int
-    oauth_application_id: int | None
-    oauth_application: TargetApplicationOAuthRead | None
     parameters: dict
     is_active: bool
+    oauth_application: TargetApplicationOAuthRead | None = None
+
+    @model_validator(mode="after")
+    def _split_oauth_parameters(self) -> "TargetApplicationRead":
+        if self.routing_method == RoutingMethod.AFNOR_API and self.parameters:
+            self.oauth_application = TargetApplicationOAuthRead(
+                client_id=self.parameters.get("client_id", ""),
+                app_type=self.parameters.get("app_type", OAuthAppType.CONFIDENTIAL),
+                redirect_urls=self.parameters.get("redirect_urls"),
+                preferred_conversion_format=self.parameters.get("preferred_conversion_format"),
+                webhook_url=self.parameters.get("webhook_url"),
+            )
+            self.parameters = {}
+        return self
 
 
 class TargetApplicationStatusUpdate(BaseModel):

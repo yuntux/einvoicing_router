@@ -50,7 +50,7 @@ def start_scheduler() -> BackgroundScheduler:
         _run_polling_cycle_job,
         "interval",
         minutes=settings.polling_interval_minutes,
-        id="superpdp-polling-cycle",
+        id="certified-platform-polling-cycle",
     )
     _scheduler.add_job(
         _run_technical_log_purge_job,

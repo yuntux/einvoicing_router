@@ -6,10 +6,11 @@ n'a pas de notion d'envoi actif/échec (§ 4.7)."""
 
 from datetime import datetime, timedelta
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.invoicing import Invoice, InvoiceRouting, TransferStatus
-from app.models.referential import OAuthApplication, PartnerDirectory, RoutingMethod, TargetApplication
+from app.models.referential import PartnerDirectory, RoutingMethod, TargetApplication
 from app.services import (
     billing_manager_contact_service,
     mail_router_service,
@@ -67,9 +68,8 @@ def run_send_cycle(
     webhook_pending = (
         db.query(InvoiceRouting)
         .join(TargetApplication, InvoiceRouting.target_application_id == TargetApplication.id)
-        .join(OAuthApplication, TargetApplication.oauth_application_id == OAuthApplication.id)
         .filter(TargetApplication.routing_method == RoutingMethod.AFNOR_API)
-        .filter(OAuthApplication.webhook_url.is_not(None))
+        .filter(func.json_extract(TargetApplication.parameters, "$.webhook_url").is_not(None))
         .filter(_pending_status_filter(now))
         .all()
     )

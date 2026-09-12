@@ -1,5 +1,13 @@
 import { API_BASE, apiFetch } from './http'
 
+export interface InvoiceRouting {
+  id: number
+  target_application_id: number
+  transfer_status: string
+  attempt_count: number
+  next_attempt_at: string | null
+}
+
 export interface Invoice {
   id: number
   company_id: number
@@ -12,7 +20,7 @@ export interface Invoice {
   invoice_type: string
   lifecycle_status: string | null
   file_path: string
-  superpdp_flow_id: string
+  certified_platform_flow_id: string
   amount_total: number | null
   amount_excl_tax: number | null
   currency: string | null
@@ -31,14 +39,9 @@ export interface Invoice {
   flow_name: string | null
   ack_status: string | null
   ack_details: string | null
-}
-
-export interface InvoiceRouting {
-  id: number
-  target_application_id: number
-  transfer_status: string
-  attempt_count: number
-  next_attempt_at: string | null
+  // Statut de routage par application cible (§ 4.7/§ 8.3) — un badge par
+  // application de l'entreprise dans la liste des factures.
+  routings: InvoiceRouting[]
 }
 
 export interface AfnorFlow {
@@ -53,7 +56,6 @@ export interface AfnorFlow {
 }
 
 export interface InvoiceDetail extends Invoice {
-  routings: InvoiceRouting[]
   emitter_name: string | null
   last_download_at: string | null
   last_download_by: string | null

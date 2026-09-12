@@ -89,3 +89,88 @@ def test_list_invoices_filter_by_emitter_name(client):
 def test_get_invoice_not_found(client):
     response = client.get("/api/ihm/invoices/999999")
     assert response.status_code == 404
+
+
+def test_list_invoices_includes_routings_for_badges(client, db_session):
+    """§ 4.7/§ 8.3 : la liste des factures porte `routings` (statut de transfert par
+    application cible) — utilisé par l'IHM pour afficher un badge par application,
+    sans passer par le détail de chaque facture."""
+    from datetime import date
+
+    from app.models.invoicing import Invoice, InvoiceRouting, TransferStatus
+    from app.models.referential import Company, RoutingMethod, TargetApplication
+
+    company = Company(siren=_valid_siren("36111111"), name="Société Badges")
+    db_session.add(company)
+    db_session.commit()
+    db_session.refresh(company)
+
+    target = TargetApplication(
+        name="Comptable",
+        routing_method=RoutingMethod.MAIL,
+        company_id=company.id,
+        parameters={"to": ["compta@example.com"]},
+    )
+    db_session.add(target)
+    db_session.commit()
+    db_session.refresh(target)
+
+    invoice = Invoice(
+        company_id=company.id,
+        emitter_siren=_valid_siren("37111111"),
+        invoice_number="F-BADGE-1",
+        invoice_date=date(2026, 1, 1),
+        file_path="/tmp/badge.pdf",
+        certified_platform_flow_id="flow-badge-1",
+    )
+    db_session.add(invoice)
+    db_session.commit()
+    db_session.refresh(invoice)
+
+    db_session.add(
+        InvoiceRouting(
+            invoice_id=invoice.id,
+            target_application_id=target.id,
+            transfer_status=TransferStatus.RETRYING,
+            attempt_count=2,
+        )
+    )
+    db_session.commit()
+
+    response = client.get("/api/ihm/invoices", params={"invoice_number": "F-BADGE-1"})
+    assert response.status_code == 200
+    [row] = response.json()
+    assert len(row["routings"]) == 1
+    assert row["routings"][0]["target_application_id"] == target.id
+    assert row["routings"][0]["transfer_status"] == "retrying"
+    assert row["routings"][0]["attempt_count"] == 2
+
+
+def test_list_invoices_routings_empty_when_unrouted(client, db_session):
+    """Aucune règle n'a résolu de cible pour cette facture : `routings` doit être
+    vide (l'IHM en déduit le badge "Facture non routée")."""
+    from datetime import date
+
+    from app.models.invoicing import Invoice
+    from app.models.referential import Company
+
+    company = Company(siren=_valid_siren("38111111"), name="Société Sans Règle")
+    db_session.add(company)
+    db_session.commit()
+    db_session.refresh(company)
+
+    invoice = Invoice(
+        company_id=company.id,
+        emitter_siren=_valid_siren("39111111"),
+        invoice_number="F-UNROUTED-1",
+        invoice_date=date(2026, 1, 1),
+        file_path="/tmp/unrouted.pdf",
+        certified_platform_flow_id="flow-unrouted-1",
+    )
+    db_session.add(invoice)
+    db_session.commit()
+
+    response = client.get("/api/ihm/invoices", params={"invoice_number": "F-UNROUTED-1"})
+    assert response.status_code == 200
+    [row] = response.json()
+    assert row["routings"] == []

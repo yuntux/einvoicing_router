@@ -35,13 +35,14 @@ def send_routing(
     router_settings = router_settings_service.get_settings(db)
 
     mail = OutgoingMail(
-        to=list(target.parameters.get("to") or []),
-        cc=list(target.parameters.get("cc") or []),
-        bcc=list(target.parameters.get("bcc") or []),
+        to=target.to,
+        cc=target.cc,
+        bcc=target.bcc,
         subject=invoice.invoice_number,
         body=ROUTING_EMAIL_BODY,
         attachment_filename=Path(invoice.file_path).name,
         attachment_content=Path(invoice.file_path).read_bytes(),
+        from_address=target.from_address,
     )
 
     try:

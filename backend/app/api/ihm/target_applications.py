@@ -5,14 +5,7 @@ from app.auth.oauth import generate_client_credentials, hash_secret
 from app.auth.perimeter import ensure_company_in_scope
 from app.auth.session import get_current_user
 from app.db.session import get_db
-from app.models.referential import (
-    OAuthApplication,
-    OAuthAppType,
-    OAuthScope,
-    RoutingMethod,
-    TargetApplication,
-    User,
-)
+from app.models.referential import OAuthAppType, RoutingMethod, TargetApplication, User
 from app.schemas.referential import (
     TargetApplicationCreate,
     TargetApplicationCreated,
@@ -32,6 +25,24 @@ from app.services.url_validation import UnsafeWebhookUrlError, validate_webhook_
 # modification, activation/désactivation.
 router = APIRouter()
 admin_router = APIRouter()
+
+
+def _oauth_parameters_from_payload(payload_parameters: dict) -> dict:
+    """Normalise les paramètres `afnor_api` reçus de l'IHM (§ 4.9.2) — valide l'URL
+    de webhook (SSRF, § garde-fou CWE-918) et rejoint la liste d'URLs de redirection
+    en une chaîne stockée (même format qu'avant, cf. § 6.1)."""
+    webhook_url = payload_parameters.get("webhook_url")
+    if webhook_url:
+        try:
+            validate_webhook_url(webhook_url)
+        except UnsafeWebhookUrlError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "app_type": payload_parameters.get("app_type", OAuthAppType.CONFIDENTIAL),
+        "redirect_urls": ",".join(payload_parameters.get("redirect_urls", []) or []) or None,
+        "preferred_conversion_format": payload_parameters.get("preferred_conversion_format"),
+        "webhook_url": webhook_url,
+    }
 
 
 @router.get("/lookup", response_model=list[TargetApplicationLookup])
@@ -59,38 +70,21 @@ def create_target_application(
     actor_id = user.id if user else None
     oauth_client_id: str | None = None
     oauth_client_secret: str | None = None
-    oauth_application_id: int | None = None
+    parameters = payload.parameters
 
     if payload.routing_method == RoutingMethod.AFNOR_API:
         oauth_client_id, oauth_client_secret = generate_client_credentials()
-        webhook_url = payload.parameters.get("webhook_url")
-        if webhook_url:
-            try:
-                validate_webhook_url(webhook_url)
-            except UnsafeWebhookUrlError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-        oauth_app = OAuthApplication(
-            company_id=payload.company_id,
-            client_id=oauth_client_id,
-            client_secret_hash=hash_secret(oauth_client_secret),
-            app_type=payload.parameters.get("app_type", OAuthAppType.CONFIDENTIAL),
-            scope=OAuthScope.CONSUMER_TO_ROUTER,
-            redirect_urls=",".join(payload.parameters.get("redirect_urls", []) or []) or None,
-            preferred_conversion_format=payload.parameters.get("preferred_conversion_format"),
-            webhook_url=webhook_url,
-            create_user_id=actor_id,
-            write_user_id=actor_id,
-        )
-        db.add(oauth_app)
-        db.flush()
-        oauth_application_id = oauth_app.id
+        parameters = {
+            "client_id": oauth_client_id,
+            "client_secret_hash": hash_secret(oauth_client_secret),
+            **_oauth_parameters_from_payload(payload.parameters),
+        }
 
     target_application = TargetApplication(
         name=payload.name,
         routing_method=payload.routing_method,
         company_id=payload.company_id,
-        oauth_application_id=oauth_application_id,
-        parameters=payload.parameters if payload.routing_method == RoutingMethod.MAIL else {},
+        parameters=parameters,
         create_user_id=actor_id,
         write_user_id=actor_id,
     )
@@ -119,9 +113,9 @@ def update_target_application(
 ):
     """Modifie le nom et les paramètres propres à la méthode de routage déjà choisie
     (§ 4.9.1/4.9.2) — destinataires mail, ou URLs de redirection/format préféré de
-    conversion/type d'application/URL de webhook pour une application OAuth
-    (portés par l'`OAuthApplication` liée, jamais par `TargetApplication.parameters`
-    pour cette méthode, cf. § 6.1)."""
+    conversion/type d'application/URL de webhook pour une méthode `afnor_api`
+    (`client_id`/`client_secret_hash`, eux, sont immuables après création — jamais
+    touchés ici, cf. § 4.9.2)."""
     target_application = db.get(TargetApplication, target_application_id)
     if target_application is None:
         raise HTTPException(status_code=404, detail="Target application not found")
@@ -133,23 +127,11 @@ def update_target_application(
     if target_application.routing_method == RoutingMethod.MAIL:
         target_application.parameters = payload.parameters
     else:
-        oauth_app = target_application.oauth_application
-        if oauth_app is not None:
-            webhook_url = payload.parameters.get("webhook_url")
-            if webhook_url:
-                try:
-                    validate_webhook_url(webhook_url)
-                except UnsafeWebhookUrlError as exc:
-                    raise HTTPException(status_code=422, detail=str(exc)) from exc
-            oauth_app.redirect_urls = (
-                ",".join(payload.parameters.get("redirect_urls", []) or []) or None
-            )
-            oauth_app.preferred_conversion_format = payload.parameters.get(
-                "preferred_conversion_format"
-            )
-            oauth_app.app_type = payload.parameters.get("app_type", oauth_app.app_type)
-            oauth_app.webhook_url = webhook_url
-            oauth_app.write_user_id = actor_id
+        target_application.parameters = {
+            "client_id": target_application.client_id,
+            "client_secret_hash": target_application.client_secret_hash,
+            **_oauth_parameters_from_payload(payload.parameters),
+        }
 
     db.commit()
     db.refresh(target_application)

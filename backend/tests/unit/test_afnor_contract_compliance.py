@@ -10,15 +10,7 @@ from datetime import date
 
 from app.auth.oauth import generate_client_credentials, hash_secret
 from app.models.invoicing import Invoice, InvoiceRouting
-from app.models.referential import (
-    Company,
-    OAuthAppType,
-    OAuthApplication,
-    OAuthScope,
-    PartnerDirectory,
-    RoutingMethod,
-    TargetApplication,
-)
+from app.models.referential import Company, PartnerDirectory, RoutingMethod, TargetApplication
 from tests.afnor_contracts import FLOW_CONTRACT, assert_matches_schema
 
 
@@ -31,25 +23,16 @@ def _make_company(db, siren="123456789"):
 
 
 def _make_oauth_app(db, company, client_secret="s3cret-value"):
-    oauth_app = OAuthApplication(
-        company_id=company.id,
-        client_id=generate_client_credentials()[0],
-        client_secret_hash=hash_secret(client_secret),
-        app_type=OAuthAppType.CONFIDENTIAL,
-        scope=OAuthScope.CONSUMER_TO_ROUTER,
-    )
-    db.add(oauth_app)
-    db.commit()
-    db.refresh(oauth_app)
-    return oauth_app
-
-
-def _make_target(db, company, oauth_app):
+    """Une application `afnor_api` EST le "client" OAuth (§ 4.9.2/§ 4.10)."""
     target = TargetApplication(
         name="Odoo",
         routing_method=RoutingMethod.AFNOR_API,
         company_id=company.id,
-        oauth_application_id=oauth_app.id,
+        parameters={
+            "client_id": generate_client_credentials()[0],
+            "client_secret_hash": hash_secret(client_secret),
+            "app_type": "confidential",
+        },
     )
     db.add(target)
     db.commit()
@@ -65,7 +48,7 @@ def _make_invoice(db, company, partner, flow_id="flow-1", **overrides):
         invoice_number="INV-1",
         invoice_date=date(2026, 1, 1),
         file_path="/tmp/fake.pdf",
-        superpdp_flow_id=flow_id,
+        certified_platform_flow_id=flow_id,
         **overrides,
     )
     db.add(invoice)
@@ -92,15 +75,14 @@ def _authenticate(client, oauth_app, secret):
 
 def _setup_routed_invoice(db, *, flow_id: str, **invoice_overrides):
     company = _make_company(db, siren="111111111")
-    oauth_app = _make_oauth_app(db, company, client_secret="secret-contract")
-    target = _make_target(db, company, oauth_app)
+    target = _make_oauth_app(db, company, client_secret="secret-contract")
     partner = PartnerDirectory(siren="987654321", name="Fournisseur")
     db.add(partner)
     db.commit()
     db.refresh(partner)
     invoice = _make_invoice(db, company, partner, flow_id=flow_id, **invoice_overrides)
     _route(db, invoice, target)
-    return oauth_app, invoice
+    return target, invoice
 
 
 def test_search_flows_response_matches_search_flow_content_schema(client, db_session):
@@ -155,7 +137,7 @@ def test_get_flow_metadata_response_matches_flow_schema(client, db_session):
     token = _authenticate(client, oauth_app, "secret-contract")
 
     response = client.get(
-        f"/api/afnor/v1/afnor-flow/flows/{invoice.superpdp_flow_id}",
+        f"/api/afnor/v1/afnor-flow/flows/{invoice.certified_platform_flow_id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 200

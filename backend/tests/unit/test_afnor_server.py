@@ -5,15 +5,7 @@ from datetime import date
 from app.auth.oauth import generate_client_credentials, hash_secret
 from app.models.audit import FlowTrace
 from app.models.invoicing import Invoice, InvoiceRouting
-from app.models.referential import (
-    Company,
-    OAuthAppType,
-    OAuthScope,
-    OAuthApplication,
-    PartnerDirectory,
-    RoutingMethod,
-    TargetApplication,
-)
+from app.models.referential import Company, PartnerDirectory, RoutingMethod, TargetApplication
 
 def _make_company(db, siren="123456789", name="Ma Société"):
     company = Company(siren=siren, name=name)
@@ -23,27 +15,20 @@ def _make_company(db, siren="123456789", name="Ma Société"):
     return company
 
 
-def _make_oauth_app(db, company, client_id=None, client_secret="s3cret-value"):
+def _make_oauth_app(db, company, client_id=None, client_secret="s3cret-value", name="Odoo"):
+    """Une application `afnor_api` EST le "client" OAuth (§ 4.9.2/§ 4.10) —
+    `client_id`/`client_secret_hash` vivent dans son `parameters` JSON, pas dans une
+    table séparée."""
     client_id = client_id or generate_client_credentials()[0]
-    oauth_app = OAuthApplication(
-        company_id=company.id,
-        client_id=client_id,
-        client_secret_hash=hash_secret(client_secret),
-        app_type=OAuthAppType.CONFIDENTIAL,
-        scope=OAuthScope.CONSUMER_TO_ROUTER,
-    )
-    db.add(oauth_app)
-    db.commit()
-    db.refresh(oauth_app)
-    return oauth_app
-
-
-def _make_target(db, company, oauth_app=None, name="Odoo"):
     target = TargetApplication(
         name=name,
         routing_method=RoutingMethod.AFNOR_API,
         company_id=company.id,
-        oauth_application_id=oauth_app.id if oauth_app else None,
+        parameters={
+            "client_id": client_id,
+            "client_secret_hash": hash_secret(client_secret),
+            "app_type": "confidential",
+        },
     )
     db.add(target)
     db.commit()
@@ -67,7 +52,7 @@ def _make_invoice(db, company, partner, flow_id="flow-1"):
         invoice_number="INV-1",
         invoice_date=date(2026, 1, 1),
         file_path="/tmp/fake.pdf",
-        superpdp_flow_id=flow_id,
+        certified_platform_flow_id=flow_id,
     )
     db.add(invoice)
     db.commit()
@@ -182,11 +167,8 @@ def test_search_flows_scoped_to_consumer(client, db_session):
     company_a = _make_company(db_session, siren="111111111", name="Société A")
     company_b = _make_company(db_session, siren="222222222", name="Société B")
 
-    oauth_app_a = _make_oauth_app(db_session, company_a, client_secret="secret-a")
-    oauth_app_b = _make_oauth_app(db_session, company_b, client_secret="secret-b")
-
-    target_a = _make_target(db_session, company_a, oauth_app=oauth_app_a, name="Odoo A")
-    target_b = _make_target(db_session, company_b, oauth_app=oauth_app_b, name="Odoo B")
+    target_a = _make_oauth_app(db_session, company_a, client_secret="secret-a", name="Odoo A")
+    target_b = _make_oauth_app(db_session, company_b, client_secret="secret-b", name="Odoo B")
 
     partner = _make_partner(db_session)
     invoice_a = _make_invoice(db_session, company_a, partner, flow_id="flow-a")
@@ -195,14 +177,14 @@ def test_search_flows_scoped_to_consumer(client, db_session):
     _route(db_session, invoice_a, target_a)
     _route(db_session, invoice_b, target_b)
 
-    token_a = _authenticate(client, oauth_app_a, "secret-a")
+    token_a = _authenticate(client, target_a, "secret-a")
 
     response = _search_flows(client, token_a)
 
     assert response.status_code == 200
     body = response.json()
     assert len(body["results"]) == 1
-    assert body["results"][0]["flowId"] == invoice_a.superpdp_flow_id
+    assert body["results"][0]["flowId"] == invoice_a.certified_platform_flow_id
     assert body["results"][0]["flowType"] == "SupplierInvoice"
     assert body["results"][0]["flowDirection"] == "In"
 
@@ -217,8 +199,7 @@ def test_search_flows_excludes_invoice_of_another_company_even_if_routed_there(
     company_a = _make_company(db_session, siren="111111111", name="Société A")
     company_b = _make_company(db_session, siren="222222222", name="Société B")
 
-    oauth_app_a = _make_oauth_app(db_session, company_a, client_secret="secret-a")
-    target_a = _make_target(db_session, company_a, oauth_app=oauth_app_a, name="Odoo A")
+    target_a = _make_oauth_app(db_session, company_a, client_secret="secret-a", name="Odoo A")
 
     partner = _make_partner(db_session)
     invoice_b = _make_invoice(db_session, company_b, partner, flow_id="flow-b")
@@ -226,7 +207,7 @@ def test_search_flows_excludes_invoice_of_another_company_even_if_routed_there(
     # Routage (à tort) de la facture de l'entreprise B vers la cible de l'entreprise A.
     _route(db_session, invoice_b, target_a)
 
-    token_a = _authenticate(client, oauth_app_a, "secret-a")
+    token_a = _authenticate(client, target_a, "secret-a")
     response = _search_flows(client, token_a)
 
     assert response.status_code == 200
@@ -260,12 +241,11 @@ def test_search_flows_rejects_invalid_token(client, db_session):
 
 def test_get_flow_metadata_scoped_to_consumer(client, db_session):
     company = _make_company(db_session)
-    oauth_app = _make_oauth_app(db_session, company, client_secret="secret-1")
-    target = _make_target(db_session, company, oauth_app=oauth_app)
+    target = _make_oauth_app(db_session, company, client_secret="secret-1")
     partner = _make_partner(db_session)
     invoice = _make_invoice(db_session, company, partner, flow_id="flow-x")
     _route(db_session, invoice, target)
-    token = _authenticate(client, oauth_app, "secret-1")
+    token = _authenticate(client, target, "secret-1")
 
     response = client.get(
         "/api/afnor/v1/afnor-flow/flows/flow-x", headers={"Authorization": f"Bearer {token}"}
@@ -290,12 +270,11 @@ def test_get_flow_metadata_unknown_flow_returns_404(client, db_session):
 
 def test_get_flow_converted_doctype_returns_501(client, db_session):
     company = _make_company(db_session)
-    oauth_app = _make_oauth_app(db_session, company, client_secret="secret-1")
-    target = _make_target(db_session, company, oauth_app=oauth_app)
+    target = _make_oauth_app(db_session, company, client_secret="secret-1")
     partner = _make_partner(db_session)
     invoice = _make_invoice(db_session, company, partner, flow_id="flow-y")
     _route(db_session, invoice, target)
-    token = _authenticate(client, oauth_app, "secret-1")
+    token = _authenticate(client, target, "secret-1")
 
     response = client.get(
         "/api/afnor/v1/afnor-flow/flows/flow-y",

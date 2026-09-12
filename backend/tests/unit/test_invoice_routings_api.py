@@ -3,7 +3,7 @@
 from datetime import date
 
 from app.afnor.client.base import RawInvoice
-from app.afnor.client.fake import FakeSuperPDPClient
+from app.afnor.client.fake import FakeCertifiedPlatformClient
 from app.config import settings
 from app.models.invoicing import InvoiceRouting, TransferStatus
 from app.models.referential import Company, PartnerDirectory, RoutingMethod, TargetApplication
@@ -60,14 +60,14 @@ def _make_failed_routing(db, *, status: TransferStatus, siren: str, flow_id: str
     )
 
     raw = RawInvoice(
-        superpdp_flow_id=flow_id,
+        certified_platform_flow_id=flow_id,
         emitter_siren=siren,
         invoice_number=f"F-{flow_id}",
         invoice_date=date(2026, 1, 15),
         file_name=f"F-{flow_id}.pdf",
         file_content=b"%PDF-fake-content",
     )
-    result = ingest_from_client(db, company=company, client=FakeSuperPDPClient([raw]))
+    result = ingest_from_client(db, company=company, client=FakeCertifiedPlatformClient([raw]))
     invoice = result.created[0]
 
     routing = (
@@ -160,14 +160,14 @@ def test_run_send_cycle_moves_to_send_routing_to_retrying(client, db_session):
     )
 
     raw = RawInvoice(
-        superpdp_flow_id="flow-cycle",
+        certified_platform_flow_id="flow-cycle",
         emitter_siren="666666666",
         invoice_number="F-cycle",
         invoice_date=date(2026, 1, 15),
         file_name="F-cycle.pdf",
         file_content=b"%PDF-fake-content",
     )
-    ingest_from_client(db_session, company=company, client=FakeSuperPDPClient([raw]))
+    ingest_from_client(db_session, company=company, client=FakeCertifiedPlatformClient([raw]))
 
     response = client.get("/api/ihm/invoice-routings/failed")
     assert response.json() == []
@@ -217,3 +217,38 @@ def test_restricted_user_sees_only_failed_routings_of_their_company_scope(client
         "/api/ihm/invoice-routings/replay", json={"routing_ids": [routing_other.id]}
     )
     assert response.status_code == 403
+
+
+def test_failed_routings_filters(client, db_session):
+    """§ 8.3 : un filtre par colonne du tableau des échecs de routage."""
+    retrying = _make_failed_routing(
+        db_session, status=TransferStatus.RETRYING, siren="888888881", flow_id="f-retry"
+    )
+    final = _make_failed_routing(
+        db_session, status=TransferStatus.FAILED_FINAL, siren="888888882", flow_id="f-final"
+    )
+
+    response = client.get(
+        "/api/ihm/invoice-routings/failed", params={"invoice_number": retrying.invoice.invoice_number}
+    )
+    assert [r["id"] for r in response.json()] == [retrying.id]
+
+    response = client.get(
+        "/api/ihm/invoice-routings/failed", params={"emitter_siren": "888888882"}
+    )
+    assert [r["id"] for r in response.json()] == [final.id]
+
+    response = client.get(
+        "/api/ihm/invoice-routings/failed", params={"target_application_name": "compt"}
+    )
+    assert {r["id"] for r in response.json()} == {retrying.id, final.id}
+
+    response = client.get(
+        "/api/ihm/invoice-routings/failed", params={"transfer_status": "failed_final"}
+    )
+    assert [r["id"] for r in response.json()] == [final.id]
+
+    response = client.get(
+        "/api/ihm/invoice-routings/failed", params={"attempt_count": retrying.attempt_count}
+    )
+    assert retrying.id in {r["id"] for r in response.json()}

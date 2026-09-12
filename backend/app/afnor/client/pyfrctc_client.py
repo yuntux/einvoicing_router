@@ -1,10 +1,10 @@
 """Client AFNOR XP Z12-013 réel, basé sur **pyfrctc** (spec.md § 4.1/§ 4.8/NF7, lot 6).
 
-Implémente `SuperPDPClientProtocol` à partir d'une session pyfrctc déjà authentifiée
+Implémente `CertifiedPlatformClientProtocol` à partir d'une session pyfrctc déjà authentifiée
 (construite par `AfnorClientAdapter`, qui gère les identifiants/le cache de jeton par
 entreprise) — cette classe reste volontairement "bête" : aucun accès DB, uniquement de
 la traduction entre l'API pyfrctc et `RawInvoice`, pour rester testable avec une session
-mockée (symétrique à `FakeSuperPDPClient`).
+mockée (symétrique à `FakeCertifiedPlatformClient`).
 
 Les clés lues sur `metadata` (renvoyé par `get_flow_metadata_parsed`) sont celles du
 schéma officiel "AFNOR Flow Service" (`GET /flows/{id}?docType=Metadata` → objet
@@ -34,7 +34,7 @@ def _to_date(value) -> date:
     return datetime.utcnow().date()
 
 
-class PyfrctcSuperPDPClient:
+class PyfrctcCertifiedPlatformClient:
     """Un client par session pyfrctc authentifiée (une session = une entreprise)."""
 
     def __init__(self, session) -> None:
@@ -65,7 +65,7 @@ class PyfrctcSuperPDPClient:
 
             invoices.append(
                 RawInvoice(
-                    superpdp_flow_id=flow_id,
+                    certified_platform_flow_id=flow_id,
                     emitter_siren=parsed.emitter_siren or "",
                     emitter_siret=parsed.emitter_siret,
                     emitter_name=parsed.emitter_name,
@@ -78,8 +78,8 @@ class PyfrctcSuperPDPClient:
                     syntax=flow_syntax or "Factur-X",
                     processing_rule=metadata.get("processingRule", "B2B"),
                     afnor_api_version=core.AFNOR_API_VERSION,
-                    superpdp_submitted_at=flow.get("submitted_at"),
-                    superpdp_updated_at=flow.get("updated_at"),
+                    certified_platform_submitted_at=flow.get("submitted_at"),
+                    certified_platform_updated_at=flow.get("updated_at"),
                     file_name=metadata.get("name") or f"{flow_id}.xml",
                     file_content=file_content,
                     raw_metadata=metadata,

@@ -37,7 +37,7 @@ class Invoice(Base):
 
     __tablename__ = "invoices"
     __table_args__ = (
-        UniqueConstraint("company_id", "superpdp_flow_id", name="uq_invoice_company_flow"),
+        UniqueConstraint("company_id", "certified_platform_flow_id", name="uq_invoice_company_flow"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -57,9 +57,9 @@ class Invoice(Base):
     lifecycle_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
     file_path: Mapped[str] = mapped_column(String(1000))
 
-    superpdp_flow_id: Mapped[str] = mapped_column(String(100), index=True)
-    superpdp_submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    superpdp_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    certified_platform_flow_id: Mapped[str] = mapped_column(String(100), index=True)
+    certified_platform_submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    certified_platform_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     amount_total: Mapped[float | None] = mapped_column(Float, nullable=True)
     amount_excl_tax: Mapped[float | None] = mapped_column(Float, nullable=True)

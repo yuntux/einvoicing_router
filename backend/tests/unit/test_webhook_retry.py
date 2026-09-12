@@ -6,13 +6,10 @@ from datetime import date, datetime, timedelta
 from unittest.mock import patch
 
 from app.afnor.client.base import RawInvoice
-from app.afnor.client.fake import FakeSuperPDPClient
+from app.afnor.client.fake import FakeCertifiedPlatformClient
 from app.models.invoicing import InvoiceRouting, TransferStatus
 from app.models.referential import (
     Company,
-    OAuthAppType,
-    OAuthApplication,
-    OAuthScope,
     PartnerDirectory,
     RoutingMethod,
     TargetApplication,
@@ -42,23 +39,16 @@ def _make_afnor_api_routing(db, *, webhook_url="https://odoo.example.com/webhook
     db.commit()
     db.refresh(company)
 
-    oauth_app = OAuthApplication(
-        company_id=company.id,
-        client_id="client-odoo",
-        client_secret_hash="hash",
-        app_type=OAuthAppType.CONFIDENTIAL,
-        scope=OAuthScope.CONSUMER_TO_ROUTER,
-        webhook_url=webhook_url,
-    )
-    db.add(oauth_app)
-    db.commit()
-    db.refresh(oauth_app)
-
     target = TargetApplication(
         name="Odoo",
         routing_method=RoutingMethod.AFNOR_API,
         company_id=company.id,
-        oauth_application_id=oauth_app.id,
+        parameters={
+            "client_id": "client-odoo",
+            "client_secret_hash": "hash",
+            "app_type": "confidential",
+            "webhook_url": webhook_url,
+        },
     )
     db.add(target)
     db.commit()
@@ -76,14 +66,14 @@ def _make_afnor_api_routing(db, *, webhook_url="https://odoo.example.com/webhook
     )
 
     raw = RawInvoice(
-        superpdp_flow_id="flow-webhook-1",
+        certified_platform_flow_id="flow-webhook-1",
         emitter_siren=siren,
         invoice_number="F-webhook-1",
         invoice_date=date(2026, 1, 15),
         file_name="F-webhook-1.pdf",
         file_content=b"%PDF-fake-content",
     )
-    result = ingest_from_client(db, company=company, client=FakeSuperPDPClient([raw]))
+    result = ingest_from_client(db, company=company, client=FakeCertifiedPlatformClient([raw]))
     invoice = result.created[0]
     routing = (
         db.query(InvoiceRouting)

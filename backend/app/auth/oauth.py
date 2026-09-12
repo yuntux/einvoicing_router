@@ -7,7 +7,11 @@ requête de jeton, erreurs normalisées) est déléguée à **Authlib**
 (`authlib.oauth2.rfc6749`) plutôt que réimplémentée à la main — nous ne fournissons
 que la résolution du client depuis notre base et la génération du jeton lui-même
 (JWT via PyJWT). Le secret n'est jamais stocké en clair : seul un hash est conservé,
-comparé par Authlib lors de l'authentification du client."""
+comparé par Authlib lors de l'authentification du client.
+
+Le "client" OAuth est directement une `TargetApplication` de méthode `afnor_api` —
+`client_id`/`client_secret_hash` vivent dans son JSON `parameters` (cf.
+`app.models.referential.TargetApplication`), pas dans une table dédiée."""
 
 import contextvars
 import hashlib
@@ -20,11 +24,12 @@ from authlib.oauth2.rfc6749 import AuthorizationServer as _AuthorizationServer
 from authlib.oauth2.rfc6749 import ClientMixin, OAuth2Payload, OAuth2Request
 from authlib.oauth2.rfc6749.grants import ClientCredentialsGrant
 from fastapi import Depends, Header, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.session import get_db
-from app.models.referential import OAuthApplication
+from app.models.referential import RoutingMethod, TargetApplication
 
 JWT_ALGORITHM = "HS256"
 
@@ -58,10 +63,25 @@ def verify_secret(secret: str, secret_hash: str) -> bool:
     return hmac.compare_digest(hash_secret(secret), secret_hash)
 
 
-class _ClientWrapper(ClientMixin):
-    """Adapte `OAuthApplication` à l'interface `ClientMixin` attendue par Authlib."""
+def _find_target_application_by_client_id(db: Session, client_id: str) -> TargetApplication | None:
+    """`client_id` vit dans le JSON `parameters` (pas une colonne dédiée, cf.
+    docstring du module) — recherché via `json_extract` (SQLite) plutôt que chargé
+    et filtré côté Python, pour rester correct si le nombre d'applications `afnor_api`
+    grandit."""
+    return (
+        db.query(TargetApplication)
+        .filter(
+            TargetApplication.routing_method == RoutingMethod.AFNOR_API,
+            func.json_extract(TargetApplication.parameters, "$.client_id") == client_id,
+        )
+        .first()
+    )
 
-    def __init__(self, model: OAuthApplication) -> None:
+
+class _ClientWrapper(ClientMixin):
+    """Adapte `TargetApplication` à l'interface `ClientMixin` attendue par Authlib."""
+
+    def __init__(self, model: TargetApplication) -> None:
         self.model = model
 
     def get_client_id(self) -> str:
@@ -124,7 +144,7 @@ class _FormRequest(OAuth2Request):
 
 def _query_client(client_id: str) -> _ClientWrapper | None:
     db = _current_db.get()
-    model = db.query(OAuthApplication).filter(OAuthApplication.client_id == client_id).first()
+    model = _find_target_application_by_client_id(db, client_id)
     return _ClientWrapper(model) if model else None
 
 
@@ -146,7 +166,6 @@ def _generate_bearer_token(
     payload = {
         "sub": client.model.client_id,
         "company_id": client.model.company_id,
-        "scope": client.model.scope,
         "typ": _TOKEN_TYPE,
         "iat": now,
         "exp": now + expires_in,
@@ -201,10 +220,14 @@ def issue_token_response(
         _current_db.reset(reset_token)
 
 
-def get_current_oauth_application(
+def get_current_target_application(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
-) -> OAuthApplication:
+) -> TargetApplication:
+    """Authentifie une requête Odoo -> routeur (§ 4.4) via son jeton bearer et
+    retourne directement la `TargetApplication` `afnor_api` correspondante (plus
+    d'objet `OAuthApplication` intermédiaire : chaque application `afnor_api` est
+    déjà, en elle-même, le "client" OAuth)."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
     token = authorization.removeprefix("Bearer ")
@@ -215,9 +238,7 @@ def get_current_oauth_application(
     except jwt.PyJWTError as exc:
         raise HTTPException(status_code=401, detail="Invalid or expired token") from exc
 
-    oauth_app = (
-        db.query(OAuthApplication).filter(OAuthApplication.client_id == payload["sub"]).first()
-    )
-    if oauth_app is None:
+    target_application = _find_target_application_by_client_id(db, payload["sub"])
+    if target_application is None:
         raise HTTPException(status_code=401, detail="Unknown client")
-    return oauth_app
+    return target_application

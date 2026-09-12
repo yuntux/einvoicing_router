@@ -9,7 +9,6 @@ from app.models.lifecycle import (
 )
 from app.models.referential import (
     Company,
-    OAuthApplication,
     PartnerDirectory,
     RoutingRule,
     TargetApplication,
@@ -30,7 +29,6 @@ __all__ = [
     "LifecycleEventAttachment",
     "LifecycleEventDetail",
     "LifecycleEventPayment",
-    "OAuthApplication",
     "PartnerDirectory",
     "RouterSettings",
     "RoutingRule",

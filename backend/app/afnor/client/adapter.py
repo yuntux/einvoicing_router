@@ -2,7 +2,7 @@
 lot 6) : résolution des identifiants par entreprise (§ 4.10), cache de session/jeton
 pyfrctc, et traçabilité (`FlowTrace`, NF1) de chaque appel sortant vers SuperPDP.
 
-`PyfrctcSuperPDPClient` (module frère) reste, lui, indépendant de la base de données —
+`PyfrctcCertifiedPlatformClient` (module frère) reste, lui, indépendant de la base de données —
 c'est cet adaptateur qui fait le pont, comme le prévoit le diagramme de composants
 (§ 7.3 : `InvoiceIngestionService --> AfnorClientAdapter`, `AfnorServerController -->
 AfnorClientAdapter : proxy émission vers SuperPDP`)."""
@@ -15,10 +15,10 @@ from fastapi import HTTPException
 from pyfrctc import pyfrctc as core
 from sqlalchemy.orm import Session
 
-from app.afnor.client.pyfrctc_client import PyfrctcSuperPDPClient
+from app.afnor.client.pyfrctc_client import PyfrctcCertifiedPlatformClient
 from app.config import settings
 from app.models.referential import Company
-from app.services import audit_trace_service, superpdp_credentials_service
+from app.services import audit_trace_service, certified_platform_credentials_service
 
 
 @contextlib.contextmanager
@@ -44,7 +44,7 @@ def _capture_last_exchange_headers(session):
 class AfnorClientAdapter:
     """Une instance vit pour la durée du process (cache de session en mémoire, par
     entreprise) — le cache de jeton lui-même est persisté en base
-    (`OAuthApplication.token_cache`) pour survivre à un redémarrage."""
+    (`Company.certified_platform_token_cache`) pour survivre à un redémarrage."""
 
     def __init__(self) -> None:
         self._sessions: dict[int, object] = {}
@@ -53,7 +53,7 @@ class AfnorClientAdapter:
         if company.id in self._sessions:
             return self._sessions[company.id]
 
-        application = superpdp_credentials_service.get_credentials_application(
+        application = certified_platform_credentials_service.get_credentials_application(
             db, company_id=company.id
         )
         if application is None:
@@ -61,15 +61,15 @@ class AfnorClientAdapter:
                 f"Aucun identifiant SuperPDP configuré pour l'entreprise {company.id} "
                 "(§ 4.10) — à saisir depuis l'IHM avant d'activer le client réel."
             )
-        client_secret = superpdp_credentials_service.get_decrypted_secret(application)
-        platform = application.platform or settings.superpdp_platform
+        client_secret = certified_platform_credentials_service.get_decrypted_secret(application)
+        platform = application.certified_platform or settings.certified_platform
 
         def get_token_method(grant_type: str) -> dict:
-            cache = json.loads(application.token_cache) if application.token_cache else {}
+            cache = json.loads(application.certified_platform_token_cache) if application.certified_platform_token_cache else {}
             return {"access_token": cache.get("access_token"), "expires_at": cache.get("expires_at")}
 
         def update_token_method(token: dict) -> None:
-            application.token_cache = json.dumps(token)
+            application.certified_platform_token_cache = json.dumps(token)
             db.commit()
 
         session = core.get_session(
@@ -78,14 +78,14 @@ class AfnorClientAdapter:
             company_ident4log=company.siren,
             get_token_method=get_token_method,
             update_token_method=update_token_method,
-            client_id=application.client_id,
+            client_id=application.certified_platform_client_id,
             client_secret=client_secret,
         )
         self._sessions[company.id] = session
         return session
 
-    def get_client_for_company(self, db: Session, company: Company) -> PyfrctcSuperPDPClient:
-        return PyfrctcSuperPDPClient(self._get_or_build_session(db, company))
+    def get_client_for_company(self, db: Session, company: Company) -> PyfrctcCertifiedPlatformClient:
+        return PyfrctcCertifiedPlatformClient(self._get_or_build_session(db, company))
 
     def _send_flow_and_trace(
         self,
@@ -100,7 +100,7 @@ class AfnorClientAdapter:
         """Appelle `send` (un envoi pyfrctc vers SuperPDP), trace l'échange
         (`router_to_superpdp`, NF1) qu'il réussisse ou échoue, et propage l'exception
         telle quelle en cas d'échec (traduite en 502 par l'appelant, cf.
-        `afnor_server_controller.call_superpdp`) — factorise `send_invoice`/`send_cdar`,
+        `afnor_server_controller.call_certified_platform`) — factorise `send_invoice`/`send_cdar`,
         identiques hormis l'appel pyfrctc et le contenu de `request_payload`."""
         with _capture_last_exchange_headers(session) as headers:
             try:
@@ -182,17 +182,27 @@ class AfnorClientAdapter:
             send=lambda: core.send_flow_parsed(session, cdar_bytes, filename, "CDAR", "LifeCycle"),
         )
 
-    def lookup_directory_siren(
-        self, db: Session, *, company: Company, siren: str, afnor_api_version: str = "v1"
+    def _lookup_directory_and_trace(
+        self,
+        db: Session,
+        session,
+        *,
+        request_payload: dict,
+        afnor_api_version: str,
+        lookup: Callable[[], dict],
     ) -> dict:
-        session = self._get_or_build_session(db, company)
+        """Appelle `lookup` (une consultation d'annuaire pyfrctc) et trace l'échange
+        (`router_to_superpdp`, NF1) — factorise `lookup_directory_siren`/
+        `lookup_directory_siret`, identiques hormis l'appel pyfrctc et le contenu de
+        `request_payload` (à l'image de `_send_flow_and_trace` pour `send_invoice`/
+        `send_cdar`)."""
         with _capture_last_exchange_headers(session) as headers:
-            result = core.get_directory_siren_parsed(session, siren)
+            result = lookup()
             audit_trace_service.record_flow_trace(
                 db,
                 direction="router_to_superpdp",
                 afnor_api_version=afnor_api_version,
-                request={"siren": siren},
+                request=request_payload,
                 response=result,
                 http_status=200,
                 request_headers=headers["request"],
@@ -200,23 +210,29 @@ class AfnorClientAdapter:
             )
         return result
 
+    def lookup_directory_siren(
+        self, db: Session, *, company: Company, siren: str, afnor_api_version: str = "v1"
+    ) -> dict:
+        session = self._get_or_build_session(db, company)
+        return self._lookup_directory_and_trace(
+            db,
+            session,
+            request_payload={"siren": siren},
+            afnor_api_version=afnor_api_version,
+            lookup=lambda: core.get_directory_siren_parsed(session, siren),
+        )
+
     def lookup_directory_siret(
         self, db: Session, *, company: Company, siret: str, afnor_api_version: str = "v1"
     ) -> dict:
         session = self._get_or_build_session(db, company)
-        with _capture_last_exchange_headers(session) as headers:
-            result = core.get_directory_siret_parsed(session, siret)
-            audit_trace_service.record_flow_trace(
-                db,
-                direction="router_to_superpdp",
-                afnor_api_version=afnor_api_version,
-                request={"siret": siret},
-                response=result,
-                http_status=200,
-                request_headers=headers["request"],
-                response_headers=headers["response"],
-            )
-        return result
+        return self._lookup_directory_and_trace(
+            db,
+            session,
+            request_payload={"siret": siret},
+            afnor_api_version=afnor_api_version,
+            lookup=lambda: core.get_directory_siret_parsed(session, siret),
+        )
 
     def raw_passthrough(
         self,
@@ -238,7 +254,7 @@ class AfnorClientAdapter:
         (restreints aux factures routées vers le consommateur, NF2).
 
         Retourne `(status_code, body)` en préservant le statut HTTP réel renvoyé par
-        SuperPDP (jamais aplati sur un 502 générique comme `call_superpdp`, sauf
+        SuperPDP (jamais aplati sur un 502 générique comme `call_certified_platform`, sauf
         échec réseau où aucun statut réel n'existe)."""
         session = self._get_or_build_session(db, company)
         platform = core._get_plateform(session)

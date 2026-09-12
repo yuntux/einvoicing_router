@@ -6,20 +6,20 @@ from app.auth.session import get_current_user
 from app.db.session import get_db
 from app.models.referential import Company, User
 from app.schemas.company import CompanyCreate, CompanyLookup, CompanyRead
-from app.schemas.superpdp_credentials import (
+from app.schemas.certified_platform_credentials import (
     AfnorPlatform,
-    SuperPDPCredentialsCreate,
-    SuperPDPCredentialsStatus,
+    CertifiedPlatformCredentialsCreate,
+    CertifiedPlatformCredentialsStatus,
 )
-from app.services import audit_trace_service, superpdp_credentials_service
+from app.services import audit_trace_service, certified_platform_credentials_service
 
 # `router` : ouvert à tout utilisateur authentifié (`dependencies=ihm_auth` dans
 # `app/main.py`) — uniquement la référence minimale id+nom (`/lookup`), dont ont
 # besoin des pages non admin-only (ex. Règles de routage) pour afficher un nom
 # d'entreprise, sans exposer la page Entreprises elle-même (§ NF4).
 # `admin_router` : réservé aux administrateurs — la liste complète (SIREN, colonnes
-# d'audit), la création, et les identifiants SuperPDP (sensibles) de n'importe
-# quelle entreprise.
+# d'audit), la création, et les identifiants de plateforme certifiée (sensibles) de
+# n'importe quelle entreprise.
 router = APIRouter()
 admin_router = APIRouter()
 
@@ -41,7 +41,7 @@ def list_companies(db: Session = Depends(get_db)) -> list[Company]:
 def list_afnor_platforms() -> list[dict[str, str]]:
     """Plateformes AFNOR connues de `pyfrctc` (§ 4.10) — alimente le sélecteur de
     plateforme par entreprise, plutôt qu'une URL libre non validée."""
-    return superpdp_credentials_service.list_platforms()
+    return certified_platform_credentials_service.list_platforms()
 
 
 @admin_router.post("", response_model=CompanyRead, status_code=201)
@@ -67,31 +67,31 @@ def create_company(
 
 
 @admin_router.get(
-    "/{company_id}/superpdp-credentials", response_model=SuperPDPCredentialsStatus
+    "/{company_id}/certified-platform-credentials", response_model=CertifiedPlatformCredentialsStatus
 )
-def get_superpdp_credentials_status(
+def get_certified_platform_credentials_status(
     company_id: int,
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user),
 ):
     """Ne renvoie jamais le secret (chiffré ou non) — seulement s'il est configuré."""
     ensure_company_in_scope(user, company_id)
-    application = superpdp_credentials_service.get_credentials_application(
+    application = certified_platform_credentials_service.get_credentials_application(
         db, company_id=company_id
     )
     if application is None:
-        return SuperPDPCredentialsStatus(configured=False)
-    return SuperPDPCredentialsStatus(
-        configured=True, client_id=application.client_id, platform=application.platform
+        return CertifiedPlatformCredentialsStatus(configured=False)
+    return CertifiedPlatformCredentialsStatus(
+        configured=True, client_id=application.certified_platform_client_id, platform=application.certified_platform
     )
 
 
 @admin_router.put(
-    "/{company_id}/superpdp-credentials", response_model=SuperPDPCredentialsStatus
+    "/{company_id}/certified-platform-credentials", response_model=CertifiedPlatformCredentialsStatus
 )
-def set_superpdp_credentials(
+def set_certified_platform_credentials(
     company_id: int,
-    payload: SuperPDPCredentialsCreate,
+    payload: CertifiedPlatformCredentialsCreate,
     request: Request,
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user),
@@ -101,7 +101,7 @@ def set_superpdp_credentials(
     if company is None:
         raise HTTPException(status_code=404, detail="Company not found")
 
-    connection_ok, connection_error = superpdp_credentials_service.test_connection(
+    connection_ok, connection_error = certified_platform_credentials_service.test_connection(
         company_siren=company.siren,
         client_id=payload.client_id,
         client_secret=payload.client_secret,
@@ -112,7 +112,7 @@ def set_superpdp_credentials(
             status_code=422, detail=f"Test de connexion à l'API AFNOR échoué : {connection_error}"
         )
 
-    application = superpdp_credentials_service.set_credentials(
+    application = certified_platform_credentials_service.set_credentials(
         db,
         company_id=company_id,
         client_id=payload.client_id,
@@ -121,8 +121,8 @@ def set_superpdp_credentials(
         actor_user_id=user.id if user else None,
     )
     audit_trace_service.record_user_action(
-        db, request, user, action="superpdp_credentials_update", target=str(company_id)
+        db, request, user, action="certified_platform_credentials_update", target=str(company_id)
     )
-    return SuperPDPCredentialsStatus(
-        configured=True, client_id=application.client_id, platform=application.platform
+    return CertifiedPlatformCredentialsStatus(
+        configured=True, client_id=application.certified_platform_client_id, platform=application.certified_platform
     )

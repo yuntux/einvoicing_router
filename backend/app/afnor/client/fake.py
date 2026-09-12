@@ -6,7 +6,7 @@ from datetime import datetime
 from app.afnor.client.base import RawInvoice
 
 
-class FakeSuperPDPClient:
+class FakeCertifiedPlatformClient:
     def __init__(self, invoices: list[RawInvoice] | None = None) -> None:
         self._invoices = invoices or []
 

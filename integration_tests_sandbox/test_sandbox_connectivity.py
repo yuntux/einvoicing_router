@@ -21,7 +21,7 @@ def _build_session(sandbox_credentials):
         token_state.update(token)
 
     return core.get_session(
-        platform=settings.superpdp_platform,
+        platform=settings.certified_platform,
         auth_method="client_credentials",
         company_ident4log=sandbox_credentials["company_siren"],
         get_token_method=get_token_method,
