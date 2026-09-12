@@ -118,6 +118,7 @@ onMounted(() => guard(refresh))
             <td>
               <select v-model="editedRole[user.id]" :data-testid="`user-role-select-${user.id}`">
                 <option value="user">Utilisateur restreint</option>
+                <option value="readonly">Lecture seule</option>
                 <option value="admin">Administrateur</option>
               </select>
             </td>

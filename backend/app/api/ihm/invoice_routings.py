@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.auth.perimeter import apply_company_scope, ensure_company_in_scope
-from app.auth.session import get_current_user
+from app.auth.session import get_current_user, require_write
 from app.db.session import get_db
 from app.models.invoicing import Invoice, InvoiceRouting, TransferStatus
 from app.models.referential import TargetApplication, User
@@ -70,7 +70,7 @@ def list_failed_routings(
     ]
 
 
-@router.post("/replay", response_model=list[ReplayRoutingResult])
+@router.post("/replay", response_model=list[ReplayRoutingResult], dependencies=[Depends(require_write)])
 def replay_routings(
     payload: ReplayRoutingsRequest,
     db: Session = Depends(get_db),
@@ -87,7 +87,7 @@ def replay_routings(
     return results
 
 
-@router.post("/run-send-cycle", status_code=204)
+@router.post("/run-send-cycle", status_code=204, dependencies=[Depends(require_write)])
 def run_send_cycle(db: Session = Depends(get_db)):
     """Force immédiatement un passage du cycle d'envoi/retry (§ 4.7), sans attendre le
     prochain déclenchement du scheduler (toutes les `retry_interval_minutes`)."""

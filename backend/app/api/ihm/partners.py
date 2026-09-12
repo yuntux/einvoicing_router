@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
-from app.auth.session import get_current_user
+from app.auth.session import get_current_user, require_write
 from app.db.session import get_db
 from app.models.referential import User
 from app.schemas.referential import PartnerDirectoryCreate, PartnerDirectoryRead
@@ -15,7 +15,9 @@ def list_partners(db: Session = Depends(get_db)):
     return directory_service.list_partners(db)
 
 
-@router.post("", response_model=PartnerDirectoryRead, status_code=201)
+@router.post(
+    "", response_model=PartnerDirectoryRead, status_code=201, dependencies=[Depends(require_write)]
+)
 def create_partner(
     payload: PartnerDirectoryCreate,
     request: Request,

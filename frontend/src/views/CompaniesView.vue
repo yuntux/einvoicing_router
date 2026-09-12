@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { type Company, createCompany, listCompanies } from '../api/companies'
+import { type Company, createCompany, listCompanies, runPollingCycle } from '../api/companies'
 import { useErrorMessage } from '../composables/useErrorMessage'
 import {
   type AfnorPlatform,
@@ -15,6 +15,8 @@ const siren = ref('')
 const name = ref('')
 const { error, guard } = useErrorMessage()
 const credentialsSuccess = ref('')
+const pollingMessage = ref('')
+const pollingPending = ref(false)
 
 const afnorPlatforms = ref<AfnorPlatform[]>([])
 const credentialsStatus = reactive<Record<number, CertifiedPlatformCredentialsStatus>>({})
@@ -43,6 +45,16 @@ async function submit() {
     name.value = ''
     await refresh()
   })
+}
+
+async function forcePolling() {
+  pollingMessage.value = ''
+  pollingPending.value = true
+  await guard(async () => {
+    await runPollingCycle()
+    pollingMessage.value = 'Relevé effectué.'
+  })
+  pollingPending.value = false
 }
 
 function toggleCredentialsForm(companyId: number) {
@@ -84,6 +96,25 @@ onMounted(async () => {
       <h1>Entreprises gérées</h1>
       <p>Les entreprises pour lesquelles le routeur récupère et route les factures.</p>
     </header>
+
+    <section class="card">
+      <div class="cluster">
+        <button
+          type="button"
+          class="btn-secondary"
+          :disabled="pollingPending"
+          data-testid="force-polling-cycle-button"
+          @click="forcePolling"
+        >
+          {{ pollingPending ? 'Relevé en cours…' : 'Relever les nouvelles factures' }}
+        </button>
+      </div>
+      <p class="card-hint">
+        Force immédiatement un passage du cycle de relevé des factures (toutes entreprises
+        confondues), sans attendre le prochain déclenchement automatique.
+      </p>
+      <p v-if="pollingMessage" role="status" data-testid="force-polling-cycle-success">{{ pollingMessage }}</p>
+    </section>
 
     <section class="card">
       <h2>Ajouter une entreprise</h2>

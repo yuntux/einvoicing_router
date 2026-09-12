@@ -31,3 +31,7 @@ export function listCompanyLookups(): Promise<CompanyLookup[]> {
 export function createCompany(payload: CompanyCreate): Promise<Company> {
   return apiFetch('/api/ihm/companies', { method: 'POST', json: payload }, 'Failed to create company')
 }
+
+export function runPollingCycle(): Promise<void> {
+  return apiFetch('/api/ihm/companies/run-polling-cycle', { method: 'POST' }, 'Failed to run polling cycle')
+}

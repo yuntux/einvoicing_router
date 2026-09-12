@@ -18,6 +18,32 @@ interface ApiFetchOptions extends Omit<RequestInit, 'body'> {
   json?: unknown
 }
 
+/** `detail` vaut soit une chaîne (`HTTPException(detail="...")`), soit — pour les 422 de
+ * validation Pydantic générés automatiquement par FastAPI — une liste d'objets structurés
+ * `{msg, loc, type, ...}` : sans ce cas, `new Error(detail)` coerce le tableau en chaîne via
+ * `Array.prototype.toString`, qui affiche "[object Object]" au lieu du message de validation. */
+// Pydantic préfixe systématiquement "Value error, " au message d'un validateur qui lève une
+// simple `ValueError` (§ field_validator, ex. validate_siren) — un détail d'implémentation
+// Pydantic sans intérêt pour l'utilisateur, jamais présent pour les autres types d'erreur
+// (`missing`, `type_error`...) : on ne le retire donc que lorsqu'il est bien en tête de message.
+function stripValueErrorPrefix(msg: string): string {
+  return msg.replace(/^Value error,\s*/i, '')
+}
+
+function formatErrorDetail(detail: unknown): string | undefined {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) =>
+        item && typeof item === 'object' && 'msg' in item
+          ? stripValueErrorPrefix(String((item as { msg: unknown }).msg))
+          : String(item),
+      )
+      .join(' ; ')
+  }
+  return undefined
+}
+
 /** Client HTTP unique pour l'IHM du routeur : centralise `credentials: 'include'`,
  * la sérialisation JSON et la levée d'erreur (message `detail` du backend si présent,
  * sinon `errorLabel: <status>`) pour éviter de répéter ce boilerplate dans chaque
@@ -39,7 +65,7 @@ export async function apiFetch<T = void>(
 
   if (!response.ok) {
     const body = await response.json().catch(() => null)
-    throw new ApiError(body?.detail ?? `${errorLabel}: ${response.status}`, response.status)
+    throw new ApiError(formatErrorDetail(body?.detail) ?? `${errorLabel}: ${response.status}`, response.status)
   }
   if (response.status === 204) return undefined as T
   return response.json().catch(() => undefined as T)

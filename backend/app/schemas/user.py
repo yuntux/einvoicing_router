@@ -26,6 +26,6 @@ class UserCreate(BaseModel):
 
 
 class UserAccessUpdate(BaseModel):
-    role: str = Field(pattern="^(admin|user)$")
+    role: str = Field(pattern="^(admin|user|readonly)$")
     company_ids: list[int] = Field(default_factory=list)
     is_active: bool = True

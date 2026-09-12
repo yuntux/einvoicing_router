@@ -4,12 +4,14 @@ import { listCompanies, type Company } from '../api/companies'
 import {
   createTargetApplication,
   listTargetApplications,
+  regenerateTargetApplicationSecret,
   setTargetApplicationActive,
   updateTargetApplication,
   type RoutingMethod,
   type TargetApplication,
   type TargetApplicationCreated,
 } from '../api/targetApplications'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import TargetApplicationFormFields, {
   emptyTargetApplicationFieldsState,
   type TargetApplicationFieldsState,
@@ -125,6 +127,30 @@ async function toggleActive(ta: TargetApplication) {
   })
 }
 
+// Renouvellement du secret OAuth (§ afnor_api uniquement) : révoque immédiatement
+// l'ancien secret, d'où la confirmation avant d'agir (ConfirmDialog, cohérent avec
+// la matrice de Règles de routage) plutôt qu'un clic direct.
+const pendingSecretRegen = ref<TargetApplication | null>(null)
+
+function requestRegenerateSecret(ta: TargetApplication) {
+  pendingSecretRegen.value = ta
+}
+
+function cancelRegenerateSecret() {
+  pendingSecretRegen.value = null
+}
+
+async function confirmRegenerateSecret() {
+  const ta = pendingSecretRegen.value
+  if (!ta) return
+  pendingSecretRegen.value = null
+  createdCredentials.value = null
+  await guard(async () => {
+    createdCredentials.value = await regenerateTargetApplicationSecret(ta.id)
+    await refresh()
+  })
+}
+
 onMounted(async () => {
   await guard(async () => {
     await refresh()
@@ -189,7 +215,7 @@ onMounted(async () => {
 
     <div v-if="createdCredentials" class="card" role="status" data-testid="ta-oauth-credentials">
       <p>
-        <strong>Identifiants OAuth générés — à copier maintenant, le secret ne sera plus
+        <strong>Identifiants OAuth — à copier maintenant, le secret ne sera plus
         affiché ensuite.</strong>
       </p>
       <p>Client ID : <code data-testid="ta-oauth-client-id">{{ createdCredentials.oauth_client_id }}</code></p>
@@ -246,6 +272,15 @@ onMounted(async () => {
                 >
                   {{ ta.is_active ? 'Désactiver' : 'Activer' }}
                 </button>
+                <button
+                  v-if="ta.oauth_application"
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  :data-testid="`target-application-regenerate-secret-${ta.id}`"
+                  @click="requestRegenerateSecret(ta)"
+                >
+                  Renouveler le secret OAuth
+                </button>
               </td>
             </tr>
             <tr v-if="editingId === ta.id">
@@ -298,5 +333,16 @@ onMounted(async () => {
         </tbody>
       </table>
     </section>
+
+    <ConfirmDialog
+      :open="pendingSecretRegen !== null"
+      title="Renouveler le secret OAuth"
+      :message="`Renouveler le secret OAuth de « ${pendingSecretRegen?.name} » ?`"
+      detail="L'ancien secret sera immédiatement invalidé — toute intégration qui l'utilise encore cessera de fonctionner tant qu'elle n'aura pas été mise à jour avec le nouveau."
+      confirm-label="Renouveler"
+      danger
+      @confirm="confirmRegenerateSecret"
+      @cancel="cancelRegenerateSecret"
+    />
   </main>
 </template>

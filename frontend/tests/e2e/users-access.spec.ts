@@ -38,8 +38,14 @@ test('manages a user access scope from the users page', async ({ page }) => {
     'Toutes les entreprises',
   )
 
-  // Repasse en utilisateur restreint puis désactive le compte, avant d'enregistrer.
+  // Repasse en utilisateur restreint, puis en lecture seule : le périmètre
+  // entreprises réapparaît dans les deux cas (seul le rôle admin s'en passe).
   await row.locator('select').selectOption({ label: 'Utilisateur restreint' })
+  await expect(row.locator('label', { hasText: companyName })).toBeVisible()
+
+  await row.locator('select').selectOption({ label: 'Lecture seule' })
+  await expect(row.locator('label', { hasText: companyName })).toBeVisible()
+  await row.locator('label', { hasText: companyName }).locator('input[type="checkbox"]').check()
   await row.locator('[data-testid^="user-active-checkbox-"]').uncheck()
   await row.getByRole('button', { name: 'Enregistrer' }).click()
 })

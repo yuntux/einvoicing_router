@@ -84,3 +84,13 @@ export function setTargetApplicationActive(id: number, isActive: boolean): Promi
     'Failed to update target application status',
   )
 }
+
+/** Renouvelle le secret OAuth d'une application `afnor_api` — `client_id` reste
+ * inchangé, seul le secret (retourné une seule fois en clair) est régénéré. */
+export function regenerateTargetApplicationSecret(id: number): Promise<TargetApplicationCreated> {
+  return apiFetch(
+    `/api/ihm/target-applications/${id}/regenerate-secret`,
+    { method: 'POST' },
+    'Failed to regenerate target application secret',
+  )
+}
