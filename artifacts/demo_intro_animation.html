@@ -117,7 +117,7 @@
     position:absolute;
     transform:translate(-50%,-50%) scale(0.6);
     opacity:0;
-    transition:opacity .6s cubic-bezier(.2,.9,.25,1.2), transform .6s cubic-bezier(.2,.9,.25,1.4);
+    transition:opacity .5s ease-out, transform .6s cubic-bezier(.2,.9,.25,1.4);
     z-index:5;
   }
   .node.show{opacity:1; transform:translate(-50%,-50%) scale(1);}
@@ -153,11 +153,6 @@
     background:linear-gradient(160deg, rgba(245,83,100,0.10), var(--surface));
     border-color:rgba(245,83,100,0.4);
     box-shadow:0 0 0 0 rgba(245,83,100,0.45), 0 16px 36px rgba(221,61,78,0.18);
-  }
-  .card.router.glow{animation:glow 2.4s ease-in-out infinite;}
-  @keyframes glow{
-    0%,100%{box-shadow:0 0 0 0 rgba(245,83,100,0.30), 0 16px 36px rgba(221,61,78,0.18);}
-    50%{box-shadow:0 0 0 14px rgba(245,83,100,0), 0 16px 36px rgba(221,61,78,0.18);}
   }
   .icon{
     width:40px;height:40px;
@@ -399,7 +394,7 @@
             <svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.4" fill="#0000ff"/></svg>
           </div>
           <div class="name">SuperPDP</div>
-          <div class="tag">Plateforme agréée (PDP)</div>
+          <div class="tag">Plateforme agréée</div>
         </div>
       </div>
 
@@ -515,7 +510,6 @@
     document.querySelectorAll('.node, .pill, .invoice, .error-badge, .proto-icon, .benefit, path.wire')
       .forEach(el => { el.classList.remove('show','draw','shake'); });
     $('veil').classList.remove('show');
-    $('routerCard').classList.remove('glow');
     const inv = $('invoiceCard');
     inv.style.left = '38%'; inv.style.top = '23%';
     headline.innerHTML = '&nbsp;';
@@ -526,7 +520,7 @@
     await sleep(150);
 
     // Stage 0 — SuperPDP
-    setHeadline('Toutes vos factures ne sont pas <span class="grad">traitées dans le même outil</span> ?');
+    setHeadline('Toutes vos factures fournisseur ne sont pas <span class="grad">traitées dans le même outil</span> ?');
     show($('nodeSuperpdp'));
     await sleep(900);
 
@@ -567,7 +561,6 @@
     $('nodeSpendesk').classList.remove('shake');
     await sleep(550);
     show($('nodeRouter'));
-    $('routerCard').classList.add('glow');
     await sleep(500);
     draw($('wireTrunk'));
     await sleep(500);
