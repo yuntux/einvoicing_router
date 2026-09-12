@@ -24,6 +24,13 @@ GUIDELINE_ID = "urn:cen.eu:EN16931:2017#compliant#urn:factur-x.eu:1p0:basic"
 BUSINESS_PROCESS_ID = "urn:factur-x.eu:1p0:basic"
 ACKNOWLEDGEMENT_TYPE_CODE = "494"
 
+# Index inverse de `STATUS_CATALOG` par `cdar_code` (MDT-105/MDT-106 côté flux entrant,
+# cf. `resolve_status_key`) — construit une fois au chargement du module. Aucun statut
+# du catalogue ne partage le même `cdar_code`, la correspondance est donc univoque.
+_STATUS_KEY_BY_CDAR_CODE: dict[str, str] = {
+    info.cdar_code: key for key, info in STATUS_CATALOG.items()
+}
+
 
 def build_data_dict(
     *,
@@ -57,7 +64,11 @@ def build_data_dict(
         "MDT-74": False,
         "MDT-77": ACKNOWLEDGEMENT_TYPE_CODE,
         "MDT-78": now,
-        "MDT-87": invoice.certified_platform_flow_id,
+        # Numéro de facture métier (pas l'identifiant technique du flux AFNOR) : c'est
+        # ce que la contrepartie connaît et sait rapprocher de sa propre facture — cf.
+        # `l10n_fr_einvoicing` (`fr_einvoicing_event._prepare_xml_data`), qui met ici
+        # `invoice.ref`/`invoice.name`, jamais un identifiant de flux interne.
+        "MDT-87": invoice.invoice_number,
         "MDT-91": "380",
         "MDT-100": now.date(),
         "MDT-105": status_info.cdar_code,
@@ -99,6 +110,27 @@ def generate(data_dict: dict) -> bytes:
         check_schematron=bool(settings.saxon_server_url),
         saxon_server_url=settings.saxon_server_url,
     )
+
+
+def parse(xml_bytes: bytes) -> dict:
+    """Parse un CDAR entrant (§ 4.2) : dict à clés lisibles (`invoice_number`,
+    `status_code`, `doc_status`...), symétrique du dict `MDT-*` que `build_data_dict`
+    construit pour l'émission — cf. `pyfrctc.parse_cdar` (= `parse_cdar_raw` +
+    `parse_cdar_from_raw`). Valide contre le XSD officiel comme `generate()`."""
+    return core.parse_cdar(
+        xml_bytes,
+        check_xsd=True,
+        check_schematron=bool(settings.saxon_server_url),
+        saxon_server_url=settings.saxon_server_url,
+    )
+
+
+def resolve_status_key(cdar_code: str) -> str | None:
+    """Retrouve la clé interne de `STATUS_CATALOG` dont `cdar_code` correspond au
+    `status_code` (MDT-105) d'un CDAR entrant — `None` si le code n'est pas reconnu
+    (catalogue incomplet ou évolution de la norme, ne doit jamais faire échouer
+    l'ingestion, cf. `lifecycle_service.create_incoming_event`)."""
+    return _STATUS_KEY_BY_CDAR_CODE.get(cdar_code)
 
 
 def _json_safe(value):

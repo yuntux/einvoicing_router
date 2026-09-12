@@ -53,9 +53,30 @@ class RawInvoice:
     ack_details: str | None = None
 
 
+@dataclass
+class RawIncomingCdar:
+    """Message de cycle de vie CDAR reçu (§ 4.2, flux `SupplierInvoiceLC`) — contenu
+    brut non interprété : le rattachement à la facture concernée et l'interprétation
+    du statut se font en aval (`app.services.lifecycle_ingestion_service`), pas ici,
+    pour garder ce client "bête" (cf. docstring de module)."""
+
+    flow_id: str
+    xml_bytes: bytes
+    flow_type: str | None = None
+
+
 class CertifiedPlatformClientProtocol(Protocol):
     def fetch_received_invoices(
         self, *, company_siren: str, since: datetime | None = None
     ) -> list[RawInvoice]:
         """Retourne les factures reçues pour l'entreprise gérée (§ 4.1)."""
+        ...
+
+    def fetch_incoming_lifecycle_events(
+        self, *, company_siren: str, since: datetime | None = None
+    ) -> list[RawIncomingCdar]:
+        """Retourne les CDAR entrants (messages de cycle de vie, § 4.2) pour
+        l'entreprise gérée — distinct de `fetch_received_invoices` : jamais de
+        nouvelle facture créée à partir de ces flux (cf. l'incident du flux
+        ie_78332)."""
         ...

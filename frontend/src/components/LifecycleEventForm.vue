@@ -102,6 +102,13 @@ onMounted(async () => {
           <div>
             <span class="cluster">
               <StatusBadge :value="ev.status" />
+              <span
+                class="badge"
+                :class="ev.direction === 'in' ? 'badge-success' : 'badge-info'"
+                :data-testid="`lifecycle-event-direction-${ev.id}`"
+              >
+                {{ ev.direction === 'in' ? 'Reçu de SuperPDP' : 'Saisi manuellement' }}
+              </span>
               <span v-if="ev.details.length && ev.details[0].reason" class="entity-sub">— {{ ev.details[0].reason }}</span>
               <span v-if="ev.amount != null" class="entity-sub">{{ ev.amount }} {{ ev.currency }}</span>
             </span>

@@ -18,10 +18,16 @@ from datetime import date, datetime
 
 from pyfrctc import pyfrctc as core
 
-from app.afnor.client.base import RawInvoice
+from app.afnor.client.base import RawIncomingCdar, RawInvoice
 from app.afnor.invoice_parsing import invoice_type_from_code, parse_invoice_fields
 
-RECEIVED_INVOICE_FLOW_TYPES = ["SupplierInvoice", "SupplierInvoiceLC"]
+# "SupplierInvoiceLC" désigne les messages de cycle de vie CDAR (accusés/statuts,
+# XP Z12-013 § 4.2, cf. AfnorFlowType.SUPPLIER_INVOICE_LC) — pas de nouvelles
+# factures : ils sont traités séparément par `fetch_incoming_lifecycle_events`
+# (rattachés à la facture existante via `app.services.lifecycle_ingestion_service`),
+# jamais ingérés ici comme facture, cf. l'incident du flux ie_78332.
+RECEIVED_INVOICE_FLOW_TYPES = ["SupplierInvoice"]
+INCOMING_LIFECYCLE_FLOW_TYPES = ["SupplierInvoiceLC"]
 
 
 def _to_date(value) -> date:
@@ -32,6 +38,21 @@ def _to_date(value) -> date:
     if isinstance(value, str):
         return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
     return datetime.utcnow().date()
+
+
+def _json_safe(value):
+    """`pyfrctc` enrichit son dict de métadonnées avec des `datetime` dérivés
+    (`submitted_at`/`updated_at`, cf. `_parse_flow_dict`) en plus des chaînes ISO
+    d'origine (`submittedAt`/`updatedAt`) — non sérialisables tels quels dans la
+    colonne JSON `Invoice.afnor_metadata` (§ 6.1). Convertit récursivement toute
+    valeur `date`/`datetime` en chaîne ISO 8601 avant stockage."""
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 class PyfrctcCertifiedPlatformClient:
@@ -82,7 +103,7 @@ class PyfrctcCertifiedPlatformClient:
                     certified_platform_updated_at=flow.get("updated_at"),
                     file_name=metadata.get("name") or f"{flow_id}.xml",
                     file_content=file_content,
-                    raw_metadata=metadata,
+                    raw_metadata=_json_safe(metadata),
                     flow_profile=metadata.get("flowProfile"),
                     processing_rule_source=metadata.get("processingRuleSource"),
                     tracking_id=metadata.get("trackingId"),
@@ -94,3 +115,25 @@ class PyfrctcCertifiedPlatformClient:
                 )
             )
         return invoices
+
+    def fetch_incoming_lifecycle_events(
+        self, *, company_siren: str, since: datetime | None = None
+    ) -> list[RawIncomingCdar]:
+        updated_after = since or datetime(2000, 1, 1)
+        flows = core.search_flows_parsed(
+            self._session,
+            updated_after=updated_after,
+            flow_direction="in",
+            flow_type=INCOMING_LIFECYCLE_FLOW_TYPES,
+        )
+
+        events: list[RawIncomingCdar] = []
+        for flow in flows:
+            flow_id = flow.get("flowId") or flow.get("id")
+            if not flow_id:
+                continue
+            file_content = core.get_flow(self._session, flow_id, doc_type="Original")
+            events.append(
+                RawIncomingCdar(flow_id=flow_id, xml_bytes=file_content, flow_type=flow.get("flowType"))
+            )
+        return events
