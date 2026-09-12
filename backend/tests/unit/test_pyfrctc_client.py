@@ -99,6 +99,7 @@ def test_fetch_received_invoices_maps_flow_to_raw_invoice():
     assert invoice.emitter_name == "Fournisseur Test SAS"
     assert invoice.amount_total == 1200.0
     assert invoice.amount_excl_tax == 1000.0
+    assert invoice.amount_tax == 200.0
     assert invoice.currency == "EUR"
     assert invoice.syntax == "CII"
     assert invoice.file_content == _CII_SAMPLE

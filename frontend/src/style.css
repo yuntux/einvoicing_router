@@ -701,19 +701,32 @@ code {
 
 /* ---------- Détail facture (page routée /invoices/:id, plus une popin) ---------- */
 
-/* Lien "Retour à la liste" (§ InvoicesView.vue) : pas un bouton plein (l'action
-   n'est pas la principale de l'écran) — juste un chevron + texte dans la couleur de
-   lien standard, au-dessus du titre de page, pattern déjà répandu (Gmail, Linear,
-   GitHub...) pour un écran de détail qui remplace la liste plutôt que de flotter
-   par-dessus. */
-.back-link {
+/* Fil d'Ariane (§ InvoicesView.vue/AfnorFlowDetailView.vue) : un seul maillon
+   "Retour à la liste" sur la page facture, deux maillons (liste -> facture)
+   séparés par un chevron sur la page CDAR — chaque maillon reste une vraie action
+   de retour, pas juste un repère de position comme un fil d'Ariane classique. */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.breadcrumb-sep {
+  width: 12px;
+  height: 12px;
+  color: var(--color-muted);
+  flex-shrink: 0;
+}
+
+.back-link,
+.breadcrumb-link {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   background: none;
   border: none;
   padding: 0;
-  margin-bottom: 4px;
   font: inherit;
   font-weight: 600;
   font-size: 0.8rem;
@@ -721,7 +734,8 @@ code {
   cursor: pointer;
 }
 
-.back-link:hover {
+.back-link:hover,
+.breadcrumb-link:hover {
   text-decoration: underline;
 }
 
@@ -795,6 +809,51 @@ code {
   font-weight: 700;
 }
 
+/* ---------- Contenu brut d'un flux CDAR (§ AfnorFlowDetailView.vue) ---------- */
+
+.xml-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.xml-viewer-header h3 {
+  margin: 0;
+}
+
+.xml-download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  border-radius: var(--radius);
+}
+
+.xml-download-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* Le contenu textuel de chaque balise est en gras (§ demande utilisateur) — produit
+   par `formattedXml` (échappement HTML + `<strong>` autour des seuls nœuds texte,
+   jamais des balises elles-mêmes), affiché via `v-html` dans ce `<pre>`. */
+.xml-viewer {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, 'SF Mono', Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
 .download-control-wrapper {
   display: flex;
   justify-content: flex-end;
@@ -805,16 +864,17 @@ code {
   position: relative;
 }
 
-/* Groupe de boutons "pill" (§ téléchargement, popin facture) : le contour est
-   porté par le conteneur lui-même (une seule bordure continue, `overflow: hidden`
-   pour épouser le border-radius) plutôt que par chaque bouton séparément — sinon
-   la moindre différence de hauteur entre le lien et le bouton (`<a>` vs
-   `<button>`) casse la continuité du trait aux coins. */
+/* Groupe de boutons (§ téléchargement, popin facture) : le contour est porté par
+   le conteneur lui-même (une seule bordure continue, `overflow: hidden` pour
+   épouser le border-radius) plutôt que par chaque bouton séparément — sinon la
+   moindre différence de hauteur entre le lien et le bouton (`<a>` vs `<button>`)
+   casse la continuité du trait aux coins. Fond couleur accent (charte graphique) et
+   coins peu arrondis (`--radius`, pas la pilule `999px` d'un bouton secondaire) :
+   c'est l'action principale de l'écran. */
 .download-btn-group {
   display: inline-flex;
   align-items: stretch;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius);
   overflow: hidden;
 }
 
@@ -822,10 +882,30 @@ code {
 .download-btn-group .download-btn-toggle {
   border: none;
   border-radius: 0;
+  background: var(--color-accent);
+  color: #fff;
+}
+
+.download-btn-group .download-btn-main:hover,
+.download-btn-group .download-btn-toggle:hover {
+  filter: brightness(1.06);
+}
+
+.download-btn-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+}
+
+.download-btn-main svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 
 .download-btn-group .download-btn-toggle {
-  border-left: 1px solid var(--color-border);
+  border-left: 1px solid rgba(255, 255, 255, 0.35);
   display: flex;
   align-items: center;
   padding: 0 10px;
@@ -888,6 +968,18 @@ code {
     border-top: 1px solid var(--color-border);
     padding-top: 12px;
   }
+}
+
+/* ---------- Changement rapide de statut (sous le Cycle de vie, fiche facture) ---------- */
+
+.lifecycle-quick-form {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.lifecycle-status-select-wide {
+  min-width: 280px;
 }
 
 /* ---------- Timeline (cycle de vie fusionné, popin facture) ---------- */

@@ -32,6 +32,9 @@ class RawInvoice:
     invoice_type: str = "invoice"
     amount_total: float | None = None
     amount_excl_tax: float | None = None
+    # Déclaré dans le fichier (ram:TaxTotalAmount / cac:TaxTotal⁄cbc:TaxAmount) —
+    # jamais recalculé par soustraction, cf. `app.afnor.invoice_parsing.ParsedInvoiceFields`.
+    amount_tax: float | None = None
     currency: str = "EUR"
     syntax: str = "Factur-X"
     processing_rule: str = "B2B"

@@ -33,6 +33,7 @@ def simulate_invoice_reception(payload: SimulateInvoiceReception, db: Session = 
         invoice_type=payload.invoice_type,
         amount_total=payload.amount_total,
         amount_excl_tax=payload.amount_excl_tax,
+        amount_tax=payload.amount_tax,
         currency=payload.currency,
         syntax=payload.syntax,
         processing_rule=payload.processing_rule,

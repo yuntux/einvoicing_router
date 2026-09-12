@@ -11,10 +11,12 @@ import {
 } from '../api/invoices'
 import { listCompanyLookups, type CompanyLookup } from '../api/companies'
 import { listTargetApplicationLookups, type TargetApplicationLookup } from '../api/targetApplications'
+import { isReadOnly } from '../api/auth'
 import LifecycleEventForm from '../components/LifecycleEventForm.vue'
+import LifecycleStatusForm from '../components/LifecycleStatusForm.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { useErrorMessage } from '../composables/useErrorMessage'
-import { formatDateTimeFr } from '../utils/date'
+import { formatDateFr, formatDateTimeFr } from '../utils/date'
 
 const route = useRoute()
 const router = useRouter()
@@ -188,11 +190,6 @@ onUnmounted(() => {
   document.removeEventListener('keydown', onKeydown)
 })
 
-function vatAmount(invoice: Invoice): number | null {
-  if (invoice.amount_total == null || invoice.amount_excl_tax == null) return null
-  return invoice.amount_total - invoice.amount_excl_tax
-}
-
 async function refreshSelected() {
   if (selected.value) {
     selected.value = await getInvoice(selected.value.id)
@@ -203,10 +200,13 @@ function scheduleRefreshSelected() {
   setTimeout(refreshSelected, 500)
 }
 
+const lifecycleEventFormRef = ref<InstanceType<typeof LifecycleEventForm> | null>(null)
+
 async function onLifecycleEventCreated() {
   if (selected.value) {
     selected.value = await getInvoice(selected.value.id)
   }
+  await lifecycleEventFormRef.value?.refreshEvents()
 }
 
 onMounted(async () => {
@@ -404,9 +404,9 @@ onMounted(async () => {
               {{ invoice.company_siren }}
               <div class="entity-sub">{{ invoice.company_name }}</div>
             </td>
-            <td>{{ invoice.invoice_date }}</td>
+            <td>{{ formatDateFr(invoice.invoice_date) }}</td>
             <td>{{ invoice.amount_excl_tax ?? '—' }} {{ invoice.currency }}</td>
-            <td>{{ vatAmount(invoice) ?? '—' }} {{ invoice.currency }}</td>
+            <td>{{ invoice.amount_tax ?? '—' }} {{ invoice.currency }}</td>
             <td>{{ invoice.amount_total ?? '—' }} {{ invoice.currency }}</td>
             <td :data-testid="`invoice-last-download-${invoice.invoice_number}`">
               <template v-if="invoice.last_download_at">
@@ -446,17 +446,19 @@ onMounted(async () => {
 
     <template v-else>
       <header class="page-header">
-        <button
-          type="button"
-          class="back-link"
-          data-testid="invoice-detail-back"
-          @click="goBackToList"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M15 6l-6 6 6 6" />
-          </svg>
-          Retour à la liste
-        </button>
+        <nav class="breadcrumb">
+          <button
+            type="button"
+            class="back-link"
+            data-testid="invoice-detail-back"
+            @click="goBackToList"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M15 6l-6 6 6 6" />
+            </svg>
+            Retour à la liste
+          </button>
+        </nav>
         <h1>Facture {{ selected.invoice_number }}</h1>
       </header>
 
@@ -474,7 +476,7 @@ onMounted(async () => {
           </div>
           <div class="modal-stat-card">
             <span class="modal-stat-label">Date</span>
-            <span class="modal-stat-value">{{ selected.invoice_date }}</span>
+            <span class="modal-stat-value">{{ formatDateFr(selected.invoice_date) }}</span>
           </div>
           <div class="modal-stat-card">
             <span class="modal-stat-label">Statut cycle de vie</span>
@@ -486,7 +488,7 @@ onMounted(async () => {
           </div>
           <div class="modal-stat-card">
             <span class="modal-stat-label">Montant TVA</span>
-            <span class="modal-stat-value">{{ vatAmount(selected) ?? '—' }} {{ selected.currency }}</span>
+            <span class="modal-stat-value">{{ selected.amount_tax ?? '—' }} {{ selected.currency }}</span>
           </div>
           <div class="modal-stat-card">
             <span class="modal-stat-label">Montant TTC</span>
@@ -509,15 +511,18 @@ onMounted(async () => {
             <div class="download-btn-group">
               <a
                 :href="invoiceDownloadUrl(selected.id)"
-                class="btn-secondary download-btn-main"
+                class="btn btn-accent download-btn-main"
                 data-testid="invoice-download-link"
                 @click="scheduleRefreshSelected"
               >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M8 2v8m0 0l-3-3m3 3l3-3M2.5 12.5h11" />
+                </svg>
                 Télécharger la facture
               </a>
               <button
                 type="button"
-                class="btn-secondary download-btn-toggle"
+                class="download-btn-toggle"
                 aria-label="Choisir le format de téléchargement"
                 data-testid="invoice-download-format-toggle"
                 @click="downloadMenuOpen = !downloadMenuOpen"
@@ -542,7 +547,12 @@ onMounted(async () => {
 
         <div class="modal-columns">
           <div class="modal-column">
-            <LifecycleEventForm :key="selected.id" :invoice-id="selected.id" @created="onLifecycleEventCreated" />
+            <LifecycleEventForm ref="lifecycleEventFormRef" :key="selected.id" :invoice-id="selected.id" />
+            <LifecycleStatusForm
+              v-if="!isReadOnly"
+              :invoice-id="selected.id"
+              @created="onLifecycleEventCreated"
+            />
           </div>
 
           <div class="modal-column">
