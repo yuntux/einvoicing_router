@@ -7,7 +7,9 @@ c'est cet adaptateur qui fait le pont, comme le prévoit le diagramme de composa
 (§ 7.3 : `InvoiceIngestionService --> AfnorClientAdapter`, `AfnorServerController -->
 AfnorClientAdapter : proxy émission vers SuperPDP`)."""
 
+import contextlib
 import json
+from typing import Callable
 
 from pyfrctc import pyfrctc as core
 from sqlalchemy.orm import Session
@@ -16,6 +18,26 @@ from app.afnor.client.pyfrctc_client import PyfrctcSuperPDPClient
 from app.config import settings
 from app.models.referential import Company
 from app.services import audit_trace_service, superpdp_credentials_service
+
+
+@contextlib.contextmanager
+def _capture_last_exchange_headers(session):
+    """pyfrctc n'expose que le JSON parsé de la réponse SuperPDP, jamais l'objet HTTP
+    brut — on capture les en-têtes de la dernière requête/réponse de la session via un
+    hook `requests` le temps de l'appel, pour les faire remonter au `FlowTrace` (NF1)
+    sans avoir à modifier pyfrctc."""
+    captured: dict[str, dict[str, str] | None] = {"request": None, "response": None}
+
+    def _on_response(response, *args, **kwargs):
+        captured["request"] = dict(response.request.headers)
+        captured["response"] = dict(response.headers)
+
+    hooks = session.hooks.setdefault("response", [])
+    hooks.append(_on_response)
+    try:
+        yield captured
+    finally:
+        hooks.remove(_on_response)
 
 
 class AfnorClientAdapter:
@@ -64,6 +86,50 @@ class AfnorClientAdapter:
     def get_client_for_company(self, db: Session, company: Company) -> PyfrctcSuperPDPClient:
         return PyfrctcSuperPDPClient(self._get_or_build_session(db, company))
 
+    def _send_flow_and_trace(
+        self,
+        db: Session,
+        session,
+        *,
+        request_payload: dict,
+        afnor_api_version: str,
+        correlation_id: str | None,
+        send: Callable[[], dict],
+    ) -> dict:
+        """Appelle `send` (un envoi pyfrctc vers SuperPDP), trace l'échange
+        (`router_to_superpdp`, NF1) qu'il réussisse ou échoue, et propage l'exception
+        telle quelle en cas d'échec (traduite en 502 par l'appelant, cf.
+        `afnor_server_controller.call_superpdp`) — factorise `send_invoice`/`send_cdar`,
+        identiques hormis l'appel pyfrctc et le contenu de `request_payload`."""
+        with _capture_last_exchange_headers(session) as headers:
+            try:
+                result = send()
+            except Exception as exc:
+                audit_trace_service.record_flow_trace(
+                    db,
+                    direction="router_to_superpdp",
+                    afnor_api_version=afnor_api_version,
+                    request=request_payload,
+                    response={"error": str(exc)},
+                    http_status=502,
+                    correlation_id=correlation_id,
+                    request_headers=headers["request"],
+                    response_headers=headers["response"],
+                )
+                raise
+            audit_trace_service.record_flow_trace(
+                db,
+                direction="router_to_superpdp",
+                afnor_api_version=afnor_api_version,
+                request=request_payload,
+                response={k: v for k, v in result.items() if not isinstance(v, bytes)},
+                http_status=200,
+                correlation_id=correlation_id,
+                request_headers=headers["request"],
+                response_headers=headers["response"],
+            )
+        return result
+
     def send_invoice(
         self,
         db: Session,
@@ -79,34 +145,18 @@ class AfnorClientAdapter:
         """Émission d'une facture (proxy Odoo -> SuperPDP, § 4.4) — tracée, jamais
         stockée en base (les factures émises ne sont pas indexées, § 4.1)."""
         session = self._get_or_build_session(db, company)
-        request_payload = {
-            "filename": filename,
-            "flow_syntax": flow_syntax,
-            "processing_rule": processing_rule,
-        }
-        try:
-            result = core.send_flow_parsed(session, file_bin, filename, flow_syntax, processing_rule)
-        except Exception as exc:
-            audit_trace_service.record_flow_trace(
-                db,
-                direction="router_to_superpdp",
-                afnor_api_version=afnor_api_version,
-                request=request_payload,
-                response={"error": str(exc)},
-                http_status=502,
-                correlation_id=correlation_id,
-            )
-            raise
-        audit_trace_service.record_flow_trace(
+        return self._send_flow_and_trace(
             db,
-            direction="router_to_superpdp",
+            session,
+            request_payload={
+                "filename": filename,
+                "flow_syntax": flow_syntax,
+                "processing_rule": processing_rule,
+            },
             afnor_api_version=afnor_api_version,
-            request=request_payload,
-            response={k: v for k, v in result.items() if not isinstance(v, bytes)},
-            http_status=200,
             correlation_id=correlation_id,
+            send=lambda: core.send_flow_parsed(session, file_bin, filename, flow_syntax, processing_rule),
         )
-        return result
 
     def send_cdar(
         self,
@@ -122,44 +172,31 @@ class AfnorClientAdapter:
         fois pour les événements saisis manuellement (lot 3+6) et pour le proxy des
         messages émis par Odoo."""
         session = self._get_or_build_session(db, company)
-        request_payload = {"filename": filename}
-        try:
-            result = core.send_flow_parsed(session, cdar_bytes, filename, "CDAR", "LifeCycle")
-        except Exception as exc:
-            audit_trace_service.record_flow_trace(
-                db,
-                direction="router_to_superpdp",
-                afnor_api_version=afnor_api_version,
-                request=request_payload,
-                response={"error": str(exc)},
-                http_status=502,
-                correlation_id=correlation_id,
-            )
-            raise
-        audit_trace_service.record_flow_trace(
+        return self._send_flow_and_trace(
             db,
-            direction="router_to_superpdp",
+            session,
+            request_payload={"filename": filename},
             afnor_api_version=afnor_api_version,
-            request=request_payload,
-            response={k: v for k, v in result.items() if not isinstance(v, bytes)},
-            http_status=200,
             correlation_id=correlation_id,
+            send=lambda: core.send_flow_parsed(session, cdar_bytes, filename, "CDAR", "LifeCycle"),
         )
-        return result
 
     def lookup_directory_siren(
         self, db: Session, *, company: Company, siren: str, afnor_api_version: str = "v1"
     ) -> dict:
         session = self._get_or_build_session(db, company)
-        result = core.get_directory_siren_parsed(session, siren)
-        audit_trace_service.record_flow_trace(
-            db,
-            direction="router_to_superpdp",
-            afnor_api_version=afnor_api_version,
-            request={"siren": siren},
-            response=result,
-            http_status=200,
-        )
+        with _capture_last_exchange_headers(session) as headers:
+            result = core.get_directory_siren_parsed(session, siren)
+            audit_trace_service.record_flow_trace(
+                db,
+                direction="router_to_superpdp",
+                afnor_api_version=afnor_api_version,
+                request={"siren": siren},
+                response=result,
+                http_status=200,
+                request_headers=headers["request"],
+                response_headers=headers["response"],
+            )
         return result
 
 

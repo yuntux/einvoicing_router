@@ -2,11 +2,12 @@
 import { onMounted, ref } from 'vue'
 import { type Company, listCompanies } from '../api/companies'
 import { type AppUser, createUser, listUsers, updateUserAccess } from '../api/users'
+import { useErrorMessage } from '../composables/useErrorMessage'
 
 const users = ref<AppUser[]>([])
 const companies = ref<Company[]>([])
-const error = ref('')
-const createError = ref('')
+const { error, guard } = useErrorMessage()
+const { error: createError, guard: guardCreate } = useErrorMessage()
 
 const newUserEmail = ref('')
 const newUserName = ref('')
@@ -37,29 +38,23 @@ function toggleCompany(userId: number, companyId: number) {
 }
 
 async function saveAccess(userId: number) {
-  error.value = ''
-  try {
+  await guard(async () => {
     await updateUserAccess(userId, {
       role: editedRole.value[userId],
       company_ids: [...editedCompanyIds.value[userId]],
       is_active: editedIsActive.value[userId],
     })
     await refresh()
-  } catch (e) {
-    error.value = (e as Error).message
-  }
+  })
 }
 
 async function submitNewUser() {
-  createError.value = ''
-  try {
+  await guardCreate(async () => {
     await createUser({ email: newUserEmail.value, name: newUserName.value || undefined })
     newUserEmail.value = ''
     newUserName.value = ''
     await refresh()
-  } catch (e) {
-    createError.value = (e as Error).message
-  }
+  })
 }
 
 onMounted(refresh)

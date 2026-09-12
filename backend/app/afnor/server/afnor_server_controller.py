@@ -4,10 +4,24 @@ Module de service, pensé pour rester isolé/testable (§ 4.8) même s'il reste,
 un module interne du routeur plutôt qu'une bibliothèque séparée (cf. § 4.8, décision
 d'architecture déjà actée)."""
 
+from typing import Callable, TypeVar
+
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.invoicing import Invoice, InvoiceRouting
 from app.models.referential import OAuthApplication, TargetApplication
+
+T = TypeVar("T")
+
+
+def call_superpdp(fn: Callable[[], T]) -> T:
+    """Exécute un appel à `AfnorClientAdapter` et transforme toute exception en 502
+    (§ 4.4) — évite de répéter le même try/except à chaque endpoint proxy `v1`/`v2`."""
+    try:
+        return fn()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"SuperPDP unreachable: {exc}") from exc
 
 
 def _target_applications_for(db: Session, oauth_app: OAuthApplication) -> list[TargetApplication]:

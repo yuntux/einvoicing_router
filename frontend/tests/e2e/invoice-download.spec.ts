@@ -1,8 +1,8 @@
-import { expect, test } from '@playwright/test'
-import { simulateInvoiceReception } from './helpers'
+import { expect, test } from './fixtures'
+import { simulateInvoiceReception, uniqueValidSiren } from './helpers'
 
 test('downloads an invoice file and sees the last download timestamp', async ({ page }) => {
-  const unique = String(Date.now()).slice(-9)
+  const unique = uniqueValidSiren()
   const companyName = `Société DL ${unique}`
   const invoiceNumber = `F-${unique}`
 

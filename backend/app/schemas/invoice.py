@@ -30,6 +30,16 @@ class InvoiceRead(BaseModel):
     processing_rule: str | None
     afnor_api_version: str | None
     received_at: datetime
+    # Enveloppe de transport du flux AFNOR d'origine (schéma officiel "AFNOR Flow
+    # Service") — distincte des champs métier ci-dessus, extraits du fichier facture.
+    flow_profile: str | None
+    processing_rule_source: str | None
+    tracking_id: str | None
+    flow_direction: str | None
+    flow_type: str | None
+    flow_name: str | None
+    ack_status: str | None
+    ack_details: str | None
     # Obtenus par jointure sur AuditLog (§ 6.1) — jamais dénormalisés sur Invoice.
     last_download_at: datetime | None = None
     last_download_by: str | None = None
@@ -60,6 +70,7 @@ class SimulateInvoiceReception(BaseModel):
     company_id: int
     emitter_siren: str = Field(min_length=9, max_length=9)
     emitter_siret: str | None = None
+    emitter_name: str | None = None
     invoice_number: str
     invoice_date: date
     due_date: date | None = None

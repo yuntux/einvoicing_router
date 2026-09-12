@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { API_BASE, apiFetch } from './http'
 
 export interface CurrentUser {
   id: number
@@ -14,12 +15,8 @@ export interface CurrentUserStatus {
   user: CurrentUser | null
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-
-export async function getCurrentUserStatus(): Promise<CurrentUserStatus> {
-  const response = await fetch(`${API_BASE}/api/ihm/auth/me`, { credentials: 'include' })
-  if (!response.ok) throw new Error(`Failed to get current user: ${response.status}`)
-  return response.json()
+export function getCurrentUserStatus(): Promise<CurrentUserStatus> {
+  return apiFetch('/api/ihm/auth/me', {}, 'Failed to get current user')
 }
 
 export function loginUrl(next?: string): string {
@@ -28,11 +25,7 @@ export function loginUrl(next?: string): string {
 }
 
 export async function logout(): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/ihm/auth/logout`, {
-    method: 'POST',
-    credentials: 'include',
-  })
-  if (!response.ok) throw new Error(`Failed to logout: ${response.status}`)
+  await apiFetch('/api/ihm/auth/logout', { method: 'POST' }, 'Failed to logout')
   authStatus.value = null
 }
 

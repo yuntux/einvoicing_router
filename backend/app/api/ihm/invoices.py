@@ -243,12 +243,8 @@ def download_invoice(
     if not os.path.exists(invoice.file_path):
         raise HTTPException(status_code=404, detail="Invoice file not found on disk")
 
-    audit_trace_service.record_audit_log(
-        db,
-        action=INVOICE_DOWNLOAD_ACTION,
-        target=str(invoice.id),
-        user_id=user.id if user else None,
-        ip_address=request.client.host if request.client else None,
+    audit_trace_service.record_user_action(
+        db, request, user, action=INVOICE_DOWNLOAD_ACTION, target=str(invoice.id)
     )
 
     return FileResponse(

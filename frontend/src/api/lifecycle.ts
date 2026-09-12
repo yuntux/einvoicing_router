@@ -1,3 +1,5 @@
+import { API_BASE, apiFetch } from './http'
+
 export interface StatusCatalogEntry {
   key: string
   label: string
@@ -54,18 +56,12 @@ export interface CreateLifecycleEventPayload {
   confirmed?: boolean
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-
-export async function getLifecycleCatalog(): Promise<LifecycleCatalog> {
-  const response = await fetch(`${API_BASE}/api/ihm/lifecycle-catalog`, { credentials: 'include' })
-  if (!response.ok) throw new Error(`Failed to load lifecycle catalog: ${response.status}`)
-  return response.json()
+export function getLifecycleCatalog(): Promise<LifecycleCatalog> {
+  return apiFetch('/api/ihm/lifecycle-catalog', {}, 'Failed to load lifecycle catalog')
 }
 
-export async function listLifecycleEvents(invoiceId: number): Promise<LifecycleEvent[]> {
-  const response = await fetch(`${API_BASE}/api/ihm/invoices/${invoiceId}/lifecycle-events`, { credentials: 'include' })
-  if (!response.ok) throw new Error(`Failed to list lifecycle events: ${response.status}`)
-  return response.json()
+export function listLifecycleEvents(invoiceId: number): Promise<LifecycleEvent[]> {
+  return apiFetch(`/api/ihm/invoices/${invoiceId}/lifecycle-events`, {}, 'Failed to list lifecycle events')
 }
 
 export function lifecycleEventAttachmentDownloadUrl(
@@ -76,19 +72,13 @@ export function lifecycleEventAttachmentDownloadUrl(
   return `${API_BASE}/api/ihm/invoices/${invoiceId}/lifecycle-events/${eventId}/attachments/${attachmentId}/download`
 }
 
-export async function createLifecycleEvent(
+export function createLifecycleEvent(
   invoiceId: number,
   payload: CreateLifecycleEventPayload,
 ): Promise<LifecycleEvent> {
-  const response = await fetch(`${API_BASE}/api/ihm/invoices/${invoiceId}/lifecycle-events`, {
-    credentials: 'include',
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!response.ok) {
-    const body = await response.json().catch(() => null)
-    throw new Error(body?.detail ?? `Failed to create lifecycle event: ${response.status}`)
-  }
-  return response.json()
+  return apiFetch(
+    `/api/ihm/invoices/${invoiceId}/lifecycle-events`,
+    { method: 'POST', json: payload },
+    'Failed to create lifecycle event',
+  )
 }

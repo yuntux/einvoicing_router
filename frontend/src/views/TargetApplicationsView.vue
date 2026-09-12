@@ -10,6 +10,7 @@ import {
   type TargetApplication,
   type TargetApplicationCreated,
 } from '../api/targetApplications'
+import { useErrorMessage } from '../composables/useErrorMessage'
 
 const targetApplications = ref<TargetApplication[]>([])
 const companies = ref<Company[]>([])
@@ -28,7 +29,7 @@ const preferredConversionFormat = ref('')
 const appType = ref<'confidential' | 'public'>('confidential')
 const webhookUrl = ref('')
 
-const error = ref('')
+const { error, guard } = useErrorMessage()
 const createdCredentials = ref<TargetApplicationCreated | null>(null)
 
 // Édition en place des paramètres d'une application existante.
@@ -76,7 +77,6 @@ function cancelEdit() {
 }
 
 async function saveEdit(ta: TargetApplication) {
-  error.value = ''
   const edit = edits[ta.id]
   const parameters =
     ta.routing_method === 'mail'
@@ -87,13 +87,11 @@ async function saveEdit(ta: TargetApplication) {
           app_type: edit.appType,
           webhook_url: edit.webhookUrl || null,
         }
-  try {
+  await guard(async () => {
     await updateTargetApplication(ta.id, { name: edit.name, parameters })
     editingId.value = null
     await refresh()
-  } catch (e) {
-    error.value = (e as Error).message
-  }
+  })
 }
 
 async function refresh() {
@@ -101,7 +99,6 @@ async function refresh() {
 }
 
 async function submit() {
-  error.value = ''
   createdCredentials.value = null
 
   const selectedCompanyId = companyId.value
@@ -120,7 +117,7 @@ async function submit() {
           webhook_url: webhookUrl.value || null,
         }
 
-  try {
+  await guard(async () => {
     const created = await createTargetApplication({
       name: name.value,
       routing_method: routingMethod.value,
@@ -139,19 +136,14 @@ async function submit() {
     preferredConversionFormat.value = ''
     webhookUrl.value = ''
     await refresh()
-  } catch (e) {
-    error.value = (e as Error).message
-  }
+  })
 }
 
 async function toggleActive(ta: TargetApplication) {
-  error.value = ''
-  try {
+  await guard(async () => {
     await setTargetApplicationActive(ta.id, !ta.is_active)
     await refresh()
-  } catch (e) {
-    error.value = (e as Error).message
-  }
+  })
 }
 
 onMounted(async () => {

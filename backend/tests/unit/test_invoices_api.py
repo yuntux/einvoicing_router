@@ -43,7 +43,10 @@ def test_simulate_reception_and_list_with_filters(client):
     assert detail_resp.status_code == 200
     detail = detail_resp.json()
     assert detail["routings"] == []
-    assert detail["emitter_name"] is None  # pas d'entrée PartnerDirectory pour cet émetteur
+    # § 4.4 : l'émetteur inconnu est ajouté automatiquement à l'annuaire à la
+    # réception (nom placeholder, pas de lookup SIRENE), plutôt que de rester
+    # rattaché à aucune entrée `PartnerDirectory`.
+    assert detail["emitter_name"] == "Fournisseur 444444442 (à compléter)"
 
 
 def test_list_invoices_filter_no_match(client):

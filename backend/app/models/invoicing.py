@@ -4,6 +4,7 @@ import enum
 from datetime import date, datetime
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     Float,
@@ -69,6 +70,22 @@ class Invoice(Base):
     afnor_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
     afnor_api_version: Mapped[str | None] = mapped_column(String(10), nullable=True)
     received_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    # Enveloppe de transport du flux AFNOR d'origine (schéma officiel "AFNOR Flow
+    # Service" — objet Flow), distincte des champs métier de la facture ci-dessus
+    # (cf. app/afnor/invoice_parsing.py sur la distinction transport/métier).
+    flow_profile: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    processing_rule_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    tracking_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    flow_direction: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    flow_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    flow_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ack_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    ack_details: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    # § 4.7 : garde-fou anti-spam — l'alerte "facture non routée" ne doit partir qu'une
+    # fois par facture, jamais rejouée à chaque cycle de polling tant qu'elle reste
+    # sans cible (cf. app.services.invoice_ingestion_service._route_invoice).
+    unrouted_alert_sent: Mapped[bool] = mapped_column(Boolean, default=False)
 
     company: Mapped[Company] = relationship()
     partner: Mapped[PartnerDirectory | None] = relationship()

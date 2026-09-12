@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from app.models.invoicing import Invoice, InvoiceRouting, TransferStatus
-from app.models.referential import OAuthApplication, RoutingMethod, TargetApplication
+from app.models.referential import OAuthApplication, PartnerDirectory, RoutingMethod, TargetApplication
 from app.services import (
     billing_manager_contact_service,
     mail_router_service,
@@ -130,8 +130,9 @@ def _send(
 def alert_unrouted_invoice(
     db: Session, *, invoice: Invoice, sender: MailSenderProtocol | None = None
 ) -> None:
-    """Alerte "facture sans règle de routage active" (§ 4.7), envoyée dès la réception
-    de la facture (appelée par `InvoiceIngestionService`)."""
+    """Alerte "facture sans règle de routage active" (§ 4.7), envoyée une seule fois
+    par facture (cf. `Invoice.unrouted_alert_sent`, posé par l'appelant) — jamais
+    rejouée à chaque cycle de polling tant qu'elle reste sans cible."""
     _send_alert(
         db,
         sender=sender,
@@ -140,6 +141,27 @@ def alert_unrouted_invoice(
             f"La facture {invoice.invoice_number} (émetteur SIREN {invoice.emitter_siren}) "
             "n'a résolu aucune application cible à sa réception. Une action corrective "
             "est nécessaire (création d'une règle de routage, ou routage manuel)."
+        ),
+    )
+
+
+def alert_new_partner_without_routing_rule(
+    db: Session, *, partner: PartnerDirectory, sender: MailSenderProtocol | None = None
+) -> None:
+    """Alerte envoyée une seule fois, à la création automatique d'un `PartnerDirectory`
+    (§ 4.4, première facture reçue d'un fournisseur inconnu) qui n'a encore aucune
+    règle de routage — ce fournisseur apparaît en rouge sur la page Règles de routage
+    tant qu'aucune case n'y est cochée pour lui."""
+    _send_alert(
+        db,
+        sender=sender,
+        subject=f"Nouveau fournisseur détecté sans règle de routage : {partner.siren}",
+        body=(
+            f"Une facture vient d'être reçue d'un fournisseur inconnu jusqu'ici "
+            f"(SIREN {partner.siren}), ajouté automatiquement à l'annuaire. Aucune règle "
+            "de routage n'existe encore pour lui : configurez-en au moins une depuis la "
+            "page Règles de routage pour que ses factures soient routées (il y apparaît "
+            "en rouge tant que ce n'est pas fait)."
         ),
     )
 

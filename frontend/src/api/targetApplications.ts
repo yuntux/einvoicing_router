@@ -1,3 +1,5 @@
+import { apiFetch } from './http'
+
 export type RoutingMethod = 'mail' | 'afnor_api'
 
 export interface TargetApplicationOAuth {
@@ -35,51 +37,35 @@ export interface TargetApplicationCreate {
   parameters: Record<string, unknown>
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-
-export async function listTargetApplications(): Promise<TargetApplication[]> {
-  const response = await fetch(`${API_BASE}/api/ihm/target-applications`, { credentials: 'include' })
-  if (!response.ok) throw new Error(`Failed to list target applications: ${response.status}`)
-  return response.json()
+export function listTargetApplications(): Promise<TargetApplication[]> {
+  return apiFetch('/api/ihm/target-applications', {}, 'Failed to list target applications')
 }
 
-export async function createTargetApplication(
+export function createTargetApplication(
   payload: TargetApplicationCreate,
 ): Promise<TargetApplicationCreated> {
-  const response = await fetch(`${API_BASE}/api/ihm/target-applications`, {
-    credentials: 'include',
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!response.ok) throw new Error(`Failed to create target application: ${response.status}`)
-  return response.json()
+  return apiFetch(
+    '/api/ihm/target-applications',
+    { method: 'POST', json: payload },
+    'Failed to create target application',
+  )
 }
 
-export async function updateTargetApplication(
+export function updateTargetApplication(
   id: number,
   payload: TargetApplicationUpdate,
 ): Promise<TargetApplication> {
-  const response = await fetch(`${API_BASE}/api/ihm/target-applications/${id}`, {
-    credentials: 'include',
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!response.ok) throw new Error(`Failed to update target application: ${response.status}`)
-  return response.json()
+  return apiFetch(
+    `/api/ihm/target-applications/${id}`,
+    { method: 'PUT', json: payload },
+    'Failed to update target application',
+  )
 }
 
-export async function setTargetApplicationActive(
-  id: number,
-  isActive: boolean,
-): Promise<TargetApplication> {
-  const response = await fetch(`${API_BASE}/api/ihm/target-applications/${id}/status`, {
-    credentials: 'include',
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ is_active: isActive }),
-  })
-  if (!response.ok) throw new Error(`Failed to update target application status: ${response.status}`)
-  return response.json()
+export function setTargetApplicationActive(id: number, isActive: boolean): Promise<TargetApplication> {
+  return apiFetch(
+    `/api/ihm/target-applications/${id}/status`,
+    { method: 'PUT', json: { is_active: isActive } },
+    'Failed to update target application status',
+  )
 }

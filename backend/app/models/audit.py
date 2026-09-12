@@ -27,6 +27,12 @@ class FlowTrace(Base):
     afnor_api_version: Mapped[str] = mapped_column(String(10))
     request: Mapped[dict] = mapped_column(JSON)
     response: Mapped[dict] = mapped_column(JSON)
+    # En-têtes HTTP bruts, quand disponibles (`None` sinon — ex. en-têtes de réponse
+    # renvoyée à Odoo, non accessibles au moment de l'enregistrement de la trace).
+    # Les valeurs sensibles (Authorization, cookies, secrets/tokens/clés) sont
+    # masquées avant stockage par `audit_trace_service.redact_headers`.
+    request_headers: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    response_headers: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     http_status: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

@@ -16,6 +16,8 @@ class FlowTraceRead(BaseModel):
     afnor_api_version: str
     request: dict
     response: dict
+    request_headers: dict | None
+    response_headers: dict | None
     http_status: int
     created_at: datetime
 

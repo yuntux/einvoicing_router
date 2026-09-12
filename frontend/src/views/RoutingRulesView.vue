@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { listCompanies, type Company } from '../api/companies'
 import { createPartner, listPartners, type Partner } from '../api/partners'
 import { listTargetApplications, type TargetApplication } from '../api/targetApplications'
 import { listRoutingRules, setRoutingRuleActive, type RoutingRule } from '../api/routingRules'
+import { useErrorMessage } from '../composables/useErrorMessage'
 
 const partners = ref<Partner[]>([])
 const targetApplications = ref<TargetApplication[]>([])
@@ -14,7 +16,7 @@ const companies = ref<Company[]>([])
 const newPartnerSiren = ref('')
 const newPartnerName = ref('')
 
-const error = ref('')
+const { error, guard } = useErrorMessage()
 const pendingCells = ref(new Set<string>())
 
 function cellKey(partnerId: number, targetId: number): string {
@@ -25,6 +27,10 @@ function isChecked(partnerId: number, targetId: number): boolean {
   return rules.value.some(
     (r) => r.partner_directory_id === partnerId && r.target_application_id === targetId,
   )
+}
+
+function partnerHasNoRule(partnerId: number): boolean {
+  return !rules.value.some((r) => r.partner_directory_id === partnerId)
 }
 
 function recipientLabel(target: TargetApplication): string {
@@ -49,29 +55,76 @@ async function refresh() {
 }
 
 async function submitPartner() {
-  error.value = ''
-  try {
+  await guard(async () => {
     await createPartner({ siren: newPartnerSiren.value, name: newPartnerName.value })
     newPartnerSiren.value = ''
     newPartnerName.value = ''
     await refresh()
-  } catch (e) {
-    error.value = (e as Error).message
+  })
+}
+
+async function toggleCell(
+  partnerId: number,
+  targetId: number,
+  checked: boolean,
+  rerouteExisting: boolean,
+) {
+  const key = cellKey(partnerId, targetId)
+  pendingCells.value.add(key)
+  await guard(async () => {
+    await setRoutingRuleActive(partnerId, targetId, checked, rerouteExisting)
+    await refresh()
+  })
+  pendingCells.value.delete(key)
+}
+
+// La case étant liée en lecture seule (:checked="isChecked(...)"), le navigateur
+// a déjà visuellement basculé la case au moment de @change — si l'utilisateur
+// annule dans le popin, on doit donc restaurer nous-mêmes l'état visuel de
+// l'input (sinon il resterait décoché/coché à tort jusqu'au prochain refresh).
+interface PendingConfirm {
+  partnerId: number
+  targetId: number
+  checked: boolean
+  input: HTMLInputElement
+  partnerLabel: string
+  targetLabel: string
+  rerouteExisting: boolean
+}
+
+const pendingConfirm = ref<PendingConfirm | null>(null)
+
+function requestToggle(
+  event: Event,
+  partnerId: number,
+  targetId: number,
+  partnerLabel: string,
+  targetLabel: string,
+) {
+  const input = event.target as HTMLInputElement
+  pendingConfirm.value = {
+    partnerId,
+    targetId,
+    checked: input.checked,
+    input,
+    partnerLabel,
+    targetLabel,
+    rerouteExisting: true,
   }
 }
 
-async function toggleCell(partnerId: number, targetId: number, checked: boolean) {
-  error.value = ''
-  const key = cellKey(partnerId, targetId)
-  pendingCells.value.add(key)
-  try {
-    await setRoutingRuleActive(partnerId, targetId, checked)
-    await refresh()
-  } catch (e) {
-    error.value = (e as Error).message
-  } finally {
-    pendingCells.value.delete(key)
-  }
+function confirmToggle() {
+  const pending = pendingConfirm.value
+  if (!pending) return
+  pendingConfirm.value = null
+  toggleCell(pending.partnerId, pending.targetId, pending.checked, pending.rerouteExisting)
+}
+
+function cancelToggle() {
+  const pending = pendingConfirm.value
+  if (!pending) return
+  pending.input.checked = !pending.checked
+  pendingConfirm.value = null
 }
 
 onMounted(refresh)
@@ -109,7 +162,12 @@ onMounted(refresh)
             </tr>
           </thead>
           <tbody>
-            <tr v-for="partner in rows" :key="partner.id" :data-testid="`routing-rule-row-${partner.id}`">
+            <tr
+              v-for="partner in rows"
+              :key="partner.id"
+              :class="{ 'row-danger': partnerHasNoRule(partner.id) }"
+              :data-testid="`routing-rule-row-${partner.id}`"
+            >
               <td>{{ partner.siren }} — {{ partner.name }}</td>
               <td v-for="target in columns" :key="target.id" style="text-align: center">
                 <input
@@ -117,7 +175,15 @@ onMounted(refresh)
                   :checked="isChecked(partner.id, target.id)"
                   :disabled="pendingCells.has(cellKey(partner.id, target.id))"
                   :data-testid="`routing-rule-checkbox-${partner.id}-${target.id}`"
-                  @change="toggleCell(partner.id, target.id, ($event.target as HTMLInputElement).checked)"
+                  @change="
+                    requestToggle(
+                      $event,
+                      partner.id,
+                      target.id,
+                      `${partner.siren} — ${partner.name}`,
+                      target.name,
+                    )
+                  "
                 />
               </td>
             </tr>
@@ -130,5 +196,62 @@ onMounted(refresh)
         </table>
       </div>
     </section>
+
+    <ConfirmDialog
+      :open="pendingConfirm !== null"
+      :title="pendingConfirm?.checked ? 'Activer la règle de routage ?' : 'Désactiver la règle de routage ?'"
+      :message="
+        pendingConfirm
+          ? `${pendingConfirm.checked ? 'Router' : 'Ne plus router'} les factures de ${pendingConfirm.partnerLabel} vers ${pendingConfirm.targetLabel} ?`
+          : ''
+      "
+      :detail="
+        pendingConfirm && !pendingConfirm.checked
+          ? `Seules les prochaines factures reçues ne seront plus routées vers ce canal ; les factures déjà routées ne sont pas affectées.`
+          : ''
+      "
+      :danger="pendingConfirm ? !pendingConfirm.checked : false"
+      @confirm="confirmToggle"
+      @cancel="cancelToggle"
+    >
+      <fieldset v-if="pendingConfirm?.checked" class="reroute-choice" data-testid="reroute-choice">
+        <label>
+          <input
+            type="radio"
+            :value="true"
+            v-model="pendingConfirm.rerouteExisting"
+            data-testid="reroute-choice-existing"
+          />
+          Envoyer toutes les factures déjà reçues de ce fournisseur qui ne sont pas encore routées vers ce canal
+        </label>
+        <label>
+          <input
+            type="radio"
+            :value="false"
+            v-model="pendingConfirm.rerouteExisting"
+            data-testid="reroute-choice-future-only"
+          />
+          Envoyer uniquement les futures factures reçues pour ce fournisseur
+        </label>
+      </fieldset>
+    </ConfirmDialog>
   </main>
 </template>
+
+<style scoped>
+.reroute-choice {
+  border: none;
+  padding: 0;
+  margin: 10px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reroute-choice label {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 0.9em;
+}
+</style>

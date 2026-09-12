@@ -53,13 +53,7 @@ def create_user(
         )
     except EmailAlreadyExistsError as exc:
         raise HTTPException(status_code=409, detail="A user with this email already exists") from exc
-    audit_trace_service.record_audit_log(
-        db,
-        action="user_create",
-        target=str(user.id),
-        user_id=actor.id if actor else None,
-        ip_address=request.client.host if request.client else None,
-    )
+    audit_trace_service.record_user_action(db, request, actor, action="user_create", target=str(user.id))
     return _to_read(user)
 
 
@@ -81,11 +75,7 @@ def update_user_access(
     )
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    audit_trace_service.record_audit_log(
-        db,
-        action="user_access_update",
-        target=str(user.id),
-        user_id=actor.id if actor else None,
-        ip_address=request.client.host if request.client else None,
+    audit_trace_service.record_user_action(
+        db, request, actor, action="user_access_update", target=str(user.id)
     )
     return _to_read(user)

@@ -72,12 +72,8 @@ def create_target_application(
     db.commit()
     db.refresh(target_application)
 
-    audit_trace_service.record_audit_log(
-        db,
-        action="target_application_create",
-        target=str(target_application.id),
-        user_id=actor_id,
-        ip_address=request.client.host if request.client else None,
+    audit_trace_service.record_user_action(
+        db, request, user, action="target_application_create", target=str(target_application.id)
     )
 
     return TargetApplicationCreated(
@@ -124,12 +120,8 @@ def update_target_application(
 
     db.commit()
     db.refresh(target_application)
-    audit_trace_service.record_audit_log(
-        db,
-        action="target_application_update",
-        target=str(target_application_id),
-        user_id=actor_id,
-        ip_address=request.client.host if request.client else None,
+    audit_trace_service.record_user_action(
+        db, request, user, action="target_application_update", target=str(target_application_id)
     )
     return target_application
 
@@ -153,11 +145,7 @@ def update_target_application_status(
     target_application.write_user_id = actor_id
     db.commit()
     db.refresh(target_application)
-    audit_trace_service.record_audit_log(
-        db,
-        action="target_application_status_update",
-        target=str(target_application_id),
-        user_id=actor_id,
-        ip_address=request.client.host if request.client else None,
+    audit_trace_service.record_user_action(
+        db, request, user, action="target_application_status_update", target=str(target_application_id)
     )
     return target_application

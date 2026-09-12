@@ -1,8 +1,8 @@
-import { expect, test } from '@playwright/test'
-import { simulateInvoiceReception } from './helpers'
+import { expect, test } from './fixtures'
+import { simulateInvoiceReception, uniqueValidSiren } from './helpers'
 
 test('records a dispute lifecycle event with a reason', async ({ page }) => {
-  const unique = String(Date.now()).slice(-9)
+  const unique = uniqueValidSiren()
   const companyName = `Société Cycle ${unique}`
   const invoiceNumber = `F-${unique}`
 
@@ -34,4 +34,12 @@ test('records a dispute lifecycle event with a reason', async ({ page }) => {
   await expect(page.getByTestId('lifecycle-events-list')).toContainText('dispute')
   await expect(page.getByTestId('lifecycle-events-list')).toContainText('TX_TVA_ERR')
   await expect(page.getByTestId('invoice-detail')).toContainText('dispute')
+
+  // "Refusée" exige en plus la case de confirmation (§ lifecycle_catalog.py).
+  await page.getByTestId('lifecycle-status-select').selectOption({ label: 'Refusée' })
+  await page.getByTestId('lifecycle-reason-select').selectOption({ label: 'Taux de TVA erroné' })
+  await page.getByTestId('lifecycle-confirm-checkbox').check()
+  await page.getByTestId('lifecycle-submit-button').click()
+
+  await expect(page.getByTestId('lifecycle-events-list')).toContainText('refused')
 })

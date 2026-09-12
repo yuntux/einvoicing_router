@@ -111,6 +111,11 @@ Le routeur doit supporter le **mode webhook dans ses deux rôles**, pas seulemen
 - Écran listant, pour chaque **émetteur** (SIREN/SIRET), la raison sociale, et pour chaque **application cible** déclarée dans l'IHM d'administration, une **période de transfert** (date de début / date de fin).
 - Une facture peut être routée vers **0, 1 ou N** applications cibles simultanément, selon ces règles.
 - La résolution du routage s'effectue sur le SIREN/SIRET de l'émetteur de la facture, à la date de réception de la facture, comparée aux périodes de validité définies par règle.
+- **Activation d'une règle (case cochée dans la matrice)** : l'utilisateur choisit, dans la popin de confirmation, entre deux options (la première par défaut) :
+  - **Envoyer toutes les factures déjà reçues de ce fournisseur qui ne sont pas encore routées vers ce canal** — routage immédiat, sans attendre le prochain cycle de polling, de toutes les factures déjà en base pour ce fournisseur qui n'ont pas encore de routage vers cette application cible précise (qu'elles soient déjà routées vers une autre cible ou non) ;
+  - **Envoyer uniquement les futures factures reçues pour ce fournisseur** — la règle s'applique dès la prochaine réception, sans rejeu de l'historique.
+  Ce choix permet notamment le **fan-out multi-canal** : activer un 2ᵉ (ou 3ᵉ…) canal pour un fournisseur qui en a déjà un ne doit pas ignorer les factures déjà routées ailleurs — seul le manque vis-à-vis de la cible qu'on active est comblé, sans dupliquer les routages existants.
+- **Désactivation d'une règle (case décochée)** : n'affecte que les prochaines factures reçues ; les factures déjà routées vers cette cible ne sont ni ré-routées ni annulées.
 
 ### 4.4 API exposée à Odoo (norme AFNOR XP Z12-013)
 

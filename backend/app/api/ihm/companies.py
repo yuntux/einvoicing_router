@@ -56,12 +56,8 @@ def create_company(
     db.add(company)
     db.commit()
     db.refresh(company)
-    audit_trace_service.record_audit_log(
-        db,
-        action="company_create",
-        target=str(company.id),
-        user_id=user.id if user else None,
-        ip_address=request.client.host if request.client else None,
+    audit_trace_service.record_user_action(
+        db, request, user, action="company_create", target=str(company.id)
     )
     return company
 
@@ -120,12 +116,8 @@ def set_superpdp_credentials(
         platform=payload.platform,
         actor_user_id=user.id if user else None,
     )
-    audit_trace_service.record_audit_log(
-        db,
-        action="superpdp_credentials_update",
-        target=str(company_id),
-        user_id=user.id if user else None,
-        ip_address=request.client.host if request.client else None,
+    audit_trace_service.record_user_action(
+        db, request, user, action="superpdp_credentials_update", target=str(company_id)
     )
     return SuperPDPCredentialsStatus(
         configured=True, client_id=application.client_id, platform=application.platform

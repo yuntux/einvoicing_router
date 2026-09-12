@@ -1,31 +1,24 @@
+import { apiFetch } from './http'
+
 export interface RoutingRule {
   id: number
   partner_directory_id: number
   target_application_id: number
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-
-export async function listRoutingRules(): Promise<RoutingRule[]> {
-  const response = await fetch(`${API_BASE}/api/ihm/routing-rules`, { credentials: 'include' })
-  if (!response.ok) throw new Error(`Failed to list routing rules: ${response.status}`)
-  return response.json()
+export function listRoutingRules(): Promise<RoutingRule[]> {
+  return apiFetch('/api/ihm/routing-rules', {}, 'Failed to list routing rules')
 }
 
-export async function setRoutingRuleActive(
+export function setRoutingRuleActive(
   partnerDirectoryId: number,
   targetApplicationId: number,
   active: boolean,
+  rerouteExisting = true,
 ): Promise<RoutingRule | null> {
-  const response = await fetch(
-    `${API_BASE}/api/ihm/routing-rules/${partnerDirectoryId}/${targetApplicationId}`,
-    {
-      credentials: 'include',
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ active }),
-    },
+  return apiFetch(
+    `/api/ihm/routing-rules/${partnerDirectoryId}/${targetApplicationId}`,
+    { method: 'PUT', json: { active, reroute_existing: rerouteExisting } },
+    'Failed to update routing rule',
   )
-  if (!response.ok) throw new Error(`Failed to update routing rule: ${response.status}`)
-  return response.json()
 }

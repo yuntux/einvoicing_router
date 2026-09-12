@@ -46,13 +46,7 @@ def update_router_settings(
     result = router_settings_service.update_settings(
         db, **payload.model_dump(), write_user_id=user.id if user else None
     )
-    audit_trace_service.record_audit_log(
-        db,
-        action="settings_update",
-        target="router_settings",
-        user_id=user.id if user else None,
-        ip_address=request.client.host if request.client else None,
-    )
+    audit_trace_service.record_user_action(db, request, user, action="settings_update", target="router_settings")
     return result
 
 
@@ -68,12 +62,8 @@ def create_billing_manager_contact(
     contact = billing_manager_contact_service.create_contact(
         db, email=payload.email, actor_user_id=user.id if user else None
     )
-    audit_trace_service.record_audit_log(
-        db,
-        action="billing_manager_contact_create",
-        target=str(contact.id),
-        user_id=user.id if user else None,
-        ip_address=request.client.host if request.client else None,
+    audit_trace_service.record_user_action(
+        db, request, user, action="billing_manager_contact_create", target=str(contact.id)
     )
     return contact
 
@@ -86,10 +76,6 @@ def delete_billing_manager_contact(
     user: User | None = Depends(get_current_user),
 ):
     billing_manager_contact_service.delete_contact(db, contact_id=contact_id)
-    audit_trace_service.record_audit_log(
-        db,
-        action="billing_manager_contact_delete",
-        target=str(contact_id),
-        user_id=user.id if user else None,
-        ip_address=request.client.host if request.client else None,
+    audit_trace_service.record_user_action(
+        db, request, user, action="billing_manager_contact_delete", target=str(contact_id)
     )

@@ -30,7 +30,7 @@ export const router = createRouter({
   ],
 })
 
-// Redirige automatiquement vers le login (§ NF3) si l'authentification est activée
+// Redirige automatiquement vers le login si l'authentification est activée
 // et qu'aucune session n'est présente — puis, une fois connecté, ramène l'utilisateur
 // sur la page initialement demandée (paramètre `next`, cf. app/api/ihm/auth.py).
 router.beforeEach(async (to) => {

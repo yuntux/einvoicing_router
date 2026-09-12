@@ -1,7 +1,8 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
+import { uniqueValidSiren } from './helpers'
 
 test('configures SuperPDP credentials for a company', async ({ page }) => {
-  const unique = String(Date.now()).slice(-9)
+  const unique = uniqueValidSiren()
   const companyName = `Société SuperPDP ${unique}`
 
   await page.goto('/companies')

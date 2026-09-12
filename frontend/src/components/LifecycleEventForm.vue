@@ -8,6 +8,7 @@ import {
   type LifecycleCatalog,
   type LifecycleEvent,
 } from '../api/lifecycle'
+import { useErrorMessage } from '../composables/useErrorMessage'
 import StatusBadge from './StatusBadge.vue'
 
 const props = defineProps<{ invoiceId: number }>()
@@ -15,7 +16,7 @@ const emit = defineEmits<{ created: [] }>()
 
 const catalog = ref<LifecycleCatalog | null>(null)
 const events = ref<LifecycleEvent[]>([])
-const error = ref('')
+const { error, guard } = useErrorMessage()
 
 const status = ref('')
 const reason = ref('')
@@ -36,8 +37,7 @@ async function refreshEvents() {
 }
 
 async function submit() {
-  error.value = ''
-  try {
+  await guard(async () => {
     await createLifecycleEvent(props.invoiceId, {
       status: status.value,
       reason: reason.value || null,
@@ -52,9 +52,7 @@ async function submit() {
     confirmed.value = false
     await refreshEvents()
     emit('created')
-  } catch (e) {
-    error.value = (e as Error).message
-  }
+  })
 }
 
 onMounted(async () => {
