@@ -1,3 +1,5 @@
+import { apiFetch } from './http'
+
 export interface FlowTrace {
   id: number
   correlation_id: string
@@ -5,6 +7,8 @@ export interface FlowTrace {
   afnor_api_version: string
   request: unknown
   response: unknown
+  request_headers: Record<string, string> | null
+  response_headers: Record<string, string> | null
   http_status: number
   created_at: string
 }
@@ -31,22 +35,14 @@ export interface AuditLogEntry {
   created_at: string
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-
-export async function listFlowTraces(): Promise<FlowTrace[]> {
-  const response = await fetch(`${API_BASE}/api/ihm/audit/flow-traces`, { credentials: 'include' })
-  if (!response.ok) throw new Error(`Failed to list flow traces: ${response.status}`)
-  return response.json()
+export function listFlowTraces(): Promise<FlowTrace[]> {
+  return apiFetch('/api/ihm/audit/flow-traces', {}, 'Failed to list flow traces')
 }
 
-export async function listTechnicalLogs(): Promise<TechnicalLog[]> {
-  const response = await fetch(`${API_BASE}/api/ihm/audit/technical-logs`, { credentials: 'include' })
-  if (!response.ok) throw new Error(`Failed to list technical logs: ${response.status}`)
-  return response.json()
+export function listTechnicalLogs(): Promise<TechnicalLog[]> {
+  return apiFetch('/api/ihm/audit/technical-logs', {}, 'Failed to list technical logs')
 }
 
-export async function listAuditLogs(): Promise<AuditLogEntry[]> {
-  const response = await fetch(`${API_BASE}/api/ihm/audit/audit-logs`, { credentials: 'include' })
-  if (!response.ok) throw new Error(`Failed to list audit logs: ${response.status}`)
-  return response.json()
+export function listAuditLogs(): Promise<AuditLogEntry[]> {
+  return apiFetch('/api/ihm/audit/audit-logs', {}, 'Failed to list audit logs')
 }

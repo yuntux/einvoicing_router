@@ -29,11 +29,7 @@ def create_partner(
         siret=payload.siret,
         actor_user_id=user.id if user else None,
     )
-    audit_trace_service.record_audit_log(
-        db,
-        action="partner_create",
-        target=str(partner.id),
-        user_id=user.id if user else None,
-        ip_address=request.client.host if request.client else None,
+    audit_trace_service.record_user_action(
+        db, request, user, action="partner_create", target=str(partner.id)
     )
     return partner

@@ -5,7 +5,7 @@ from app.auth.session import get_current_user
 from app.db.session import get_db
 from app.models.referential import PartnerDirectory, TargetApplication, User
 from app.schemas.referential import RoutingRuleRead, RoutingRuleSetActive, TargetApplicationRead
-from app.services import audit_trace_service, routing_rule_service
+from app.services import audit_trace_service, invoice_ingestion_service, routing_rule_service
 
 router = APIRouter()
 
@@ -41,12 +41,23 @@ def set_routing_rule_active(
         active=payload.active,
         actor_user_id=user.id if user else None,
     )
-    audit_trace_service.record_audit_log(
+    if payload.active and payload.reroute_existing:
+        # Rejoue immédiatement les factures déjà reçues de ce fournisseur qui n'ont
+        # pas encore de routage vers cette cible (§ 4.3) — sans ça, il faudrait
+        # attendre le prochain cycle de polling (jusqu'à 15 min) pour qu'elles soient
+        # enfin routées. L'utilisateur peut désactiver ce rejeu (payload.reroute_existing
+        # = False) pour ne router que les prochaines factures reçues.
+        invoice_ingestion_service.reroute_unrouted_invoices_for_partner(
+            db,
+            partner_directory_id=partner_directory_id,
+            target_application_id=target_application_id,
+        )
+    audit_trace_service.record_user_action(
         db,
+        request,
+        user,
         action="routing_rule_activate" if payload.active else "routing_rule_deactivate",
         target=f"{partner_directory_id}:{target_application_id}",
-        user_id=user.id if user else None,
-        ip_address=request.client.host if request.client else None,
     )
     return rule
 

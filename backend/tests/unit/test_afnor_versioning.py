@@ -33,14 +33,21 @@ def test_registry_contains_v1_and_v2():
 
 
 def test_v2_reuses_same_service_modules_as_v1_not_duplicated_logic():
-    """La preuve architecturale du § 4.8 : v2 importe exactement les mêmes objets
-    module que v1 pour afnor_server_controller/audit_trace_service — aucune logique
-    dupliquée, aucun service modifié pour ajouter la version."""
+    """La preuve architecturale du § 4.8 : v1 et v2 enregistrent, pour `/invoices` et
+    `/directory/{siren}`, le même `__code__` compilé — une unique implémentation
+    (`register_common_routes` dans `_common.py`, appelée une fois par version, chacune
+    créant sa propre fermeture sur `afnor_api_version`), jamais recopiée à la main."""
     import app.api.afnor.v1 as v1
     import app.api.afnor.v2 as v2
 
-    assert v1.afnor_server_controller is v2.afnor_server_controller
-    assert v1.audit_trace_service is v2.audit_trace_service
+    def endpoint_for(router, path: str):
+        return next(route.endpoint for route in router.routes if route.path == path)
+
+    assert endpoint_for(v1.router, "/invoices").__code__ is endpoint_for(v2.router, "/invoices").__code__
+    assert (
+        endpoint_for(v1.router, "/directory/{siren}").__code__
+        is endpoint_for(v2.router, "/directory/{siren}").__code__
+    )
 
 
 def test_v1_and_v2_endpoints_both_work_independently(client, db_session):

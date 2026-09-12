@@ -7,10 +7,11 @@ import {
   type FailedInvoiceRouting,
 } from '../api/invoiceRoutings'
 import StatusBadge from '../components/StatusBadge.vue'
+import { useErrorMessage } from '../composables/useErrorMessage'
 
 const routings = ref<FailedInvoiceRouting[]>([])
 const selected = ref<Set<number>>(new Set())
-const error = ref('')
+const { error, guard } = useErrorMessage()
 const message = ref('')
 
 async function refresh() {
@@ -36,27 +37,21 @@ function selectAllForInvoice(invoiceId: number) {
 }
 
 async function forceSendCycle() {
-  error.value = ''
   message.value = ''
-  try {
+  await guard(async () => {
     await runSendCycle()
     await refresh()
-  } catch (e) {
-    error.value = (e as Error).message
-  }
+  })
 }
 
 async function replaySelected() {
-  error.value = ''
   message.value = ''
-  try {
+  await guard(async () => {
     const results = await replayRoutings([...selected.value])
     const successCount = results.filter((r) => r.success).length
     message.value = `${successCount}/${results.length} rejeu(x) réussi(s).`
     await refresh()
-  } catch (e) {
-    error.value = (e as Error).message
-  }
+  })
 }
 </script>
 

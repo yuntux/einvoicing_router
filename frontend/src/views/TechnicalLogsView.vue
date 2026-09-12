@@ -2,16 +2,15 @@
 import { onMounted, ref } from 'vue'
 import { listTechnicalLogs, type TechnicalLog } from '../api/audit'
 import StatusBadge from '../components/StatusBadge.vue'
+import { useErrorMessage } from '../composables/useErrorMessage'
 
 const technicalLogs = ref<TechnicalLog[]>([])
-const error = ref('')
+const { error, guard } = useErrorMessage()
 
 async function refresh() {
-  try {
+  await guard(async () => {
     technicalLogs.value = await listTechnicalLogs()
-  } catch (e) {
-    error.value = (e as Error).message
-  }
+  })
 }
 
 onMounted(refresh)

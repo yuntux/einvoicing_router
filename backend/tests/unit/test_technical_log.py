@@ -46,6 +46,38 @@ def test_polling_cycle_records_success_technical_log(db_session, monkeypatch):
     assert logs[0].status == "warning"
 
 
+def test_polling_cycle_sets_last_polled_at_and_passes_it_as_since(db_session, monkeypatch):
+    """§ 4.1/lot 9 : le curseur `Company.last_polled_at` doit être posé après un cycle
+    réussi et transmis comme `since` au cycle suivant, pour ne plus re-scanner tout
+    l'historique à chaque déclenchement du scheduler."""
+    company = _make_company(db_session)
+    assert company.last_polled_at is None
+
+    received_since: list[object] = []
+
+    class RecordingClient:
+        def fetch_received_invoices(self, *, company_siren, since=None):
+            received_since.append(since)
+            return []
+
+    monkeypatch.setattr(
+        "app.scheduler.polling_job.resolve_client_for_company",
+        lambda db, company: RecordingClient(),
+    )
+
+    run_polling_cycle(db_session)
+    db_session.refresh(company)
+    first_cursor = company.last_polled_at
+    assert first_cursor is not None
+    assert received_since == [None]
+
+    run_polling_cycle(db_session)
+    db_session.refresh(company)
+
+    assert received_since == [None, first_cursor]
+    assert company.last_polled_at >= first_cursor
+
+
 def test_polling_cycle_records_error_technical_log_on_client_failure(db_session, monkeypatch):
     _make_company(db_session)
 

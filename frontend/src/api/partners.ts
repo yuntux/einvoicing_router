@@ -1,3 +1,5 @@
+import { apiFetch } from './http'
+
 export interface Partner {
   id: number
   siren: string
@@ -11,21 +13,10 @@ export interface PartnerCreate {
   name: string
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-
-export async function listPartners(): Promise<Partner[]> {
-  const response = await fetch(`${API_BASE}/api/ihm/partners`, { credentials: 'include' })
-  if (!response.ok) throw new Error(`Failed to list partners: ${response.status}`)
-  return response.json()
+export function listPartners(): Promise<Partner[]> {
+  return apiFetch('/api/ihm/partners', {}, 'Failed to list partners')
 }
 
-export async function createPartner(payload: PartnerCreate): Promise<Partner> {
-  const response = await fetch(`${API_BASE}/api/ihm/partners`, {
-    credentials: 'include',
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!response.ok) throw new Error(`Failed to create partner: ${response.status}`)
-  return response.json()
+export function createPartner(payload: PartnerCreate): Promise<Partner> {
+  return apiFetch('/api/ihm/partners', { method: 'POST', json: payload }, 'Failed to create partner')
 }

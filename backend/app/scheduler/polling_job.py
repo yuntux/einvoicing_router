@@ -7,6 +7,8 @@ exactement l'exemple de "cron de récupération" donné par la spec pour ce jour
 résultat métier (compteurs, succès/échec), complémentaire du détail HTTP brut que
 `FlowTrace` capture déjà au niveau du client AFNOR."""
 
+from datetime import datetime
+
 from sqlalchemy.orm import Session
 
 from app.models.referential import Company
@@ -20,9 +22,15 @@ LOG_ORIGIN = "scheduler"
 
 def run_polling_cycle(db: Session) -> None:
     for company in db.query(Company).order_by(Company.id).all():
+        # Capturé avant l'appel, pas après (§ 4.1) : un flux mis à jour côté AFNOR
+        # pendant l'appel lui-même doit rester couvert par le `since` du *prochain*
+        # cycle plutôt que d'être manqué parce que le curseur aurait avancé trop loin.
+        cycle_started_at = datetime.utcnow()
         try:
             client = resolve_client_for_company(db, company)
-            result = ingest_from_client(db, company=company, client=client)
+            result = ingest_from_client(
+                db, company=company, client=client, since=company.last_polled_at
+            )
         except Exception as exc:
             audit_trace_service.record_technical_log(
                 db,
@@ -35,6 +43,9 @@ def run_polling_cycle(db: Session) -> None:
             # Une entreprise mal configurée (pas d'identifiants SuperPDP, § 4.10) ne
             # doit pas empêcher le polling des autres entreprises gérées.
             continue
+
+        company.last_polled_at = cycle_started_at
+        db.commit()
 
         audit_trace_service.record_technical_log(
             db,

@@ -43,6 +43,11 @@ class Company(AuditColumnsMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     siren: Mapped[str] = mapped_column(String(9), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255))
+    # Curseur du polling incrémental (§ 4.1) : horodatage du début du dernier cycle de
+    # polling réussi pour cette entreprise, transmis comme `since` au client AFNOR pour
+    # ne re-scanner que les flux mis à jour depuis — sans lui, chaque cycle rescannait
+    # tout l'historique (depuis l'an 2000) à chaque déclenchement, § lot 9.
+    last_polled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class PartnerDirectory(AuditColumnsMixin, Base):

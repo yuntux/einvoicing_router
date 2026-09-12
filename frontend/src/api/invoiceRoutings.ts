@@ -1,3 +1,5 @@
+import { apiFetch } from './http'
+
 export interface FailedInvoiceRouting {
   id: number
   invoice_id: number
@@ -15,29 +17,18 @@ export interface ReplayRoutingResult {
   success: boolean
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-
-export async function listFailedRoutings(): Promise<FailedInvoiceRouting[]> {
-  const response = await fetch(`${API_BASE}/api/ihm/invoice-routings/failed`, { credentials: 'include' })
-  if (!response.ok) throw new Error(`Failed to list failed routings: ${response.status}`)
-  return response.json()
+export function listFailedRoutings(): Promise<FailedInvoiceRouting[]> {
+  return apiFetch('/api/ihm/invoice-routings/failed', {}, 'Failed to list failed routings')
 }
 
-export async function replayRoutings(routingIds: number[]): Promise<ReplayRoutingResult[]> {
-  const response = await fetch(`${API_BASE}/api/ihm/invoice-routings/replay`, {
-    credentials: 'include',
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ routing_ids: routingIds }),
-  })
-  if (!response.ok) throw new Error(`Failed to replay routings: ${response.status}`)
-  return response.json()
+export function replayRoutings(routingIds: number[]): Promise<ReplayRoutingResult[]> {
+  return apiFetch(
+    '/api/ihm/invoice-routings/replay',
+    { method: 'POST', json: { routing_ids: routingIds } },
+    'Failed to replay routings',
+  )
 }
 
-export async function runSendCycle(): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/ihm/invoice-routings/run-send-cycle`, {
-    credentials: 'include',
-    method: 'POST',
-  })
-  if (!response.ok) throw new Error(`Failed to run send cycle: ${response.status}`)
+export function runSendCycle(): Promise<void> {
+  return apiFetch('/api/ihm/invoice-routings/run-send-cycle', { method: 'POST' }, 'Failed to run send cycle')
 }

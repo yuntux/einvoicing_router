@@ -1,3 +1,5 @@
+import { API_BASE, apiFetch } from './http'
+
 export interface Invoice {
   id: number
   company_id: number
@@ -19,6 +21,16 @@ export interface Invoice {
   received_at: string
   last_download_at: string | null
   last_download_by: string | null
+  // Enveloppe de transport du flux AFNOR d'origine (schéma officiel "AFNOR Flow
+  // Service") — distincte des champs métier ci-dessus, extraits du fichier facture.
+  flow_profile: string | null
+  processing_rule_source: string | null
+  tracking_id: string | null
+  flow_direction: string | null
+  flow_type: string | null
+  flow_name: string | null
+  ack_status: string | null
+  ack_details: string | null
 }
 
 export interface InvoiceRouting {
@@ -66,22 +78,16 @@ export interface InvoiceFilters {
   downloaded?: boolean
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-
-export async function listInvoices(filters: InvoiceFilters = {}): Promise<Invoice[]> {
+export function listInvoices(filters: InvoiceFilters = {}): Promise<Invoice[]> {
   const params = new URLSearchParams()
   for (const [key, value] of Object.entries(filters)) {
     if (value !== undefined && value !== '') params.set(key, String(value))
   }
-  const response = await fetch(`${API_BASE}/api/ihm/invoices?${params.toString()}`, { credentials: 'include' })
-  if (!response.ok) throw new Error(`Failed to list invoices: ${response.status}`)
-  return response.json()
+  return apiFetch(`/api/ihm/invoices?${params.toString()}`, {}, 'Failed to list invoices')
 }
 
-export async function getInvoice(id: number): Promise<InvoiceDetail> {
-  const response = await fetch(`${API_BASE}/api/ihm/invoices/${id}`, { credentials: 'include' })
-  if (!response.ok) throw new Error(`Failed to get invoice: ${response.status}`)
-  return response.json()
+export function getInvoice(id: number): Promise<InvoiceDetail> {
+  return apiFetch(`/api/ihm/invoices/${id}`, {}, 'Failed to get invoice')
 }
 
 export function invoiceDownloadUrl(id: number): string {

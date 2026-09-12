@@ -1,3 +1,5 @@
+import { apiFetch } from './http'
+
 export interface Company {
   id: number
   siren: string
@@ -9,21 +11,10 @@ export interface CompanyCreate {
   name: string
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-
-export async function listCompanies(): Promise<Company[]> {
-  const response = await fetch(`${API_BASE}/api/ihm/companies`, { credentials: 'include' })
-  if (!response.ok) throw new Error(`Failed to list companies: ${response.status}`)
-  return response.json()
+export function listCompanies(): Promise<Company[]> {
+  return apiFetch('/api/ihm/companies', {}, 'Failed to list companies')
 }
 
-export async function createCompany(payload: CompanyCreate): Promise<Company> {
-  const response = await fetch(`${API_BASE}/api/ihm/companies`, {
-    credentials: 'include',
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!response.ok) throw new Error(`Failed to create company: ${response.status}`)
-  return response.json()
+export function createCompany(payload: CompanyCreate): Promise<Company> {
+  return apiFetch('/api/ihm/companies', { method: 'POST', json: payload }, 'Failed to create company')
 }

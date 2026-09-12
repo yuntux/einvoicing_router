@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { type Company, createCompany, listCompanies } from '../api/companies'
+import { useErrorMessage } from '../composables/useErrorMessage'
 import {
   type AfnorPlatform,
   getSuperPDPCredentialsStatus,
@@ -12,7 +13,7 @@ import {
 const companies = ref<Company[]>([])
 const siren = ref('')
 const name = ref('')
-const error = ref('')
+const { error, guard } = useErrorMessage()
 const credentialsSuccess = ref('')
 
 const afnorPlatforms = ref<AfnorPlatform[]>([])
@@ -36,15 +37,12 @@ async function refresh() {
 }
 
 async function submit() {
-  error.value = ''
-  try {
+  await guard(async () => {
     await createCompany({ siren: siren.value, name: name.value })
     siren.value = ''
     name.value = ''
     await refresh()
-  } catch (e) {
-    error.value = (e as Error).message
-  }
+  })
 }
 
 function toggleCredentialsForm(companyId: number) {
@@ -57,10 +55,9 @@ function toggleCredentialsForm(companyId: number) {
 }
 
 async function submitCredentials(companyId: number) {
-  error.value = ''
   credentialsSuccess.value = ''
   credentialsSubmitting.value = true
-  try {
+  await guard(async () => {
     credentialsStatus[companyId] = await setSuperPDPCredentials(
       companyId,
       credentialsClientId.value,
@@ -69,11 +66,8 @@ async function submitCredentials(companyId: number) {
     )
     credentialsSuccess.value = 'Test de connexion OK'
     openCredentialsForm.value = null
-  } catch (e) {
-    error.value = (e as Error).message
-  } finally {
-    credentialsSubmitting.value = false
-  }
+  })
+  credentialsSubmitting.value = false
 }
 
 onMounted(async () => {
@@ -175,7 +169,7 @@ onMounted(async () => {
                 :data-testid="`superpdp-credentials-toggle-${company.id}`"
                 @click="toggleCredentialsForm(company.id)"
               >
-                {{ credentialsStatus[company.id]?.configured ? 'Remplacer' : 'Configurer' }}
+                {{ credentialsStatus[company.id]?.configured ? 'Modifier' : 'Configurer' }}
               </button>
             </td>
           </tr>

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { listFlowTraces, type FlowTrace } from '../api/audit'
+import { useErrorMessage } from '../composables/useErrorMessage'
 
 const flowTraces = ref<FlowTrace[]>([])
-const error = ref('')
+const { error, guard } = useErrorMessage()
 
 const openFlowTraceId = ref<number | null>(null)
 
@@ -12,11 +13,9 @@ function toggleFlowTrace(id: number) {
 }
 
 async function refresh() {
-  try {
+  await guard(async () => {
     flowTraces.value = await listFlowTraces()
-  } catch (e) {
-    error.value = (e as Error).message
-  }
+  })
 }
 
 onMounted(refresh)
@@ -26,7 +25,7 @@ onMounted(refresh)
   <main class="stack">
     <header class="page-header">
       <h1>Traces techniques (API AFNOR)</h1>
-      <p>Requêtes/réponses HTTP brutes de chaque appel API AFNOR (NF1).</p>
+      <p>Requêtes/réponses HTTP brutes de chaque appel API AFNOR.</p>
     </header>
 
     <p v-if="error" role="alert">{{ error }}</p>
@@ -76,6 +75,14 @@ onMounted(refresh)
                   <div>
                     <strong>Réponse</strong>
                     <pre class="json-preview">{{ JSON.stringify(trace.response, null, 2) }}</pre>
+                  </div>
+                  <div>
+                    <strong>En-têtes requête</strong>
+                    <pre class="json-preview">{{ JSON.stringify(trace.request_headers, null, 2) }}</pre>
+                  </div>
+                  <div>
+                    <strong>En-têtes réponse</strong>
+                    <pre class="json-preview">{{ JSON.stringify(trace.response_headers, null, 2) }}</pre>
                   </div>
                 </div>
               </td>

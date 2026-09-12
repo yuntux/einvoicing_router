@@ -24,6 +24,10 @@ class RawInvoice:
     file_name: str
     file_content: bytes
     emitter_siret: str | None = None
+    # Raison sociale de l'émetteur, si le flux AFNOR la porte (§ 4.4) — sert de nom
+    # à l'entrée `PartnerDirectory` auto-créée à la première facture d'un fournisseur
+    # inconnu, à la place du placeholder générique quand elle est disponible.
+    emitter_name: str | None = None
     due_date: date | None = None
     invoice_type: str = "invoice"
     amount_total: float | None = None
@@ -35,6 +39,18 @@ class RawInvoice:
     superpdp_submitted_at: datetime | None = None
     superpdp_updated_at: datetime | None = None
     raw_metadata: dict = field(default_factory=dict)
+    # Champs de l'enveloppe de transport du flux AFNOR (schéma officiel "AFNOR Flow
+    # Service", cf. app/afnor/invoice_parsing.py) — distincts des champs métier de la
+    # facture ci-dessus (émetteur, montants...), qui eux ne figurent jamais dans le
+    # Metadata du flux et doivent être extraits du fichier facture lui-même.
+    flow_profile: str | None = None
+    processing_rule_source: str | None = None
+    tracking_id: str | None = None
+    flow_direction: str | None = None
+    flow_type: str | None = None
+    flow_name: str | None = None
+    ack_status: str | None = None
+    ack_details: str | None = None
 
 
 class SuperPDPClientProtocol(Protocol):

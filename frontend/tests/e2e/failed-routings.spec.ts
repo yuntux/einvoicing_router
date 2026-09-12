@@ -1,8 +1,8 @@
-import { expect, test } from '@playwright/test'
-import { simulateInvoiceReception } from './helpers'
+import { expect, test } from './fixtures'
+import { simulateInvoiceReception, uniqueValidSiren } from './helpers'
 
 test('forces a send cycle, sees a failed routing, and replays it manually', async ({ page }) => {
-  const unique = String(Date.now()).slice(-9)
+  const unique = uniqueValidSiren()
   const companyName = `Société Retry ${unique}`
   const invoiceNumber = `F-${unique}`
 
@@ -31,6 +31,7 @@ test('forces a send cycle, sees a failed routing, and replays it manually', asyn
     .evaluateAll((ths, name) => ths.findIndex((th) => th.textContent?.includes(name)), `Comptable ${unique}`)
   const rrow = rulesTable.locator('tbody tr').filter({ hasText: `Fournisseur ${unique}` })
   await rrow.locator('td').nth(columnIndex).locator('input[type="checkbox"]').check()
+  await page.getByTestId('confirm-dialog-confirm').click()
 
   await simulateInvoiceReception(page, {
     companySiren: unique,
@@ -50,6 +51,9 @@ test('forces a send cycle, sees a failed routing, and replays it manually', asyn
 
   const checkbox = row.locator('input[type="checkbox"]')
   await checkbox.check()
+  await checkbox.uncheck()
+  await row.getByRole('button', { name: 'Sélectionner toutes les cibles de cette facture' }).click()
+  await expect(checkbox).toBeChecked()
   await page.getByTestId('replay-selected-button').click()
 
   await expect(page.getByRole('status')).toContainText('rejeu')

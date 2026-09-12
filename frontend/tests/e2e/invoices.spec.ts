@@ -1,8 +1,8 @@
-import { expect, test } from '@playwright/test'
-import { simulateInvoiceReception } from './helpers'
+import { expect, test } from './fixtures'
+import { simulateInvoiceReception, uniqueValidSiren } from './helpers'
 
 test('simulates an invoice reception and sees it routed', async ({ page }) => {
-  const unique = String(Date.now()).slice(-9)
+  const unique = uniqueValidSiren()
   const companyName = `Société Test ${unique}`
   const emitterSiren = unique
   const invoiceNumber = `F-${unique}`
@@ -34,6 +34,7 @@ test('simulates an invoice reception and sees it routed', async ({ page }) => {
     .evaluateAll((ths, name) => ths.findIndex((th) => th.textContent?.includes(name)), `Comptable ${unique}`)
   const rrow = rulesTable.locator('tbody tr').filter({ hasText: `Fournisseur ${unique}` })
   await rrow.locator('td').nth(columnIndex).locator('input[type="checkbox"]').check()
+  await page.getByTestId('confirm-dialog-confirm').click()
 
   // Injection d'une facture reçue de cet émetteur (point d'entrée de test, § 10.2)
   await simulateInvoiceReception(page, {
@@ -54,4 +55,25 @@ test('simulates an invoice reception and sees it routed', async ({ page }) => {
 
   await expect(page.getByTestId('invoice-detail')).toContainText(invoiceNumber)
   await expect(page.getByTestId('invoice-routings-list')).toContainText('to_send')
+  await expect(page.getByTestId('invoice-no-afnor-flow')).toBeVisible()
+
+  // Filtre par raison sociale émetteur (jointure PartnerDirectory).
+  await page.getByTestId('filter-invoice-number').fill('')
+  await page.getByTestId('filter-emitter-name').fill(`Fournisseur ${unique}`)
+  await page.getByTestId('filter-submit-button').click()
+  await expect(page.getByTestId(`invoice-row-${invoiceNumber}`)).toBeVisible()
+
+  // Filtre par montant TTC englobant la facture simulée (1234.56).
+  await page.getByTestId('filter-emitter-name').fill('')
+  await page.getByTestId('filter-amount-total-min').fill('1000')
+  await page.getByTestId('filter-amount-total-max').fill('2000')
+  await page.getByTestId('filter-downloaded').selectOption({ label: 'Non' })
+  await page.getByTestId('filter-submit-button').click()
+  await expect(page.getByTestId(`invoice-row-${invoiceNumber}`)).toBeVisible()
+
+  // Borne de fin antérieure à la borne de début : rejeté côté client, sans appel API.
+  await page.getByTestId('filter-amount-total-min').fill('2000')
+  await page.getByTestId('filter-amount-total-max').fill('1000')
+  await page.getByTestId('filter-submit-button').click()
+  await expect(page.getByRole('alert')).toContainText('borne de fin')
 })

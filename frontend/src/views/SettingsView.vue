@@ -9,6 +9,7 @@ import {
   type BillingManagerContact,
   type RouterSettings,
 } from '../api/settings'
+import { useErrorMessage } from '../composables/useErrorMessage'
 
 const settings = ref<RouterSettings | null>(null)
 const smtpHost = ref('')
@@ -23,7 +24,7 @@ const afnorApiIpAllowlist = ref('')
 const contacts = ref<BillingManagerContact[]>([])
 const newContactEmail = ref('')
 
-const error = ref('')
+const { error, guard } = useErrorMessage()
 
 async function refreshSettings() {
   settings.value = await getRouterSettings()
@@ -41,8 +42,7 @@ async function refreshContacts() {
 }
 
 async function submitSettings() {
-  error.value = ''
-  try {
+  await guard(async () => {
     settings.value = await updateRouterSettings({
       smtp_host: smtpHost.value || null,
       smtp_port: smtpPort.value,
@@ -54,20 +54,15 @@ async function submitSettings() {
       afnor_api_ip_allowlist: afnorApiIpAllowlist.value || null,
     })
     smtpPassword.value = ''
-  } catch (e) {
-    error.value = (e as Error).message
-  }
+  })
 }
 
 async function submitContact() {
-  error.value = ''
-  try {
+  await guard(async () => {
     await createBillingManagerContact(newContactEmail.value)
     newContactEmail.value = ''
     await refreshContacts()
-  } catch (e) {
-    error.value = (e as Error).message
-  }
+  })
 }
 
 async function removeContact(id: number) {

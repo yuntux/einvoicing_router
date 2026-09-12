@@ -1,3 +1,5 @@
+import { apiFetch } from './http'
+
 export interface RouterSettings {
   technical_log_retention_days: number
   smtp_host: string | null
@@ -26,48 +28,34 @@ export interface BillingManagerContact {
   email: string
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
-
-export async function getRouterSettings(): Promise<RouterSettings> {
-  const response = await fetch(`${API_BASE}/api/ihm/settings`, { credentials: 'include' })
-  if (!response.ok) throw new Error(`Failed to get router settings: ${response.status}`)
-  return response.json()
+export function getRouterSettings(): Promise<RouterSettings> {
+  return apiFetch('/api/ihm/settings', {}, 'Failed to get router settings')
 }
 
-export async function updateRouterSettings(
-  payload: RouterSettingsUpdate,
-): Promise<RouterSettings> {
-  const response = await fetch(`${API_BASE}/api/ihm/settings`, {
-    credentials: 'include',
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!response.ok) throw new Error(`Failed to update router settings: ${response.status}`)
-  return response.json()
+export function updateRouterSettings(payload: RouterSettingsUpdate): Promise<RouterSettings> {
+  return apiFetch('/api/ihm/settings', { method: 'PUT', json: payload }, 'Failed to update router settings')
 }
 
-export async function listBillingManagerContacts(): Promise<BillingManagerContact[]> {
-  const response = await fetch(`${API_BASE}/api/ihm/settings/billing-manager-contacts`, { credentials: 'include' })
-  if (!response.ok) throw new Error(`Failed to list billing manager contacts: ${response.status}`)
-  return response.json()
+export function listBillingManagerContacts(): Promise<BillingManagerContact[]> {
+  return apiFetch(
+    '/api/ihm/settings/billing-manager-contacts',
+    {},
+    'Failed to list billing manager contacts',
+  )
 }
 
-export async function createBillingManagerContact(email: string): Promise<BillingManagerContact> {
-  const response = await fetch(`${API_BASE}/api/ihm/settings/billing-manager-contacts`, {
-    credentials: 'include',
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
-  })
-  if (!response.ok) throw new Error(`Failed to create billing manager contact: ${response.status}`)
-  return response.json()
+export function createBillingManagerContact(email: string): Promise<BillingManagerContact> {
+  return apiFetch(
+    '/api/ihm/settings/billing-manager-contacts',
+    { method: 'POST', json: { email } },
+    'Failed to create billing manager contact',
+  )
 }
 
-export async function deleteBillingManagerContact(id: number): Promise<void> {
-  const response = await fetch(`${API_BASE}/api/ihm/settings/billing-manager-contacts/${id}`, {
-    credentials: 'include',
-    method: 'DELETE',
-  })
-  if (!response.ok) throw new Error(`Failed to delete billing manager contact: ${response.status}`)
+export function deleteBillingManagerContact(id: number): Promise<void> {
+  return apiFetch(
+    `/api/ihm/settings/billing-manager-contacts/${id}`,
+    { method: 'DELETE' },
+    'Failed to delete billing manager contact',
+  )
 }

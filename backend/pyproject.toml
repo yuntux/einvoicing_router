@@ -35,6 +35,19 @@ dependencies = [
     # Validation de la clé (Luhn) des SIREN/SIRET saisis dans les formulaires IHM
     # (app/schemas/validators.py) plutôt que de réimplémenter l'algorithme.
     "python-stdnum>=1.20",
+    # Le Metadata d'un flux AFNOR (afnor-flow API) ne porte aucune donnée métier de
+    # la facture (émetteur, montants, numéro...) — seulement l'enveloppe de
+    # transport. Ces champs doivent être extraits du fichier facture lui-même
+    # (docType=Original), au format CII/Factur-X : drafthorse fournit un modèle
+    # objet complet de la norme EN 16931/CII plutôt que de réimplémenter un
+    # parseur XML maison (app/afnor/invoice_parsing.py).
+    "drafthorse>=2025.1",
+    # Un flux `flowSyntax=Factur-X` est un PDF/A-3 avec l'XML CII embarqué (pas du
+    # XML brut) — drafthorse sait en écrire (attach_xml) mais pas en extraire ;
+    # factur-x (implémentation de référence FNFE-MPE) fournit cette extraction
+    # (get_xml_from_pdf), le XML récupéré étant ensuite parsé par drafthorse comme
+    # du CII classique (cf. app/afnor/invoice_parsing.py).
+    "factur-x>=6.8",
 ]
 
 [project.optional-dependencies]

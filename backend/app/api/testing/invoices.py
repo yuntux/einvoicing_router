@@ -26,6 +26,7 @@ def simulate_invoice_reception(payload: SimulateInvoiceReception, db: Session = 
         superpdp_flow_id=f"sim-{uuid.uuid4().hex[:12]}",
         emitter_siren=payload.emitter_siren,
         emitter_siret=payload.emitter_siret,
+        emitter_name=payload.emitter_name,
         invoice_number=payload.invoice_number,
         invoice_date=payload.invoice_date,
         due_date=payload.due_date,

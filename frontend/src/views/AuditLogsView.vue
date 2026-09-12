@@ -1,16 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { listAuditLogs, type AuditLogEntry } from '../api/audit'
+import { useErrorMessage } from '../composables/useErrorMessage'
 
 const auditLogs = ref<AuditLogEntry[]>([])
-const error = ref('')
+const { error, guard } = useErrorMessage()
 
 async function refresh() {
-  try {
+  await guard(async () => {
     auditLogs.value = await listAuditLogs()
-  } catch (e) {
-    error.value = (e as Error).message
-  }
+  })
 }
 
 onMounted(refresh)
@@ -20,7 +19,7 @@ onMounted(refresh)
   <main class="stack">
     <header class="page-header">
       <h1>Journal d'audit</h1>
-      <p>Actions utilisateur sur l'IHM (NF9).</p>
+      <p>Actions utilisateur sur l'IHM.</p>
     </header>
 
     <p v-if="error" role="alert">{{ error }}</p>

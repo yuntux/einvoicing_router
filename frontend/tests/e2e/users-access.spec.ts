@@ -1,7 +1,8 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
+import { uniqueValidSiren } from './helpers'
 
 test('manages a user access scope from the users page', async ({ page }) => {
-  const unique = String(Date.now()).slice(-9)
+  const unique = uniqueValidSiren()
   const companyName = `Société Accès ${unique}`
 
   await page.goto('/companies')
@@ -24,4 +25,21 @@ test('manages a user access scope from the users page', async ({ page }) => {
   await page.getByTestId('new-user-submit-button').click()
   await expect(page.getByTestId('users-table')).toContainText(newEmail)
   await expect(page.getByTestId('users-table')).toContainText('En attente de première connexion')
+
+  const row = page.locator('[data-testid^="user-row-"]', { hasText: newEmail })
+
+  // Restreint : coche le périmètre entreprises sur la société qu'on vient de créer.
+  await row.locator('label', { hasText: companyName }).locator('input[type="checkbox"]').check()
+
+  // Bascule en admin : le périmètre entreprises disparaît au profit de "Toutes les
+  // entreprises" (le rôle admin n'a pas besoin d'un périmètre explicite, § NF4).
+  await row.locator('select').selectOption({ label: 'Administrateur' })
+  await expect(row.locator('[data-testid^="user-companies-all-"]')).toContainText(
+    'Toutes les entreprises',
+  )
+
+  // Repasse en utilisateur restreint puis désactive le compte, avant d'enregistrer.
+  await row.locator('select').selectOption({ label: 'Utilisateur restreint' })
+  await row.locator('[data-testid^="user-active-checkbox-"]').uncheck()
+  await row.getByRole('button', { name: 'Enregistrer' }).click()
 })

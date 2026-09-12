@@ -11,10 +11,11 @@ import {
 } from '../api/invoices'
 import LifecycleEventForm from '../components/LifecycleEventForm.vue'
 import StatusBadge from '../components/StatusBadge.vue'
+import { useErrorMessage } from '../composables/useErrorMessage'
 
 const invoices = ref<Invoice[]>([])
 const selected = ref<InvoiceDetail | null>(null)
-const error = ref('')
+const { error, guard } = useErrorMessage()
 
 // Filtres (§ 8.3) — dans le même ordre que les colonnes du tableau ci-dessous.
 const filterInvoiceNumber = ref('')
@@ -47,8 +48,11 @@ function rangeError(): string {
 }
 
 async function refreshInvoices() {
-  error.value = rangeError()
-  if (error.value) return
+  const rangeErr = rangeError()
+  if (rangeErr) {
+    error.value = rangeErr
+    return
+  }
 
   const filters: InvoiceFilters = {}
   if (filterInvoiceNumber.value) filters.invoice_number = filterInvoiceNumber.value
@@ -63,11 +67,9 @@ async function refreshInvoices() {
   if (filterAmountTotalMin.value) filters.amount_total_min = Number(filterAmountTotalMin.value)
   if (filterAmountTotalMax.value) filters.amount_total_max = Number(filterAmountTotalMax.value)
   if (filterDownloaded.value) filters.downloaded = filterDownloaded.value === 'true'
-  try {
+  await guard(async () => {
     invoices.value = await listInvoices(filters)
-  } catch (e) {
-    error.value = (e as Error).message
-  }
+  })
 }
 
 async function selectInvoice(id: number) {
@@ -270,6 +272,20 @@ onMounted(refreshInvoices)
         </template>
         <template v-else>jamais</template>
       </p>
+
+      <h3>Enveloppe du flux AFNOR</h3>
+      <ul class="entity-list" data-testid="invoice-flow-envelope">
+        <li>Syntaxe : {{ selected.syntax ?? '—' }} <span class="entity-sub">({{ selected.flow_name ?? '—' }})</span></li>
+        <li>Règle de traitement : {{ selected.processing_rule ?? '—' }} <span class="entity-sub">({{ selected.processing_rule_source ?? '—' }})</span></li>
+        <li>Profil : {{ selected.flow_profile ?? '—' }}</li>
+        <li>Direction / type : {{ selected.flow_direction ?? '—' }} / {{ selected.flow_type ?? '—' }}</li>
+        <li>Identifiant de suivi (trackingId) : {{ selected.tracking_id ?? '—' }}</li>
+        <li>
+          Accusé de réception :
+          <StatusBadge :value="selected.ack_status" />
+          <span v-if="selected.ack_details" class="entity-sub">{{ selected.ack_details }}</span>
+        </li>
+      </ul>
 
       <h3>Routage</h3>
       <ul v-if="selected.routings.length" class="entity-list" data-testid="invoice-routings-list">

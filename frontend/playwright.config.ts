@@ -2,6 +2,9 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: './tests/e2e',
+  // Couverture de code e2e (monocart-coverage-reports) — cf. tests/e2e/fixtures.ts.
+  globalSetup: './tests/e2e/global.setup.ts',
+  globalTeardown: './tests/e2e/global-teardown.ts',
   use: {
     baseURL: 'http://localhost:5173',
   },

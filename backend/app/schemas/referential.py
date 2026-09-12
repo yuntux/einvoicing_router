@@ -88,6 +88,15 @@ class RoutingRuleSetActive(BaseModel):
     (§ 4.3) — `active=True` crée la règle si absente, `active=False` la supprime."""
 
     active: bool
+    reroute_existing: bool = Field(
+        default=True,
+        description=(
+            "Sans objet si active=False. Si True (défaut), les factures déjà reçues de "
+            "ce fournisseur et pas encore routées vers cette cible sont routées "
+            "immédiatement. Si False, seules les prochaines factures reçues seront "
+            "concernées."
+        ),
+    )
 
 
 class RoutingRuleRead(AuditColumnsRead):
