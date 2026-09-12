@@ -50,7 +50,10 @@ def create_app() -> FastAPI:
         app.add_middleware(IPAllowlistMiddleware)
     # Requis par Authlib (authlib.integrations.starlette_client) pour stocker le
     # state/nonce OIDC côté serveur pendant le flux Entra ID (§ NF3, app/auth/oidc.py).
-    app.add_middleware(SessionMiddleware, secret_key=settings.jwt_secret)
+    # `session_secret` (même périmètre de confiance que le cookie de session IHM,
+    # cf. app/auth/session.py) plutôt que `jwt_secret` (applications OAuth Odoo,
+    # § 4.10) : deux surfaces distinctes, deux secrets distincts.
+    app.add_middleware(SessionMiddleware, secret_key=settings.session_secret)
 
     # Authentification requise sur toutes les routes IHM (NF3) dès que
     # `settings.oidc_mode != "disabled"` — `require_current_user` ne bloque jamais

@@ -149,3 +149,23 @@ def test_invoice_type_from_code():
     assert invoice_type_from_code("381") == "credit_note"
     assert invoice_type_from_code("380") == "invoice"
     assert invoice_type_from_code(None) == "invoice"
+
+
+def test_parse_ubl_does_not_resolve_external_entities():
+    """Garde-fou XXE (CWE-611) : une facture UBL reçue d'un fournisseur tiers, pas
+    nécessairement de confiance, ne doit jamais pouvoir faire lire un fichier local
+    du serveur via une entité externe déclarée dans son DOCTYPE."""
+    xxe_payload = b"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE Invoice [<!ENTITY xxe SYSTEM "file:///etc/hostname">]>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+  xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
+  xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2">
+  <cbc:ID>&xxe;</cbc:ID>
+</Invoice>"""
+
+    fields = parse_invoice_fields(xxe_payload, "UBL")
+
+    # L'entité externe n'est jamais résolue : le DOCTYPE fait rejeter le document
+    # (`parse_invoice_fields` avale l'exception et retourne des champs vides) plutôt
+    # que de substituer `&xxe;` par le contenu du fichier système ciblé.
+    assert fields.invoice_number is None

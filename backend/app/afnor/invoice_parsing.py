@@ -13,6 +13,21 @@ from datetime import date
 
 from lxml import etree
 
+# Parseur XML durci (CWE-611) : `etree.fromstring` résout par défaut les entités
+# externes et charge les DTD référencées, ce qui exposerait le routeur à une
+# exfiltration de fichiers locaux ou un déni de service (entity expansion) via un
+# champ de facture UBL reçu d'un fournisseur tiers, pas nécessairement de confiance
+# — `resolve_entities=False` désactive la substitution d'entités, `no_network=True`
+# interdit toute résolution réseau, `load_dtd=False` empêche même le chargement
+# local d'une DTD référencée.
+_SAFE_XML_PARSER = etree.XMLParser(
+    resolve_entities=False,
+    no_network=True,
+    load_dtd=False,
+    dtd_validation=False,
+    huge_tree=False,
+)
+
 
 @dataclass
 class ParsedInvoiceFields:
@@ -108,7 +123,7 @@ _UBL_NS = {
 
 
 def parse_ubl(file_content: bytes) -> ParsedInvoiceFields:
-    root = etree.fromstring(file_content)
+    root = etree.fromstring(file_content, parser=_SAFE_XML_PARSER)
 
     def text(path: str) -> str | None:
         el = root.find(path, _UBL_NS)

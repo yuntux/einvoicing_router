@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { type Company, listCompanies } from '../api/companies'
 import { type AppUser, createUser, listUsers, updateUserAccess } from '../api/users'
 import { useErrorMessage } from '../composables/useErrorMessage'
+import { formatDateTimeFr } from '../utils/date'
 
 const users = ref<AppUser[]>([])
 const companies = ref<Company[]>([])
@@ -107,7 +108,11 @@ onMounted(refresh)
             <td>{{ user.name ?? '(jamais connecté)' }} ({{ user.email }})</td>
             <td :data-testid="`user-login-status-${user.id}`">
               <span class="badge" :class="user.has_logged_in ? 'badge-success' : 'badge-warning'">
-                {{ user.has_logged_in ? 'Déjà connecté' : 'En attente de première connexion' }}
+                {{
+                  user.has_logged_in
+                    ? `Connecté le ${formatDateTimeFr(user.last_login_at)}`
+                    : 'En attente de première connexion'
+                }}
               </span>
             </td>
             <td>

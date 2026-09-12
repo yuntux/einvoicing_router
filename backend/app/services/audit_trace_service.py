@@ -2,7 +2,10 @@
 technique des traitements batch (spec.md § 6.1), avec trois granularités distinctes
 (cf. docstring de `app.models.audit`)."""
 
+from datetime import datetime
+
 from fastapi import Request
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.audit import AuditLog, FlowTrace, TechnicalLog
@@ -145,3 +148,44 @@ def record_user_action(
         user_id=user.id if user else None,
         ip_address=request.client.host if request.client else None,
     )
+
+
+def get_last_logins(db: Session, user_ids: list[int]) -> dict[int, datetime]:
+    """Date/heure de dernière connexion par utilisateur, dérivée du journal d'audit
+    (action `"login"`, cf. `app.api.ihm.auth`) plutôt que dupliquée dans une colonne
+    dédiée sur `User` — l'audit log est déjà la source de vérité de cet événement."""
+    if not user_ids:
+        return {}
+    rows = (
+        db.query(AuditLog.user_id, func.max(AuditLog.created_at))
+        .filter(AuditLog.action == "login", AuditLog.user_id.in_(user_ids))
+        .group_by(AuditLog.user_id)
+        .all()
+    )
+    return {user_id: last_login for user_id, last_login in rows}
+
+
+def get_last_login(db: Session, user_id: int) -> datetime | None:
+    """Variante mono-utilisateur de `get_last_logins` (utilisée pour la colonne
+    "dernière connexion" de la page Gestion des accès — l'admin y consulte la
+    connexion la plus récente de chaque utilisateur, y compris "maintenant" s'il
+    vient de se connecter)."""
+    return get_last_logins(db, [user_id]).get(user_id)
+
+
+def get_previous_login(db: Session, user_id: int) -> datetime | None:
+    """Avant-dernière connexion de l'utilisateur (`None` s'il ne s'est jamais connecté
+    qu'une seule fois, ou jamais) — utilisée pour l'affichage "Dernière connexion"
+    dans le pied de la sidebar (`/auth/me`) : y montrer la connexion en cours (donc
+    "maintenant") serait sans intérêt ; montrer la *précédente* permet à
+    l'utilisateur de repérer une connexion suspecte (ex. un jour où il n'a pas
+    travaillé)."""
+    rows = (
+        db.query(AuditLog.created_at)
+        .filter(AuditLog.action == "login", AuditLog.user_id == user_id)
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .offset(1)
+        .limit(1)
+        .all()
+    )
+    return rows[0][0] if rows else None

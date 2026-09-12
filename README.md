@@ -17,6 +17,10 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
+# ROUTER_OIDC_MODE n'a volontairement aucune valeur par défaut (fail-closed, § NF3) :
+# à positionner explicitement, y compris pour le développement local et les migrations.
+echo 'ROUTER_OIDC_MODE=disabled' > .env
+
 # Applique les migrations (SQLite locale par défaut, cf. app/config.py)
 alembic upgrade head
 
@@ -39,7 +43,7 @@ source .venv/bin/activate
 pytest -q
 ```
 
-Les tests utilisent une base SQLite **en mémoire** (jamais écrite sur disque, cf. `spec.md` § 10.2).
+Les tests utilisent une base SQLite **en mémoire** (jamais écrite sur disque, cf. `spec.md` § 10.2). `tests/conftest.py` positionne `ROUTER_OIDC_MODE=disabled` avant même d'importer l'application (celle-ci n'a volontairement aucune valeur par défaut, § NF3) — aucune variable d'environnement à exporter pour lancer la suite.
 
 ## Développement — frontend
 
@@ -133,8 +137,13 @@ sudo -u router tee /opt/einvoicing_router/backend/.env >/dev/null <<'EOF'
 ROUTER_DATABASE_URL=sqlite:////opt/einvoicing_router/data/router.db
 ROUTER_INVOICE_STORAGE_ROOT=/opt/einvoicing_router/data/invoices
 
-# Secrets — générer des valeurs aléatoires dédiées, distinctes du secret par défaut de dev
+# Secrets — trois valeurs aléatoires DISTINCTES (jamais les défauts de dev, jamais
+# la même valeur pour plusieurs d'entre elles : chacune protège une surface propre) :
+#   - JWT_SECRET             : jetons OAuth des applications consommatrices Odoo (§ 4.10)
+#   - SESSION_SECRET         : jetons de session IHM utilisateur humain (§ NF3)
+#   - SECRETS_ENCRYPTION_KEY : chiffrement au repos des identifiants SuperPDP (§ 4.10)
 ROUTER_JWT_SECRET=<openssl rand -hex 32>
+ROUTER_SESSION_SECRET=<openssl rand -hex 32>
 ROUTER_SECRETS_ENCRYPTION_KEY=<openssl rand -hex 32>
 
 # Client AFNOR réel contre SuperPDP (§ 4.1/§ 4.8) — "fake" reste le défaut de dev/tests
@@ -227,6 +236,18 @@ sudo apt-get install -y caddy
 ```caddyfile
 # /etc/caddy/Caddyfile
 router.example.com {
+    # En-têtes de sécurité (défense en profondeur), appliqués à toutes les réponses
+    # (SPA statique et API proxifiée ci-dessous) — `img-src` inclut `data:` car les
+    # icônes de formulaire (flèches de <select>...) sont des SVG encodés en ligne
+    # dans le CSS du build Vite, pas des fichiers séparés.
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+        Content-Security-Policy "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    }
+
     # API et proxy émission/cycle de vie (§ 4.4) : tout ce qui commence par /api
     handle /api/* {
         reverse_proxy 127.0.0.1:8000

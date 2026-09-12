@@ -220,6 +220,12 @@ a {
   padding-bottom: 6px;
 }
 
+.sidebar-last-login {
+  padding-bottom: 6px;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
 .sidebar-icon-button {
   flex-shrink: 0;
   display: flex;
