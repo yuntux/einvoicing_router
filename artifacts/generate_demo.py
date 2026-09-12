@@ -3,10 +3,12 @@ Script d'automatisation de démonstration vidéo — Routeur de factures électr
 
 Ce script génère une vidéo de démonstration en combinant :
 1. Narration audio (edge-tts, voix neuronale Microsoft Azure, gratuit, sans clonage).
-2. Un schéma animé d'introduction (PIL + MoviePy, PAS de capture navigateur) qui pose
-   la proposition de valeur du routeur avant de montrer l'application : plusieurs
-   outils de gestion (Spendesk, comptable, ERP...) utilisant des protocoles différents,
-   absorbés par le routeur derrière une seule adresse de facturation par SIREN.
+2. Un schéma animé d'introduction — storyboard HTML/CSS/JS autonome
+   (artifacts/demo_intro_animation.html, éditable/prévisualisable seul dans un navigateur),
+   capturé via un second passage Playwright (§ capture_intro()) — qui pose la proposition de
+   valeur du routeur avant de montrer l'application : plusieurs outils de gestion (Spendesk,
+   comptable, ERP...) utilisant des protocoles différents, absorbés par le routeur derrière une
+   seule adresse de facturation par SIREN.
 3. Capture vidéo automatisée (Playwright) du parcours complet dans l'IHM réelle
    (Vue + Vite), contre un backend FastAPI de démonstration dédié, lancé avec
    `ROUTER_OIDC_MODE=dev` (§ NF3 — mode sans IdP réel, prévu justement pour ça) :
@@ -68,13 +70,13 @@ STRUCTURE DU SCRIPT :
   de frontend/src/style.css.
 - AUDIO : génération des segments MP3 via edge-tts (voix fr-FR-RemyMultilingualNeural),
   mis en cache par hash du texte.
-- SCHEMA D'INTRO : create_intro_sequence() — diaporama de 4 vues (PIL) : chaos des
-  protocoles avant le routeur, convergence dans le routeur, sortie unique par SIREN,
-  page de garde brandée — substitut animé de create_title_card() dans l'assemblage.
+- SCHEMA D'INTRO : capture_intro() — capture Playwright de demo_intro_animation.html
+  (storyboard HTML/CSS/JS autonome, à éditer séparément), rognée à la durée du segment audio
+  "00_value_prop".
 - CAPTURE : navigation réelle dans l'IHM (clics de menu, remplissage de formulaires,
   confirmation des popins) via les vrais data-testid du frontend — pas de données
   pré-injectées, tout est créé pendant la capture.
-- MONTAGE : create_intro_sequence() + capture, audio calé sur les timestamps réels.
+- MONTAGE : capture_intro() + capture, audio calé sur les timestamps réels.
 """
 import os
 import asyncio
@@ -83,7 +85,6 @@ import subprocess
 import sys
 import hashlib
 import json
-import math
 import socket
 import urllib.parse
 from datetime import datetime
@@ -91,7 +92,6 @@ from pathlib import Path
 
 import moviepy as mp
 from playwright.async_api import async_playwright
-from PIL import Image, ImageDraw, ImageFont
 
 # Seed de données de démonstration (entreprises, factures, traces AFNOR...) — extrait
 # dans son propre module pour pouvoir aussi tourner seul, sans lancer tout le
@@ -150,14 +150,11 @@ VIDEO_HEIGHT = 900
 
 # --- CONFIGURATION DE L'APPLICATION (schéma d'intro, page de garde) ---
 # Palette reprise de frontend/src/style.css (--color-primary / --color-accent).
+# Schéma d'intro : storyboard HTML/CSS/JS autonome (voir ce fichier pour la palette et le
+# scénario), capturé tel quel via Playwright ci-dessous — plus de génération PIL séparée.
+INTRO_HTML_PATH = BASE_DIR / "demo_intro_animation.html"
+
 APP_SETTINGS = {
-    "title": "Routeur de factures",
-    "subtitle": "Une seule adresse de facturation électronique par entreprise,\nquel que soit le nombre d'applications connectées derrière",
-    "bg_color": (255, 255, 255),
-    "primary_color": (44, 59, 87),    # #2c3b57 (--color-primary)
-    "accent_color": (245, 83, 100),   # #f55364 (--color-accent)
-    "muted_color": (112, 117, 138),   # #70758a (--color-muted)
-    "footer_tagline": "Factures • Règles de routage • Entreprises • Applications cibles • Traces & audit",
     "services": [
         {
             "name": "backend démo",
@@ -246,7 +243,7 @@ EDGE_TTS_RATE = "+0%"
 EDGE_TTS_PITCH = "+0Hz"
 
 # --- SEGMENTS DE VOIX OFF (script de la démo) ---
-# "00_value_prop" couvre le schéma d'intro (create_intro_sequence) — ce qui se passe à
+# "00_value_prop" couvre le schéma d'intro (capture_intro()) — ce qui se passe à
 # l'écran pendant ce segment (navigation initiale, silencieuse) n'apparaît jamais dans
 # la vidéo finale, exactement comme la page de garde recouvrait la connexion sur
 # l'ancien projet (cf. assemble()).
@@ -256,7 +253,7 @@ script_segments = [
         "text": (
             "Toutes vos factures ne sont pas traitées dans la même application de gestion ? Vous n'avez pas envie de multiplier les adresses de facturation électroniques déclarées dans l'annuaire public ?  einvoicing Router masque cette complexité une fois pour toutes : vis-à-vis de vos "
             "fournisseurs, une seule adresse de facturation électronique par entreprise suffit, quel que "
-            "soit le nombre d'applications branchées derrière."
+            "soit le nombre d'applications en aval."
         ),
     },
     {
@@ -333,6 +330,29 @@ def is_port_open(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(1)
         return s.connect_ex(("127.0.0.1", port)) == 0
+
+
+def kill_stale_demo_services():
+    """Tue tout ce qui écoute déjà sur DEMO_BACKEND_PORT/DEMO_FRONTEND_PORT avant de démarrer.
+
+    `wait_for_service()` ci-dessous se contente de vérifier qu'un port est déjà ouvert pour
+    décider de NE PAS relancer le service — pratique pour itérer vite sur ce script, mais un
+    piège découvert en testant : un backend jetable resté ouvert depuis une exécution
+    PRÉCÉDENTE (donc démarré avec une ancienne config, ex. ROUTER_OIDC_MODE=disabled avant que
+    ce script passe à ROUTER_OIDC_MODE=dev pour la connexion admin simulée, § capture()) est
+    réutilisé tel quel — la capture échoue alors en silence sur `/api/ihm/auth/login`
+    (`404 {"detail": "Authentication is disabled"}`) sans que rien n'indique que le backend
+    réutilisé date d'une autre version du script. Seuls DEMO_BACKEND_PORT/DEMO_FRONTEND_PORT
+    sont ciblés (jamais un port arbitraire) : ce sont les deux seuls ports que ce script lui-même
+    fait écouter, jamais ceux d'une instance de dev/prod réelle (cf. le commentaire sur ces
+    constantes)."""
+    for port in (DEMO_BACKEND_PORT, DEMO_FRONTEND_PORT):
+        if is_port_open(port):
+            print(f"🔪 Port {port} déjà occupé (exécution précédente ?) — arrêt du processus...")
+            subprocess.run(["fuser", "-k", f"{port}/tcp"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    deadline = time.time() + 10
+    while time.time() < deadline and (is_port_open(DEMO_BACKEND_PORT) or is_port_open(DEMO_FRONTEND_PORT)):
+        time.sleep(0.5)
 
 
 def write_vite_proxy_config():
@@ -818,200 +838,55 @@ async def capture(durations):
         return video_path, narrator.timestamps
 
 
-# --- SCHÉMA D'INTRO (PIL + MoviePy — pas de capture navigateur) ---
-def _font(base_size, scale, bold=False, italic=False):
-    name = "DejaVuSans"
-    if bold:
-        name += "-Bold"
-    elif italic:
-        name += "-Oblique"
-    size = max(8, round(base_size * scale))
-    try:
-        return ImageFont.truetype(f"/usr/share/fonts/truetype/dejavu/{name}.ttf", size)
-    except Exception:
-        try:
-            fallback = "LiberationSans-Bold" if bold else ("LiberationSans-Italic" if italic else "LiberationSans-Regular")
-            return ImageFont.truetype(f"/usr/share/fonts/truetype/liberation/{fallback}.ttf", size)
-        except Exception:
-            return ImageFont.load_default()
+# --- SCHÉMA D'INTRO (capture Playwright de artifacts/demo_intro_animation.html) ---
+async def capture_intro(duration):
+    """Capture l'animation d'intro comme un second mini-`capture()` : ouvre
+    INTRO_HTML_PATH dans un vrai navigateur Playwright (mêmes polices Google Fonts,
+    mêmes transitions CSS que ce que voit un humain qui ouvre le fichier), laisse le
+    storyboard se jouer pendant `duration`, puis retourne le chemin de la vidéo
+    enregistrée — remplace l'ancien diaporama PIL statique (create_intro_sequence),
+    qui ne montrait qu'un instantané figé de chaque étape plutôt que l'animation réelle
+    (icônes, tracés de flèches, apparitions) telle que conçue dans le fichier HTML.
 
-
-def _text_centered(draw, cx, y, text, font, fill):
-    bbox = draw.textbbox((0, 0), text, font=font)
-    w = bbox[2] - bbox[0]
-    draw.text((cx - w / 2, y), text, font=font, fill=fill)
-
-
-def draw_box(draw, cx, cy, w, h, label, sublabel, fill, scale, text_color=(255, 255, 255)):
-    x0, y0, x1, y1 = cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2
-    draw.rounded_rectangle([x0, y0, x1, y1], radius=max(6, round(12 * scale)), fill=fill)
-    label_font = _font(22, scale, bold=True)
-    sub_font = _font(16, scale)
-    if sublabel:
-        _text_centered(draw, cx, cy - 14 * scale, label, label_font, text_color)
-        _text_centered(draw, cx, cy + 8 * scale, sublabel, sub_font, text_color)
-    else:
-        bbox = draw.textbbox((0, 0), label, font=label_font)
-        _text_centered(draw, cx, cy - (bbox[3] - bbox[1]) / 2, label, label_font, text_color)
-
-
-def draw_arrow(draw, p0, p1, color, width):
-    draw.line([p0, p1], fill=color, width=width)
-    angle = math.atan2(p1[1] - p0[1], p1[0] - p0[0])
-    arrow_len = width * 3.2
-    for a in (angle - 0.45, angle + 0.45):
-        x = p1[0] - arrow_len * math.cos(a)
-        y = p1[1] - arrow_len * math.sin(a)
-        draw.line([p1, (x, y)], fill=color, width=width)
-
-
-def create_logo_image(size=200):
-    """Reprend le style du repère de marque de la sidebar (App.vue .sidebar-brand-mark) :
-    carré à coins arrondis, fond accent, lettre blanche."""
-    img = Image.new('RGBA', (size, size), color=(0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    radius = round(size * 0.27)
-    draw.rounded_rectangle([(0, 0), (size, size)], radius=radius, fill=(*APP_SETTINGS["accent_color"], 255))
-    font = _font(size * 0.55, 1.0, bold=True)
-    _text_centered(draw, size / 2, size * 0.18, "R", font, (255, 255, 255))
-    return img
-
-
-def create_brand_slide(duration, scale):
-    W, H = VIDEO_WIDTH, VIDEO_HEIGHT
-    img = Image.new('RGB', (W, H), color=APP_SETTINGS["bg_color"])
-    draw = ImageDraw.Draw(img)
-
-    logo_size = round(150 * scale)
-    logo_img = create_logo_image(size=logo_size)
-    img.paste(logo_img, (round(W / 2 - logo_size / 2), round(180 * scale)), logo_img)
-
-    title_font = _font(90, scale, bold=True)
-    subtitle_font = _font(30, scale)
-    footer_font = _font(22, scale, italic=True)
-
-    _text_centered(draw, W / 2, round(370 * scale), APP_SETTINGS["title"], title_font, APP_SETTINGS["primary_color"])
-
-    subtitle_y = round(480 * scale)
-    for line in APP_SETTINGS["subtitle"].split('\n'):
-        _text_centered(draw, W / 2, subtitle_y, line, subtitle_font, (80, 80, 80))
-        subtitle_y += round(42 * scale)
-
-    bar_width = round(700 * scale)
-    bar_y = round(650 * scale)
-    draw.rectangle(
-        [(W / 2 - bar_width / 2, bar_y), (W / 2 + bar_width / 2, bar_y + max(2, round(6 * scale)))],
-        fill=APP_SETTINGS["accent_color"],
-    )
-    _text_centered(draw, W / 2, round(700 * scale), APP_SETTINGS["footer_tagline"], footer_font, (120, 120, 120))
-
-    path = AUDIO_DIR / "intro_slide_brand.png"
-    img.save(path)
-    return mp.ImageClip(str(path)).with_duration(duration)
-
-
-def create_chaos_slide(duration, scale, funnel_target=None, single_exit=False):
-    """Dessine une vue du schéma d'intro. `funnel_target` fait converger les flèches des
-    quatre outils vers ce point (le routeur) plutôt que vers trois fournisseurs distincts ;
-    `single_exit` bascule vers la vue "sortie unique" (routeur -> une seule adresse par SIREN)."""
-    W, H = VIDEO_WIDTH, VIDEO_HEIGHT
-    scale2 = scale
-    img = Image.new('RGB', (W, H), color=APP_SETTINGS["bg_color"])
-    draw = ImageDraw.Draw(img)
-    title_font = _font(30, scale2, bold=True)
-    primary = APP_SETTINGS["primary_color"]
-    accent = APP_SETTINGS["accent_color"]
-    muted = APP_SETTINGS["muted_color"]
-
-    apps = [
-        ("Spendesk", "SMTP"),
-        ("Comptable", "SMTP"),
-        ("Odoo / ERP", "API AFNOR"),
-        ("Autre outil", "API AFNOR"),
-    ]
-    app_y = round(220 * scale2)
-    app_w, app_h = round(220 * scale2), round(90 * scale2)
-    xs = [W * (i + 1) / (len(apps) + 1) for i in range(len(apps))]
-
-    if not single_exit:
-        for (label, proto), x in zip(apps, xs):
-            draw_box(draw, x, app_y, app_w, app_h, label, proto, primary, scale2)
-
-    if funnel_target is None and not single_exit:
-        # Vue 1 : chaos — chaque outil vers son propre fournisseur, protocoles/adresses différents.
-        partners = [("Fournisseur A", "spendesk-inbox@x.fr"), ("Fournisseur B", "compta@y.fr"), ("Fournisseur C", "api.pdp/v1")]
-        partner_y = round(680 * scale2)
-        pxs = [W * (i + 1) / (len(partners) + 1) for i in range(len(partners))]
-        for (label, sub), x in zip(partners, pxs):
-            draw_box(draw, x, partner_y, round(240 * scale2), round(80 * scale2), label, sub, muted, scale2)
-        # Croisements délibérément désordonnés.
-        targets = [pxs[0], pxs[2], pxs[1], pxs[0]]
-        for x, tx in zip(xs, targets):
-            draw_arrow(draw, (x, app_y + app_h / 2), (tx, partner_y - 40 * scale2), accent, max(2, round(3 * scale2)))
-        _text_centered(draw, W / 2, round(60 * scale2), "Sans routeur : un protocole différent par outil, par fournisseur", title_font, primary)
-
-    elif funnel_target is not None:
-        # Vue 2 : convergence — chaque outil pointe vers le routeur.
-        rx, ry = funnel_target
-        draw_box(draw, rx, ry, round(320 * scale2), round(110 * scale2), "Routeur de factures", None, accent, scale2)
-        for x in xs:
-            draw_arrow(draw, (x, app_y + app_h / 2), (rx, ry - 60 * scale2), primary, max(2, round(3 * scale2)))
-        _text_centered(draw, W / 2, round(60 * scale2), "Le routeur absorbe la complexité, application par application", title_font, primary)
-
-    else:
-        # Vue 3 : sortie unique — un seul type d'adresse, une par SIREN.
-        rx, ry = W / 2, round(220 * scale2)
-        draw_box(draw, rx, ry, round(320 * scale2), round(110 * scale2), "Routeur de factures", None, accent, scale2)
-        partners = ["Entreprise A", "Entreprise B", "Entreprise C"]
-        partner_y = round(650 * scale2)
-        pxs = [W * (i + 1) / (len(partners) + 1) for i in range(len(partners))]
-        for label, x in zip(partners, pxs):
-            draw_box(draw, x, partner_y, round(260 * scale2), round(90 * scale2), label, "facturation@<siren>.routeur.fr", primary, scale2)
-            draw_arrow(draw, (rx, ry + 55 * scale2), (x, partner_y - 45 * scale2), accent, max(2, round(3 * scale2)))
-        _text_centered(
-            draw, W / 2, round(60 * scale2),
-            "Une seule adresse par SIREN, quel que soit le nombre d'applications branchées",
-            title_font, primary,
+    Contrairement à capture() (parcours applicatif scripté), il n'y a rien à cliquer
+    ici : demo_intro_animation.html se joue tout seul au chargement (cf. son propre
+    script), donc cette fonction se contente d'attendre."""
+    print(f"🎬 Capture du schéma d'intro HTML ({duration:.1f}s) — {INTRO_HTML_PATH.name}")
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(
+            record_video_dir=str(VIDEO_DIR),
+            viewport={'width': VIDEO_WIDTH, 'height': VIDEO_HEIGHT},
+            record_video_size={'width': VIDEO_WIDTH, 'height': VIDEO_HEIGHT},
         )
+        page = await context.new_page()
+        await page.goto(INTRO_HTML_PATH.as_uri(), wait_until="load", timeout=15000)
+        await asyncio.sleep(duration)
+        await context.close()
+        video_path = await page.video.path()
+        print("  ✅ Schéma d'intro capturé")
+        return video_path
 
-    path = AUDIO_DIR / f"intro_slide_{'exit' if single_exit else ('funnel' if funnel_target else 'chaos')}.png"
-    img.save(path)
-    return mp.ImageClip(str(path)).with_duration(duration)
-
-
-def create_intro_sequence(duration):
-    """Diaporama de 4 vues remplaçant la page de garde statique de l'ancien projet : pose la
-    proposition de valeur du routeur avant d'entrer dans l'application (§ demande utilisateur —
-    schéma animé simple montrant l'intérêt du routeur)."""
-    print(f"🎨 Création du schéma d'intro ({duration:.1f}s)...")
-    scale = VIDEO_WIDTH / 1920
-
-    brand_dur = max(1.8, duration * 0.22)
-    remaining = max(0.1, duration - brand_dur)
-    slide_dur = remaining / 3
-
-    clips = [
-        create_chaos_slide(slide_dur, scale, funnel_target=None, single_exit=False),
-        create_chaos_slide(slide_dur, scale, funnel_target=(VIDEO_WIDTH / 2, round(500 * scale)), single_exit=False),
-        create_chaos_slide(slide_dur, scale, funnel_target=None, single_exit=True),
-        create_brand_slide(brand_dur, scale),
-    ]
-    print("  ✅ Schéma d'intro généré (4 vues)")
-    return mp.concatenate_videoclips(clips)
 
 
 # --- MONTAGE ---
-def assemble(video_path, durations, audio_paths, timestamps):
+def assemble(video_path, intro_video_path, durations, audio_paths, timestamps):
     print("🎬 Phase Montage Final...")
     if not os.path.exists(video_path):
         print("  ❌ Fichier vidéo source introuvable.")
+        return
+    if not intro_video_path or not os.path.exists(intro_video_path):
+        print("  ❌ Fichier vidéo du schéma d'intro introuvable.")
         return
 
     full_video = mp.VideoFileClip(video_path)
 
     intro_audio_dur = durations.get("00_value_prop", 5.0)
     intro_total_dur = intro_audio_dur + 1.5
-    intro_clip = create_intro_sequence(intro_total_dur)
+    # .with_duration() cale la capture (qui inclut un peu de temps de navigation avant que
+    # asyncio.sleep(duration) ne démarre, cf. capture_intro()) sur la durée exacte attendue par
+    # le montage — coupe le léger surplus plutôt que de risquer une vidéo plus courte que prévu.
+    intro_clip = mp.VideoFileClip(intro_video_path).with_duration(intro_total_dur)
 
     rest_of_video = full_video.subclipped(intro_total_dur, full_video.duration)
     video = mp.concatenate_videoclips([intro_clip, rest_of_video])
@@ -1093,6 +968,7 @@ async def main():
                 meta = json.load(f)
                 t_marks = meta["timestamps"]
                 v_path = meta.get("video_path")
+                intro_v_path = meta.get("intro_video_path")
 
             if not v_path or not os.path.exists(v_path):
                 webms = list(VIDEO_DIR.glob("*.webm"))
@@ -1102,14 +978,27 @@ async def main():
                 v_path = str(max(webms, key=os.path.getmtime))
                 print(f"  🎬 Vidéo détectée : {v_path}")
 
-            assemble(v_path, durations, audio_paths, t_marks)
+            if not intro_v_path or not os.path.exists(intro_v_path):
+                # Contrairement à la capture applicative, pas de repli par glob ici (deux .webm
+                # récents dans temp_video/ ne sont pas fiablement discernables) : le mode
+                # "montage seul" ne relance pas Playwright, donc la capture d'intro doit déjà
+                # avoir été enregistrée par une exécution complète précédente.
+                print("  ❌ Aucune vidéo de schéma d'intro dans 'last_meta.json'. Lancez une capture complète d'abord.")
+                return
+
+            assemble(v_path, intro_v_path, durations, audio_paths, t_marks)
         else:
             try:
                 v_path, t_marks = await capture(durations)
                 if v_path:
+                    intro_total_dur = durations.get("00_value_prop", 5.0) + 1.5
+                    intro_v_path = await capture_intro(intro_total_dur)
                     with open(meta_path, "w") as f:
-                        json.dump({"video_path": v_path, "timestamps": t_marks}, f, indent=2)
-                    assemble(v_path, durations, audio_paths, t_marks)
+                        json.dump(
+                            {"video_path": v_path, "intro_video_path": intro_v_path, "timestamps": t_marks},
+                            f, indent=2,
+                        )
+                    assemble(v_path, intro_v_path, durations, audio_paths, t_marks)
             except Exception as e:
                 print(f"❌ Échec global : {e}")
                 import traceback
