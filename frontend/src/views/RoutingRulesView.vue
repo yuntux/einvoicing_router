@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
+import { isReadOnly } from '../api/auth'
 import { listCompanyLookups, type CompanyLookup } from '../api/companies'
 import { createPartner, listPartners, type Partner } from '../api/partners'
 import { listTargetApplicationLookups, type TargetApplicationLookup } from '../api/targetApplications'
@@ -152,7 +153,7 @@ onMounted(() => guard(refresh))
       <p>Routage des factures par émetteur (SIREN/SIRET) vers une ou plusieurs applications cibles.</p>
     </header>
 
-    <section class="card">
+    <section v-if="!isReadOnly" class="card">
       <h2>Ajouter un fournisseur</h2>
       <form @submit.prevent="submitPartner">
         <input v-model="newPartnerSiren" placeholder="SIREN" maxlength="9" required data-testid="partner-siren-input" />
@@ -202,7 +203,7 @@ onMounted(() => guard(refresh))
                 <input
                   type="checkbox"
                   :checked="isChecked(partner.id, target.id)"
-                  :disabled="pendingCells.has(cellKey(partner.id, target.id))"
+                  :disabled="isReadOnly || pendingCells.has(cellKey(partner.id, target.id))"
                   :data-testid="`routing-rule-checkbox-${partner.id}-${target.id}`"
                   @change="
                     requestToggle(

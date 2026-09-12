@@ -89,3 +89,17 @@ def require_admin(
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin role required")
     return user
+
+
+def require_write(
+    user: User | None = Depends(require_current_user),
+) -> User | None:
+    """À poser sur les endpoints de modification (POST/PUT/DELETE) des pages ouvertes
+    au rôle `readonly` (§ 5.1) : lève 403 si l'utilisateur authentifié a ce rôle. Comme
+    les autres dépendances de ce module, ne bloque rien tant que
+    `oidc_mode == "disabled"`."""
+    if settings.oidc_mode == "disabled":
+        return None
+    if user.role == "readonly":
+        raise HTTPException(status_code=403, detail="Read-only role cannot perform this action")
+    return user

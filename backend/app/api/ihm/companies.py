@@ -11,6 +11,7 @@ from app.schemas.certified_platform_credentials import (
     CertifiedPlatformCredentialsCreate,
     CertifiedPlatformCredentialsStatus,
 )
+from app.scheduler.polling_job import run_polling_cycle
 from app.services import audit_trace_service, certified_platform_credentials_service
 
 # `router` : ouvert à tout utilisateur authentifié (`dependencies=ihm_auth` dans
@@ -35,6 +36,15 @@ def list_company_lookups(db: Session = Depends(get_db)) -> list[Company]:
 @admin_router.get("", response_model=list[CompanyRead])
 def list_companies(db: Session = Depends(get_db)) -> list[Company]:
     return list(db.query(Company).order_by(Company.id).all())
+
+
+@admin_router.post("/run-polling-cycle", status_code=204)
+def run_polling_cycle_endpoint(db: Session = Depends(get_db)) -> None:
+    """Force immédiatement un passage du cycle de polling AFNOR/plateforme certifiée
+    (§ 4.1, toutes entreprises confondues — `run_polling_cycle` n'est pas paramétrable
+    par entreprise), sans attendre le prochain déclenchement du scheduler (jusqu'à
+    `polling_interval_minutes`)."""
+    run_polling_cycle(db)
 
 
 @admin_router.get("/afnor-platforms", response_model=list[AfnorPlatform])

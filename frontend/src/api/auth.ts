@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { API_BASE, apiFetch } from './http'
 
 export interface CurrentUser {
@@ -47,3 +47,11 @@ export async function ensureAuthStatus(): Promise<CurrentUserStatus> {
   authStatus.value = await pendingFetch
   return authStatus.value
 }
+
+// Rôle « lecture seule » (§ 5.1) : mêmes pages que « utilisateur restreint », mais
+// aucune écriture — les vues avec des actions de modification l'utilisent pour
+// masquer/désactiver ces actions (le backend les bloque de toute façon via
+// `require_write`, cf. app/auth/session.py ; ce composable n'est qu'un confort IHM).
+export const isReadOnly = computed(
+  () => !!authStatus.value?.authenticated && authStatus.value.user?.role === 'readonly',
+)

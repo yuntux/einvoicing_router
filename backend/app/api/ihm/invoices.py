@@ -7,7 +7,7 @@ from sqlalchemy import Integer, cast
 from sqlalchemy.orm import Session
 
 from app.auth.perimeter import apply_company_scope, ensure_company_in_scope
-from app.auth.session import get_current_user
+from app.auth.session import get_current_user, require_write
 from app.db.session import get_db
 from app.models.audit import AuditLog
 from app.models.referential import PartnerDirectory, User
@@ -326,7 +326,12 @@ def download_afnor_flow(
     )
 
 
-@router.post("/{invoice_id}/lifecycle-events", response_model=LifecycleEventRead, status_code=201)
+@router.post(
+    "/{invoice_id}/lifecycle-events",
+    response_model=LifecycleEventRead,
+    status_code=201,
+    dependencies=[Depends(require_write)],
+)
 def create_lifecycle_event(
     invoice_id: int,
     payload: CreateManualLifecycleEvent,

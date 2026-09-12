@@ -141,6 +141,48 @@ def update_target_application(
     return target_application
 
 
+@admin_router.post("/{target_application_id}/regenerate-secret", response_model=TargetApplicationCreated)
+def regenerate_target_application_secret(
+    target_application_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    """Renouvelle le secret OAuth d'une application `afnor_api` (§ 4.9.2) — révoque
+    immédiatement l'ancien secret (jamais conservé) : à utiliser en cas de fuite
+    suspectée ou de rotation périodique. `client_id` reste inchangé (identifiant
+    public déjà connu du consommateur, § 4.9.2) — seul le secret change, comme sur
+    la fiche application de SuperPDP."""
+    target_application = db.get(TargetApplication, target_application_id)
+    if target_application is None:
+        raise HTTPException(status_code=404, detail="Target application not found")
+    ensure_company_in_scope(user, target_application.company_id)
+    if target_application.routing_method != RoutingMethod.AFNOR_API:
+        raise HTTPException(
+            status_code=422, detail="Seules les applications AFNOR API ont un secret OAuth à renouveler"
+        )
+
+    actor_id = user.id if user else None
+    _, new_secret = generate_client_credentials()
+    target_application.parameters = {
+        **target_application.parameters,
+        "client_secret_hash": hash_secret(new_secret),
+    }
+    target_application.write_user_id = actor_id
+    db.commit()
+    db.refresh(target_application)
+
+    audit_trace_service.record_user_action(
+        db, request, user, action="target_application_secret_regenerate", target=str(target_application_id)
+    )
+
+    return TargetApplicationCreated(
+        **TargetApplicationRead.model_validate(target_application).model_dump(),
+        oauth_client_id=target_application.client_id,
+        oauth_client_secret=new_secret,
+    )
+
+
 @admin_router.put("/{target_application_id}/status", response_model=TargetApplicationRead)
 def update_target_application_status(
     target_application_id: int,

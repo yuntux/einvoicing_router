@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { isReadOnly } from '../api/auth'
 import {
   createLifecycleEvent,
   getLifecycleCatalog,
@@ -63,7 +64,7 @@ onMounted(async () => {
 
 <template>
   <div class="stack">
-    <div>
+    <div v-if="!isReadOnly">
       <h3>Enregistrer un statut de cycle de vie</h3>
       <form @submit.prevent="submit">
         <select v-model="status" data-testid="lifecycle-status-select" required>

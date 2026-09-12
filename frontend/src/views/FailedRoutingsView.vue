@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { isReadOnly } from '../api/auth'
 import {
   listFailedRoutings,
   replayRoutings,
@@ -76,7 +77,7 @@ async function replaySelected() {
       <p>Suivi des envois en échec ou en retry, avec rejeu manuel unitaire ou en masse.</p>
     </header>
 
-    <section class="card">
+    <section v-if="!isReadOnly" class="card">
       <div class="cluster">
         <button type="button" class="btn-secondary" data-testid="force-send-cycle-button" @click="forceSendCycle">
           Forcer un cycle d'envoi
@@ -135,18 +136,18 @@ async function replaySelected() {
       <table data-testid="failed-routings-table">
         <thead>
           <tr>
-            <th></th>
+            <th v-if="!isReadOnly"></th>
             <th>Facture</th>
             <th>Émetteur</th>
             <th>Cible</th>
             <th>Statut</th>
             <th>Tentatives</th>
-            <th></th>
+            <th v-if="!isReadOnly"></th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="routing in routings" :key="routing.id" :data-testid="`failed-routing-row-${routing.id}`">
-            <td>
+            <td v-if="!isReadOnly">
               <input
                 type="checkbox"
                 :checked="selected.has(routing.id)"
@@ -159,14 +160,14 @@ async function replaySelected() {
             <td>{{ routing.target_application_name }}</td>
             <td><StatusBadge :value="routing.transfer_status" /></td>
             <td>{{ routing.attempt_count }}</td>
-            <td>
+            <td v-if="!isReadOnly">
               <button type="button" class="btn-secondary btn-sm" @click="selectAllForInvoice(routing.invoice_id)">
                 Sélectionner toutes les cibles de cette facture
               </button>
             </td>
           </tr>
           <tr v-if="routings.length === 0">
-            <td colspan="7" class="entity-list-empty">Aucun échec de routage en cours.</td>
+            <td :colspan="isReadOnly ? 5 : 7" class="entity-list-empty">Aucun échec de routage en cours.</td>
           </tr>
         </tbody>
       </table>

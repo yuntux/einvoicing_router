@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
-from app.auth.session import get_current_user
+from app.auth.session import get_current_user, require_write
 from app.db.session import get_db
 from app.models.referential import PartnerDirectory, TargetApplication, User
 from app.schemas.referential import RoutingRuleRead, RoutingRuleSetActive, TargetApplicationRead
@@ -18,6 +18,7 @@ def list_routing_rules(partner_id: int | None = None, db: Session = Depends(get_
 @router.put(
     "/{partner_directory_id}/{target_application_id}",
     response_model=RoutingRuleRead | None,
+    dependencies=[Depends(require_write)],
 )
 def set_routing_rule_active(
     partner_directory_id: int,

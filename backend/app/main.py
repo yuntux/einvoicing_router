@@ -85,6 +85,13 @@ def create_app() -> FastAPI:
     #   /api/ihm/settings/*                  admin uniquement — page Configuration (§ 5.1)
     #   /api/ihm/users/*                     admin uniquement (gestion des accès)
     #   /api/ihm/audit/*                     admin uniquement — traces techniques (§ 5.1)
+    #
+    # Le rôle `readonly` (§ 5.1) a le même périmètre que `user` sur toutes ces pages
+    # authentifiées, mais ne peut rien écrire : ses écritures (création/modification de
+    # partenaire, règle de routage, événement de cycle de vie, rejeu/forçage de cycle
+    # d'envoi) sont bloquées par `Depends(require_write)` posé directement sur chacun
+    # de ces endpoints (pas ici au niveau routeur, car GET et écritures cohabitent dans
+    # les mêmes fichiers de routes).
     # ---------------------------------------------------------------------------
 
     app.include_router(auth_router, prefix="/api/ihm/auth", tags=["auth"])
