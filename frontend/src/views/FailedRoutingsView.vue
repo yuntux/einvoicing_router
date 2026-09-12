@@ -33,7 +33,7 @@ async function refresh() {
   selected.value = new Set()
 }
 
-onMounted(refresh)
+onMounted(() => guard(refresh))
 
 function toggle(id: number) {
   if (selected.value.has(id)) {

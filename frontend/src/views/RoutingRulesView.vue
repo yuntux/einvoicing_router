@@ -142,7 +142,7 @@ function cancelToggle() {
   pendingConfirm.value = null
 }
 
-onMounted(refresh)
+onMounted(() => guard(refresh))
 </script>
 
 <template>

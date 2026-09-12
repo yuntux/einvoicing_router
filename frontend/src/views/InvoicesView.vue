@@ -134,7 +134,9 @@ async function onLifecycleEventCreated() {
 }
 
 onMounted(async () => {
-  targetApplications.value = await listTargetApplicationLookups()
+  await guard(async () => {
+    targetApplications.value = await listTargetApplicationLookups()
+  })
   await refreshInvoices()
 })
 </script>

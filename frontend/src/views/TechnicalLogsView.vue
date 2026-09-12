@@ -55,7 +55,9 @@ function companyName(companyId: number | null): string {
 }
 
 onMounted(async () => {
-  companies.value = await listCompanies()
+  await guard(async () => {
+    companies.value = await listCompanies()
+  })
   await refresh()
 })
 </script>
