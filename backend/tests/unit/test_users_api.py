@@ -41,15 +41,18 @@ def test_list_users_requires_admin_when_enabled(client, monkeypatch):
 
 def test_update_user_access_sets_role_and_company_scope(client, db_session, monkeypatch):
     monkeypatch.setattr(settings, "oidc_mode", "dev")
+    # Premier utilisateur -> admin (amorçage) ; c'est lui qui effectue la modification
+    # d'accès ci-dessous, sur un AUTRE compte : un admin ne peut pas changer son propre
+    # rôle (cf. `app/api/ihm/users.py::update_user_access`, § NF4).
     client.get("/api/ihm/auth/login", params={"email": "admin3@example.com"}, follow_redirects=False)
 
     company = _make_company(db_session)
 
-    users = client.get("/api/ihm/users").json()
-    admin_user_id = [u["id"] for u in users if u["email"] == "admin3@example.com"][0]
+    create_response = client.post("/api/ihm/users", json={"email": "regular3@example.com"})
+    regular_user_id = create_response.json()["id"]
 
     response = client.put(
-        f"/api/ihm/users/{admin_user_id}/access",
+        f"/api/ihm/users/{regular_user_id}/access",
         json={"role": "user", "company_ids": [company.id], "is_active": True},
     )
     assert response.status_code == 200

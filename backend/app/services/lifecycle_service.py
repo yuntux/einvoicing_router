@@ -158,23 +158,33 @@ def _to_payment_date(value) -> date:
     return datetime.utcnow().date()
 
 
+_STATE_FLOW_TYPES = {AfnorFlowType.STATE_SUPPLIER_INVOICE_LC.value, AfnorFlowType.STATE_CUSTOMER_INVOICE_LC.value}
+
+
 def create_incoming_event(
-    db: Session, *, invoice: Invoice, flow_id: str, xml_bytes: bytes, parsed: dict | None = None
+    db: Session,
+    *,
+    invoice: Invoice,
+    flow_id: str,
+    xml_bytes: bytes,
+    parsed: dict | None = None,
+    flow_type: str | None = None,
 ) -> LifecycleEvent | None:
     """Traite un CDAR entrant déjà rattaché à `invoice` (§ 4.2, reçu de SuperPDP) —
     cf. `app.services.lifecycle_ingestion_service` pour le rattachement par numéro de
-    facture. Idempotent : un `flow_id` déjà traité ne recrée jamais d'événement (le
-    polling repasse sur la même fenêtre `since` par tolérance, § 4.1).
+    facture. Idempotent : un `flow_id` déjà traité (entrant ou sortant) ne recrée
+    jamais d'événement — le polling repasse sur la même fenêtre `since` par
+    tolérance (§ 4.1), et interroge désormais les deux sens `flow_direction`
+    (`in`/`out`) côté SuperPDP pour ne rater aucun statut technique (cf. l'incident
+    du statut ap_received exposé en `flow_direction=out`) : filtrer uniquement sur
+    `direction == IN` ici laisserait passer un flux qu'on a nous-mêmes déjà envoyé
+    (`AfnorFlow(direction=OUT)`) s'il ressort du même `flow_id` côté recherche.
 
     Retourne `None` si le CDAR a déjà été traité, ou si son statut (MDT-105) n'est pas
     reconnu dans `STATUS_CATALOG` — dans ce dernier cas, l'`AfnorFlow` technique est
     quand même conservé (trace brute pour investigation), mais aucun `LifecycleEvent`
     métier n'est créé avec un statut inventé."""
-    existing = (
-        db.query(AfnorFlow)
-        .filter(AfnorFlow.flow_id == flow_id, AfnorFlow.direction == EventDirection.IN)
-        .first()
-    )
+    existing = db.query(AfnorFlow).filter(AfnorFlow.flow_id == flow_id).first()
     if existing is not None:
         return None
 
@@ -185,7 +195,11 @@ def create_incoming_event(
         invoice_id=invoice.id,
         flow_id=flow_id,
         direction=EventDirection.IN,
-        flow_type=AfnorFlowType.SUPPLIER_INVOICE_LC,
+        flow_type=(
+            AfnorFlowType.STATE_SUPPLIER_INVOICE_LC
+            if flow_type in _STATE_FLOW_TYPES
+            else AfnorFlowType.SUPPLIER_INVOICE_LC
+        ),
         syntax="CDAR",
         processing_rule=invoice.processing_rule,
         state=AfnorFlowState.DONE,

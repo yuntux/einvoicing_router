@@ -21,13 +21,18 @@ from pyfrctc import pyfrctc as core
 from app.afnor.client.base import RawIncomingCdar, RawInvoice
 from app.afnor.invoice_parsing import invoice_type_from_code, parse_invoice_fields
 
-# "SupplierInvoiceLC" désigne les messages de cycle de vie CDAR (accusés/statuts,
-# XP Z12-013 § 4.2, cf. AfnorFlowType.SUPPLIER_INVOICE_LC) — pas de nouvelles
-# factures : ils sont traités séparément par `fetch_incoming_lifecycle_events`
-# (rattachés à la facture existante via `app.services.lifecycle_ingestion_service`),
-# jamais ingérés ici comme facture, cf. l'incident du flux ie_78332.
+# "SupplierInvoiceLC"/"StateSupplierInvoiceLC" désignent les messages de cycle de vie
+# CDAR (accusés/statuts, XP Z12-013 § 4.2) — pas de nouvelles factures : ils sont
+# traités séparément par `fetch_incoming_lifecycle_events` (rattachés à la facture
+# existante via `app.services.lifecycle_ingestion_service`), jamais ingérés ici comme
+# facture, cf. l'incident du flux ie_78332. Les deux types sont nécessaires : les
+# statuts métier (dispute, payment_received...) transitent par `SupplierInvoiceLC`,
+# les statuts purement techniques émis par la plateforme (`ap_received` "Reçue par la
+# plateforme", etc.) par `StateSupplierInvoiceLC` — un flux manquant dans cette liste
+# fait silencieusement disparaître toute une catégorie de statuts, cf. l'incident de
+# l'événement "Reçue par la plateforme" jamais rattaché à la facture Tricatel.
 RECEIVED_INVOICE_FLOW_TYPES = ["SupplierInvoice"]
-INCOMING_LIFECYCLE_FLOW_TYPES = ["SupplierInvoiceLC"]
+INCOMING_LIFECYCLE_FLOW_TYPES = ["SupplierInvoiceLC", "StateSupplierInvoiceLC"]
 
 
 def _to_date(value) -> date:
@@ -120,20 +125,30 @@ class PyfrctcCertifiedPlatformClient:
         self, *, company_siren: str, since: datetime | None = None
     ) -> list[RawIncomingCdar]:
         updated_after = since or datetime(2000, 1, 1)
-        flows = core.search_flows_parsed(
-            self._session,
-            updated_after=updated_after,
-            flow_direction="in",
-            flow_type=INCOMING_LIFECYCLE_FLOW_TYPES,
-        )
 
         events: list[RawIncomingCdar] = []
-        for flow in flows:
-            flow_id = flow.get("flowId") or flow.get("id")
-            if not flow_id:
-                continue
-            file_content = core.get_flow(self._session, flow_id, doc_type="Original")
-            events.append(
-                RawIncomingCdar(flow_id=flow_id, xml_bytes=file_content, flow_type=flow.get("flowType"))
+        seen_flow_ids: set[str] = set()
+        # `flow_direction` ici décrit le sens du CDAR tel que rapporté par SuperPDP,
+        # pas le sens métier de la facture d'origine : un même statut technique peut
+        # apparaître sous "out" alors que la facture elle-même est bien "in" pour
+        # nous (constaté en production — le CDAR "Reçue par la plateforme" (ap_received,
+        # code 202) d'une facture reçue ressort en `flow_direction="out"`). Interroger
+        # les deux sens est le seul moyen fiable de ne rater aucun statut, cf.
+        # l'incident du statut ap_received jamais rattaché à la facture Tricatel.
+        for direction in ("in", "out"):
+            flows = core.search_flows_parsed(
+                self._session,
+                updated_after=updated_after,
+                flow_direction=direction,
+                flow_type=INCOMING_LIFECYCLE_FLOW_TYPES,
             )
+            for flow in flows:
+                flow_id = flow.get("flowId") or flow.get("id")
+                if not flow_id or flow_id in seen_flow_ids:
+                    continue
+                seen_flow_ids.add(flow_id)
+                file_content = core.get_flow(self._session, flow_id, doc_type="Original")
+                events.append(
+                    RawIncomingCdar(flow_id=flow_id, xml_bytes=file_content, flow_type=flow.get("flowType"))
+                )
         return events

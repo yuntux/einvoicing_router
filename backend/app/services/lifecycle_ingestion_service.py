@@ -55,7 +55,12 @@ def ingest_incoming_lifecycle_events(
             continue
 
         event = lifecycle_service.create_incoming_event(
-            db, invoice=invoice, flow_id=raw.flow_id, xml_bytes=raw.xml_bytes, parsed=parsed
+            db,
+            invoice=invoice,
+            flow_id=raw.flow_id,
+            xml_bytes=raw.xml_bytes,
+            parsed=parsed,
+            flow_type=raw.flow_type,
         )
         if event is not None:
             result.created.append(event)

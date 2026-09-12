@@ -29,6 +29,15 @@ class AfnorFlowState(str, enum.Enum):
 class AfnorFlowType(str, enum.Enum):
     CUSTOMER_INVOICE_LC = "CustomerInvoiceLC"
     SUPPLIER_INVOICE_LC = "SupplierInvoiceLC"
+    # Variantes "State*" (§ 4.2) : mêmes CDAR de cycle de vie, mais réservées aux
+    # statuts purement techniques émis par la plateforme (`submitted`, `ap_sent`,
+    # `ap_received`, `ap_available`, cf. STATUS_CATALOG) — distinctes des flux
+    # `SupplierInvoiceLC`/`CustomerInvoiceLC` porteurs des statuts métier. Un CDAR
+    # technique reçu via ce flux (ex. "Reçue par la plateforme") est ignoré si ce
+    # type n'est pas inclus dans le polling, cf. l'incident du statut ap_received
+    # manquant côté Tricatel.
+    STATE_CUSTOMER_INVOICE_LC = "StateCustomerInvoiceLC"
+    STATE_SUPPLIER_INVOICE_LC = "StateSupplierInvoiceLC"
 
 
 class AfnorFlow(Base):

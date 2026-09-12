@@ -21,6 +21,7 @@ export const router = createRouter({
     { path: '/target-applications', name: 'target-applications', component: TargetApplicationsView },
     { path: '/routing-rules', name: 'routing-rules', component: RoutingRulesView },
     { path: '/invoices', name: 'invoices', component: InvoicesView },
+    { path: '/invoices/:id', name: 'invoice-detail', component: InvoicesView, props: true },
     { path: '/failed-routings', name: 'failed-routings', component: FailedRoutingsView },
     { path: '/settings', name: 'settings', component: SettingsView },
     { path: '/users', name: 'users', component: UsersView },

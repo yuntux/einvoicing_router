@@ -699,54 +699,49 @@ code {
   min-height: 100vh;
 }
 
-/* ---------- Popin détail facture ---------- */
+/* ---------- Détail facture (page routée /invoices/:id, plus une popin) ---------- */
 
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 40px 16px;
-  z-index: 1000;
-  overflow-y: auto;
-}
-
-.modal-panel {
-  width: 100%;
-  max-width: 640px;
-  max-height: calc(100vh - 80px);
-  overflow-y: auto;
-  margin: 0;
-}
-
-.modal-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.modal-header h2 {
-  margin: 0;
-}
-
-.modal-close {
+/* Lien "Retour à la liste" (§ InvoicesView.vue) : pas un bouton plein (l'action
+   n'est pas la principale de l'écran) — juste un chevron + texte dans la couleur de
+   lien standard, au-dessus du titre de page, pattern déjà répandu (Gmail, Linear,
+   GitHub...) pour un écran de détail qui remplace la liste plutôt que de flotter
+   par-dessus. */
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
   border: none;
-  background: transparent;
-  font-size: 1.4rem;
-  line-height: 1;
+  padding: 0;
+  margin-bottom: 4px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--color-accent);
   cursor: pointer;
-  color: var(--color-neutral);
-  padding: 0 4px;
+}
+
+.back-link:hover {
+  text-decoration: underline;
+}
+
+.back-link svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
 }
 
 .modal-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   margin: 10px 0;
+}
+
+@media (max-width: 720px) {
+  .modal-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 .modal-stat-card {
@@ -768,27 +763,36 @@ code {
   font-weight: 600;
 }
 
-/* Variante utilisée pour l'enveloppe du flux AFNOR (§ détails techniques, popin
-   facture) : même carte que les stats d'en-tête, mais plus dense — cette section
-   reste secondaire (repliée par défaut) et compte deux fois plus de champs. */
-.modal-stats-compact {
-  grid-template-columns: repeat(3, 1fr);
-  margin: 6px 0 12px;
-}
-
-.modal-stats-compact .modal-stat-card {
-  padding: 6px 8px;
-}
-
-.modal-stats-compact .modal-stat-value {
-  font-size: 0.85rem;
-  font-weight: 600;
+/* Enveloppe du flux AFNOR (popin facture) : simples lignes "clé : valeur" (clé en
+   gras), sans carte ni fond, réparties sur 2 colonnes (3 champs à gauche, 3 à
+   droite) — un espacement généreux en bas sépare nettement ce bloc du "Routage"
+   qui le suit. */
+.kv-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 24px;
+  margin: 6px 0 28px;
 }
 
 @media (max-width: 480px) {
-  .modal-stats-compact {
-    grid-template-columns: repeat(2, 1fr);
+  .kv-columns {
+    grid-template-columns: 1fr;
   }
+}
+
+.kv-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.kv-list p {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.kv-list strong {
+  font-weight: 700;
 }
 
 .download-control-wrapper {
@@ -801,17 +805,36 @@ code {
   position: relative;
 }
 
-.download-btn-main {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+/* Groupe de boutons "pill" (§ téléchargement, popin facture) : le contour est
+   porté par le conteneur lui-même (une seule bordure continue, `overflow: hidden`
+   pour épouser le border-radius) plutôt que par chaque bouton séparément — sinon
+   la moindre différence de hauteur entre le lien et le bouton (`<a>` vs
+   `<button>`) casse la continuité du trait aux coins. */
+.download-btn-group {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  overflow: hidden;
 }
 
-.download-btn-toggle {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-  border-left: none;
-  padding-left: 6px;
-  padding-right: 8px;
+.download-btn-group .download-btn-main,
+.download-btn-group .download-btn-toggle {
+  border: none;
+  border-radius: 0;
+}
+
+.download-btn-group .download-btn-toggle {
+  border-left: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+}
+
+.download-btn-toggle svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
 }
 
 .download-menu {
@@ -840,22 +863,31 @@ code {
   background: var(--color-neutral-bg);
 }
 
-.modal-technical-details {
+.modal-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
   margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid var(--color-border);
-  padding-top: 6px;
 }
 
-.modal-technical-details summary {
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 0.85rem;
-  color: var(--color-muted);
-  padding: 4px 0;
+.modal-column + .modal-column {
+  border-left: 1px solid var(--color-border);
+  padding-left: 16px;
 }
 
-.modal-technical-details[open] summary {
-  margin-bottom: 4px;
+@media (max-width: 720px) {
+  .modal-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-column + .modal-column {
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid var(--color-border);
+    padding-top: 12px;
+  }
 }
 
 /* ---------- Timeline (cycle de vie fusionné, popin facture) ---------- */
