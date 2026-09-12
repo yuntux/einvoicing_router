@@ -43,6 +43,17 @@ def test_generate_dispute_with_reason_is_xsd_valid():
     assert b"207" in xml_bytes  # cdar_code de "dispute"
 
 
+def test_build_data_dict_mdt87_is_invoice_number_not_flow_id():
+    """MDT-87 (IssuerAssignedID) doit porter le numéro de facture métier — c'est ce
+    que la contrepartie connaît et peut rapprocher de sa propre facture, jamais notre
+    identifiant technique de flux AFNOR (cf. `l10n_fr_einvoicing`, qui y met
+    `invoice.ref`/`invoice.name`)."""
+    invoice = _invoice()
+    data_dict = cdar_service.build_data_dict(invoice=invoice, buyer_company=_company(), status="approved")
+    assert data_dict["MDT-87"] == invoice.invoice_number
+    assert data_dict["MDT-87"] != invoice.certified_platform_flow_id
+
+
 def test_generate_approved_without_detail_is_xsd_valid():
     data_dict = cdar_service.build_data_dict(
         invoice=_invoice(), buyer_company=_company(), status="approved"
@@ -58,6 +69,36 @@ def test_generate_payment_sent_with_payment_lines_is_xsd_valid():
     )
     xml_bytes = cdar_service.generate(data_dict)
     assert b"211" in xml_bytes
+
+
+def test_parse_round_trips_a_generated_cdar():
+    """`cdar_service.parse` (entrant, § 4.2) doit relire ce que `build_data_dict` +
+    `generate` (sortant) ont produit — notamment `MDT-87`/`invoice_number` (rattachement
+    à la facture, cf. `lifecycle_ingestion_service`) et `MDT-105`/`status_code`
+    (résolu via `resolve_status_key`)."""
+    invoice = _invoice()
+    data_dict = cdar_service.build_data_dict(
+        invoice=invoice,
+        buyer_company=_company(),
+        status="dispute",
+        reason="TX_TVA_ERR",
+        action="NIN",
+        comment="Le taux appliqué est incorrect.",
+    )
+    xml_bytes = cdar_service.generate(data_dict)
+
+    parsed = cdar_service.parse(xml_bytes)
+
+    assert parsed["invoice_number"] == invoice.invoice_number
+    assert parsed["status_code"] == "207"
+    assert cdar_service.resolve_status_key(parsed["status_code"]) == "dispute"
+    assert parsed["doc_status"][0]["reason_code"] == "TX_TVA_ERR"
+    assert parsed["doc_status"][0]["action_code"] == "NIN"
+    assert parsed["doc_status"][0]["comment"] == "Le taux appliqué est incorrect."
+
+
+def test_resolve_status_key_unknown_code_returns_none():
+    assert cdar_service.resolve_status_key("999999") is None
 
 
 def test_to_json_safe_serializes_dates():

@@ -3,10 +3,13 @@ from datetime import date
 import pytest
 
 from app.models.invoicing import Invoice
+from app.models.lifecycle import AfnorFlow, EventDirection
 from app.models.referential import Company
+from app.services import cdar_service
 from app.services.lifecycle_service import (
     LifecycleValidationError,
     ManualEventInput,
+    create_incoming_event,
     create_manual_event,
 )
 
@@ -110,3 +113,79 @@ def test_create_manual_event_rejects_wrong_side(db_session):
             side="purchase",
             data=ManualEventInput(status="completed"),
         )
+
+
+def _generate_cdar_bytes(invoice, *, status, **kwargs) -> bytes:
+    """Génère un CDAR réel (round-trip avec le parsing testé ici) — pas d'échantillon
+    externe disponible (aucun n'existe dans le dépôt ni dans `pyfrctc`), cf. exploration
+    de conception."""
+    data_dict = cdar_service.build_data_dict(
+        invoice=invoice, buyer_company=invoice.company, status=status, **kwargs
+    )
+    return cdar_service.generate(data_dict)
+
+
+def test_create_incoming_event_dispute_with_detail(db_session):
+    invoice = _make_invoice(db_session)
+    xml_bytes = _generate_cdar_bytes(
+        invoice, status="dispute", reason="TX_TVA_ERR", action="NIN", comment="Taux erroné."
+    )
+
+    event = create_incoming_event(db_session, invoice=invoice, flow_id="cdar-flow-1", xml_bytes=xml_bytes)
+
+    assert event is not None
+    assert event.status == "dispute"
+    assert event.direction == "in"
+    assert len(event.details) == 1
+    assert event.details[0].reason == "TX_TVA_ERR"
+    assert event.details[0].action == "NIN"
+    assert event.details[0].comment == "Taux erroné."
+    assert invoice.lifecycle_status == "dispute"
+
+    flow = db_session.query(AfnorFlow).filter(AfnorFlow.flow_id == "cdar-flow-1").one()
+    assert flow.direction == EventDirection.IN
+    assert flow.invoice_id == invoice.id
+
+
+def test_create_incoming_event_payment_sent_creates_payment_line(db_session):
+    from app.models.lifecycle import LifecycleEventPayment
+
+    invoice = _make_invoice(db_session)
+    payment = LifecycleEventPayment(amount=123.45, currency="EUR", payment_date=date(2026, 1, 5))
+    xml_bytes = _generate_cdar_bytes(invoice, status="payment_sent", payments=[payment])
+
+    event = create_incoming_event(db_session, invoice=invoice, flow_id="cdar-flow-2", xml_bytes=xml_bytes)
+
+    assert event is not None
+    assert event.status == "payment_sent"
+    assert len(event.payments) == 1
+    assert event.payments[0].amount == 123.45
+    assert event.payments[0].currency == "EUR"
+    assert event.payments[0].payment_date == date(2026, 1, 5)
+
+
+def test_create_incoming_event_is_idempotent(db_session):
+    invoice = _make_invoice(db_session)
+    xml_bytes = _generate_cdar_bytes(invoice, status="approved")
+
+    first = create_incoming_event(db_session, invoice=invoice, flow_id="cdar-flow-3", xml_bytes=xml_bytes)
+    second = create_incoming_event(db_session, invoice=invoice, flow_id="cdar-flow-3", xml_bytes=xml_bytes)
+
+    assert first is not None
+    assert second is None
+    assert db_session.query(AfnorFlow).filter(AfnorFlow.flow_id == "cdar-flow-3").count() == 1
+
+
+def test_create_incoming_event_unknown_status_keeps_flow_but_no_event(db_session, monkeypatch):
+    invoice = _make_invoice(db_session)
+    xml_bytes = _generate_cdar_bytes(invoice, status="approved")
+    monkeypatch.setattr(cdar_service, "resolve_status_key", lambda code: None)
+
+    event = create_incoming_event(db_session, invoice=invoice, flow_id="cdar-flow-4", xml_bytes=xml_bytes)
+
+    assert event is None
+    flow = db_session.query(AfnorFlow).filter(AfnorFlow.flow_id == "cdar-flow-4").one()
+    assert flow.direction == EventDirection.IN
+    # Aucun LifecycleEvent créé pour ce flow (statut non reconnu) : le seul rattaché à
+    # cette facture reste... aucun.
+    assert invoice.lifecycle_status is None

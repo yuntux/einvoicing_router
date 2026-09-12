@@ -1,6 +1,7 @@
 """PyfrctcCertifiedPlatformClient — mapping pyfrctc -> RawInvoice (spec.md § 4.1/NF7, lot 6),
 avec une session mockée (aucun réseau)."""
 
+import json
 from datetime import datetime
 from unittest.mock import MagicMock, patch
 
@@ -69,6 +70,11 @@ def test_fetch_received_invoices_maps_flow_to_raw_invoice():
         "flow_direction": "in",
         "flowType": "SupplierInvoice",
         "state": "done",
+        # `pyfrctc._parse_flow_dict` enrichit le dict avec ces `datetime` dérivés en
+        # plus des chaînes ISO d'origine (submittedAt/updatedAt) — non sérialisables
+        # tels quels dans la colonne JSON `Invoice.afnor_metadata`.
+        "submitted_at": datetime(2026, 1, 1, 10, 0),
+        "updated_at": datetime(2026, 1, 2, 8, 30),
     }
 
     with (
@@ -103,6 +109,11 @@ def test_fetch_received_invoices_maps_flow_to_raw_invoice():
     assert invoice.flow_type == "SupplierInvoice"
     assert invoice.flow_name == "facture.xml"
     assert invoice.ack_status == "done"
+    # `raw_metadata` doit rester sérialisable en JSON (stocké tel quel dans
+    # `Invoice.afnor_metadata`) malgré les `datetime` ajoutés par pyfrctc ci-dessus.
+    json.dumps(invoice.raw_metadata)
+    assert invoice.raw_metadata["submitted_at"] == "2026-01-01T10:00:00"
+    assert invoice.raw_metadata["updated_at"] == "2026-01-02T08:30:00"
 
 
 def test_fetch_received_invoices_skips_flow_without_id():
@@ -119,3 +130,40 @@ def test_fetch_received_invoices_empty_when_no_flows():
         client = PyfrctcCertifiedPlatformClient(session)
         invoices = client.fetch_received_invoices(company_siren="123456789")
     assert invoices == []
+
+
+def test_fetch_incoming_lifecycle_events_maps_flow_to_raw_cdar():
+    """Les CDAR entrants (`SupplierInvoiceLC`) sont récupérés séparément des factures
+    (`fetch_received_invoices`, filtrée sur `SupplierInvoice` uniquement depuis
+    l'incident du flux ie_78332) — contenu brut non interprété ici, cf.
+    `RawIncomingCdar`."""
+    session = MagicMock()
+    flow = {"flowId": "cdar-flow-1", "flowType": "SupplierInvoiceLC"}
+
+    with (
+        patch(
+            "app.afnor.client.pyfrctc_client.core.search_flows_parsed", return_value=[flow]
+        ) as search,
+        patch(
+            "app.afnor.client.pyfrctc_client.core.get_flow", return_value=b"<cdar/>"
+        ) as get_flow,
+    ):
+        client = PyfrctcCertifiedPlatformClient(session)
+        events = client.fetch_incoming_lifecycle_events(company_siren="123456789")
+
+    search.assert_called_once()
+    assert search.call_args.kwargs["flow_type"] == ["SupplierInvoiceLC"]
+    get_flow.assert_called_once_with(session, "cdar-flow-1", doc_type="Original")
+
+    assert len(events) == 1
+    assert events[0].flow_id == "cdar-flow-1"
+    assert events[0].xml_bytes == b"<cdar/>"
+    assert events[0].flow_type == "SupplierInvoiceLC"
+
+
+def test_fetch_incoming_lifecycle_events_skips_flow_without_id():
+    session = MagicMock()
+    with patch("app.afnor.client.pyfrctc_client.core.search_flows_parsed", return_value=[{}]):
+        client = PyfrctcCertifiedPlatformClient(session)
+        events = client.fetch_incoming_lifecycle_events(company_siren="123456789")
+    assert events == []

@@ -60,6 +60,9 @@ def test_polling_cycle_sets_last_polled_at_and_passes_it_as_since(db_session, mo
             received_since.append(since)
             return []
 
+        def fetch_incoming_lifecycle_events(self, *, company_siren, since=None):
+            return []
+
     monkeypatch.setattr(
         "app.scheduler.polling_job.resolve_client_for_company",
         lambda db, company: RecordingClient(),
