@@ -73,7 +73,10 @@ def test_ingest_creates_routing_when_rule_matches(db_session):
     partner = PartnerDirectory(siren="222222222", name="Fournisseur")
     db_session.add(partner)
     target = TargetApplication(
-        name="Spendesk", routing_method=RoutingMethod.MAIL, parameters={"to": ["a@b.com"]}
+        name="Spendesk",
+        routing_method=RoutingMethod.MAIL,
+        company_id=company.id,
+        parameters={"to": ["a@b.com"]},
     )
     db_session.add(target)
     db_session.commit()
@@ -91,3 +94,39 @@ def test_ingest_creates_routing_when_rule_matches(db_session):
     assert len(invoice.routings) == 1
     assert invoice.routings[0].target_application_id == target.id
     assert invoice.routings[0].transfer_status == "to_send"
+
+
+def test_ingest_does_not_leak_invoice_to_other_company_afnor_target(db_session):
+    """NF2 : un fournisseur commun aux deux entreprises gérées ne doit jamais faire
+    router une facture reçue par l'une vers l'application Odoo (afnor_api) de
+    l'autre — seule la cible de l'entreprise réceptrice réelle est retenue."""
+    company_a = _make_company(db_session, siren="111111111")
+    company_b = _make_company(db_session, siren="333333333")
+
+    partner = PartnerDirectory(siren="222222222", name="Fournisseur Commun")
+    db_session.add(partner)
+    target_a = TargetApplication(
+        name="Odoo A", routing_method=RoutingMethod.AFNOR_API, company_id=company_a.id
+    )
+    db_session.add(target_a)
+    db_session.commit()
+    db_session.refresh(partner)
+    db_session.refresh(target_a)
+    routing_rule_service.create_rule(
+        db_session, partner_directory_id=partner.id, target_application_id=target_a.id
+    )
+
+    # Le même fournisseur envoie aussi une facture à l'entreprise B.
+    client_b = FakeSuperPDPClient([_raw_invoice(superpdp_flow_id="flow-b")])
+    result_b = ingest_from_client(db_session, company=company_b, client=client_b)
+
+    invoice_b = result_b.created[0]
+    assert invoice_b.routings == []
+    assert result_b.unrouted_invoice_ids == [invoice_b.id]
+
+    # La facture reçue par l'entreprise A, elle, doit toujours être routée normalement.
+    client_a = FakeSuperPDPClient([_raw_invoice(superpdp_flow_id="flow-a")])
+    result_a = ingest_from_client(db_session, company=company_a, client=client_a)
+
+    invoice_a = result_a.created[0]
+    assert [r.target_application_id for r in invoice_a.routings] == [target_a.id]

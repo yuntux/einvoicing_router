@@ -1,6 +1,6 @@
 from datetime import date
 
-from app.models.referential import PartnerDirectory, RoutingMethod, TargetApplication
+from app.models.referential import Company, PartnerDirectory, RoutingMethod, TargetApplication
 from app.services import routing_rule_service
 
 
@@ -12,9 +12,20 @@ def _make_partner(db, siren="123456789"):
     return partner
 
 
-def _make_target(db, name="Spendesk"):
+def _make_company(db, siren="999999999", name="Ma Société"):
+    company = Company(siren=siren, name=name)
+    db.add(company)
+    db.commit()
+    db.refresh(company)
+    return company
+
+
+def _make_target(db, company, name="Spendesk", routing_method=RoutingMethod.MAIL):
     target = TargetApplication(
-        name=name, routing_method=RoutingMethod.MAIL, parameters={"to": ["a@b.com"]}
+        name=name,
+        routing_method=routing_method,
+        company_id=company.id,
+        parameters={"to": ["a@b.com"]} if routing_method == RoutingMethod.MAIL else {},
     )
     db.add(target)
     db.commit()
@@ -39,7 +50,8 @@ def test_resolve_no_rule_returns_empty(db_session):
 
 def test_resolve_active_rule_no_dates_matches_any_date(db_session):
     partner = _make_partner(db_session)
-    target = _make_target(db_session)
+    company = _make_company(db_session)
+    target = _make_target(db_session, company)
     routing_rule_service.create_rule(
         db_session, partner_directory_id=partner.id, target_application_id=target.id
     )
@@ -51,7 +63,8 @@ def test_resolve_active_rule_no_dates_matches_any_date(db_session):
 
 def test_resolve_respects_date_range(db_session):
     partner = _make_partner(db_session)
-    target = _make_target(db_session)
+    company = _make_company(db_session)
+    target = _make_target(db_session, company)
     routing_rule_service.create_rule(
         db_session,
         partner_directory_id=partner.id,
@@ -77,7 +90,8 @@ def test_resolve_respects_date_range(db_session):
 
 def test_resolve_ignores_inactive_rule(db_session):
     partner = _make_partner(db_session)
-    target = _make_target(db_session)
+    company = _make_company(db_session)
+    target = _make_target(db_session, company)
     routing_rule_service.create_rule(
         db_session,
         partner_directory_id=partner.id,
@@ -92,8 +106,9 @@ def test_resolve_ignores_inactive_rule(db_session):
 
 def test_resolve_multiple_targets(db_session):
     partner = _make_partner(db_session)
-    target_a = _make_target(db_session, name="Spendesk")
-    target_b = _make_target(db_session, name="Comptable")
+    company = _make_company(db_session)
+    target_a = _make_target(db_session, company, name="Spendesk")
+    target_b = _make_target(db_session, company, name="Comptable")
     routing_rule_service.create_rule(
         db_session, partner_directory_id=partner.id, target_application_id=target_a.id
     )
@@ -108,7 +123,8 @@ def test_resolve_multiple_targets(db_session):
 
 def test_resolve_deduplicates_overlapping_rules_for_same_target(db_session):
     partner = _make_partner(db_session)
-    target = _make_target(db_session)
+    company = _make_company(db_session)
+    target = _make_target(db_session, company)
     routing_rule_service.create_rule(
         db_session,
         partner_directory_id=partner.id,
@@ -125,3 +141,67 @@ def test_resolve_deduplicates_overlapping_rules_for_same_target(db_session):
         db_session, siren=partner.siren, reference_date=date(2026, 6, 15)
     )
     assert [t.id for t in result] == [target.id]
+
+
+def test_resolve_excludes_afnor_api_target_of_another_company(db_session):
+    """NF2 (cloisonnement strict) : un fournisseur commun aux deux entreprises ne doit
+    jamais faire fuiter une facture de l'une vers l'application Odoo de l'autre."""
+    company_a = _make_company(db_session, siren="111111111", name="Entreprise A")
+    company_b = _make_company(db_session, siren="222222222", name="Entreprise B")
+    partner = _make_partner(db_session)
+    target_for_a = _make_target(
+        db_session, company_a, name="Odoo A", routing_method=RoutingMethod.AFNOR_API
+    )
+    routing_rule_service.create_rule(
+        db_session, partner_directory_id=partner.id, target_application_id=target_for_a.id
+    )
+
+    result_for_b = routing_rule_service.resolve(
+        db_session, siren=partner.siren, reference_date=date(2026, 1, 1), company_id=company_b.id
+    )
+    assert result_for_b == []
+
+    result_for_a = routing_rule_service.resolve(
+        db_session, siren=partner.siren, reference_date=date(2026, 1, 1), company_id=company_a.id
+    )
+    assert [t.id for t in result_for_a] == [target_for_a.id]
+
+
+def test_resolve_excludes_mail_target_of_another_company(db_session):
+    """Même règle que pour afnor_api (§ NF2) : une application mail est rattachée à
+    une entreprise (`company_id` obligatoire) et n'est jamais retenue pour une facture
+    reçue par une autre entreprise gérée, même si le fournisseur leur est commun."""
+    company_a = _make_company(db_session, siren="111111111", name="Entreprise A")
+    company_b = _make_company(db_session, siren="222222222", name="Entreprise B")
+    partner = _make_partner(db_session)
+    mail_target = _make_target(db_session, company_a, name="Spendesk")
+    routing_rule_service.create_rule(
+        db_session, partner_directory_id=partner.id, target_application_id=mail_target.id
+    )
+
+    result_for_b = routing_rule_service.resolve(
+        db_session, siren=partner.siren, reference_date=date(2026, 1, 1), company_id=company_b.id
+    )
+    assert result_for_b == []
+
+    result_for_a = routing_rule_service.resolve(
+        db_session, siren=partner.siren, reference_date=date(2026, 1, 1), company_id=company_a.id
+    )
+    assert [t.id for t in result_for_a] == [mail_target.id]
+
+
+def test_resolve_without_company_id_returns_all_targets(db_session):
+    """`company_id=None` (prévisualisation admin) désactive le filtre par entreprise."""
+    company_a = _make_company(db_session, siren="111111111", name="Entreprise A")
+    partner = _make_partner(db_session)
+    target_for_a = _make_target(
+        db_session, company_a, name="Odoo A", routing_method=RoutingMethod.AFNOR_API
+    )
+    routing_rule_service.create_rule(
+        db_session, partner_directory_id=partner.id, target_application_id=target_for_a.id
+    )
+
+    result = routing_rule_service.resolve(
+        db_session, siren=partner.siren, reference_date=date(2026, 1, 1)
+    )
+    assert [t.id for t in result] == [target_for_a.id]

@@ -23,6 +23,7 @@ def _make_failed_routing(db, *, status: TransferStatus, siren: str, flow_id: str
     target = TargetApplication(
         name="Comptable",
         routing_method=RoutingMethod.MAIL,
+        company_id=company.id,
         parameters={"to": ["compta@example.com"], "cc": [], "bcc": []},
     )
     db.add(target)
@@ -119,6 +120,7 @@ def test_run_send_cycle_moves_to_send_routing_to_retrying(client, db_session):
     target = TargetApplication(
         name="Comptable",
         routing_method=RoutingMethod.MAIL,
+        company_id=company.id,
         parameters={"to": ["compta@example.com"], "cc": [], "bcc": []},
     )
     db_session.add(target)

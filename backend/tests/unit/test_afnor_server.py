@@ -201,6 +201,34 @@ def test_list_invoices_scoped_to_consumer(client, db_session):
     assert body[0]["id"] == invoice_a.id
 
 
+def test_list_invoices_excludes_invoice_of_another_company_even_if_routed_there(
+    client, db_session
+):
+    """Garde-fou NF2 (défense en profondeur, cf. list_invoices_for_consumer) : même si
+    un `InvoiceRouting` erroné existe (donnée historique désynchronisée, bug amont...),
+    l'API ne doit jamais exposer une facture d'une autre entreprise que celle du
+    consommateur authentifié."""
+    company_a = _make_company(db_session, siren="111111111", name="Société A")
+    company_b = _make_company(db_session, siren="222222222", name="Société B")
+
+    oauth_app_a = _make_oauth_app(db_session, company_a, client_secret="secret-a")
+    target_a = _make_target(db_session, company_a, oauth_app=oauth_app_a, name="Odoo A")
+
+    partner = _make_partner(db_session)
+    invoice_b = _make_invoice(db_session, company_b, partner, flow_id="flow-b")
+
+    # Routage (à tort) de la facture de l'entreprise B vers la cible de l'entreprise A.
+    _route(db_session, invoice_b, target_a)
+
+    token_a = _authenticate(client, oauth_app_a, "secret-a")
+    response = client.get(
+        "/api/afnor/v1/invoices", headers={"Authorization": f"Bearer {token_a}"}
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
 def test_list_invoices_no_target_returns_empty(client, db_session):
     company = _make_company(db_session)
     oauth_app = _make_oauth_app(db_session, company, client_secret="s3cret-value")

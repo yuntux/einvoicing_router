@@ -1,12 +1,12 @@
-def _make_invoice_via_api(client, siren="777777777"):
+def _make_invoice_via_api(client, siren="777777772"):
     company = client.post(
         "/api/ihm/companies", json={"siren": siren, "name": "Ma Société"}
     ).json()
     invoice = client.post(
-        "/api/ihm/invoices/simulate",
+        "/api/test/invoices/simulate",
         json={
             "company_id": company["id"],
-            "emitter_siren": "888888888",
+            "emitter_siren": "888888880",
             "invoice_number": "F-100",
             "invoice_date": "2026-02-01",
         },
@@ -60,3 +60,137 @@ def test_create_lifecycle_event_missing_reason_returns_422(client):
         json={"status": "dispute"},
     )
     assert response.status_code == 422
+
+
+def test_lifecycle_event_exposes_amount_currency_payments_and_attachments(client, db_session):
+    """Champs stockés en base mais absents de la réponse jusque-là (§ 6.2) — un
+    événement reçu automatiquement (jamais créé manuellement) peut porter un montant,
+    des lignes de paiement et des pièces jointes."""
+    from datetime import date
+
+    from app.models.lifecycle import (
+        EventDirection,
+        LifecycleEvent,
+        LifecycleEventAttachment,
+        LifecycleEventPayment,
+    )
+
+    invoice = _make_invoice_via_api(client)
+
+    event = LifecycleEvent(
+        invoice_id=invoice["id"],
+        company_id=invoice["company_id"],
+        status="payment_sent",
+        direction=EventDirection.IN,
+        amount=100.5,
+        currency="EUR",
+    )
+    db_session.add(event)
+    db_session.commit()
+    db_session.add(
+        LifecycleEventPayment(event_id=event.id, amount=100.5, currency="EUR", payment_date=date(2026, 3, 1))
+    )
+    db_session.add(
+        LifecycleEventAttachment(event_id=event.id, filename="justificatif.pdf", file_path="/tmp/justificatif.pdf")
+    )
+    db_session.commit()
+
+    response = client.get(f"/api/ihm/invoices/{invoice['id']}/lifecycle-events")
+    assert response.status_code == 200
+    [payload] = [e for e in response.json() if e["id"] == event.id]
+    assert payload["amount"] == 100.5
+    assert payload["currency"] == "EUR"
+    assert payload["payments"] == [
+        {"id": payload["payments"][0]["id"], "amount": 100.5, "currency": "EUR", "payment_date": "2026-03-01"}
+    ]
+    assert payload["attachments"] == [
+        {"id": payload["attachments"][0]["id"], "filename": "justificatif.pdf", "has_file": True}
+    ]
+
+
+def test_invoice_detail_exposes_afnor_flows(client, db_session):
+    from app.models.lifecycle import AfnorFlow, AfnorFlowType, EventDirection
+
+    invoice = _make_invoice_via_api(client)
+    flow = AfnorFlow(
+        invoice_id=invoice["id"],
+        flow_id="flow-123",
+        direction=EventDirection.IN,
+        flow_type=AfnorFlowType.SUPPLIER_INVOICE_LC,
+        state="done",
+        file_bin=b"<xml/>",
+    )
+    db_session.add(flow)
+    db_session.commit()
+
+    response = client.get(f"/api/ihm/invoices/{invoice['id']}")
+    assert response.status_code == 200
+    [payload] = response.json()["afnor_flows"]
+    assert payload["flow_id"] == "flow-123"
+    assert payload["state"] == "done"
+    assert payload["has_file"] is True
+
+    download = client.get(f"/api/ihm/invoices/{invoice['id']}/afnor-flows/{flow.id}/download")
+    assert download.status_code == 200
+    assert download.content == b"<xml/>"
+
+
+def test_download_afnor_flow_without_file_returns_404(client, db_session):
+    from app.models.lifecycle import AfnorFlow, AfnorFlowType, EventDirection
+
+    invoice = _make_invoice_via_api(client)
+    flow = AfnorFlow(
+        invoice_id=invoice["id"],
+        direction=EventDirection.IN,
+        flow_type=AfnorFlowType.SUPPLIER_INVOICE_LC,
+        state="created",
+    )
+    db_session.add(flow)
+    db_session.commit()
+
+    response = client.get(f"/api/ihm/invoices/{invoice['id']}/afnor-flows/{flow.id}/download")
+    assert response.status_code == 404
+
+
+def test_download_lifecycle_event_attachment(client, db_session, tmp_path):
+    from app.models.lifecycle import EventDirection, LifecycleEvent, LifecycleEventAttachment
+
+    invoice = _make_invoice_via_api(client)
+    event = LifecycleEvent(
+        invoice_id=invoice["id"], company_id=invoice["company_id"], status="approved", direction=EventDirection.IN
+    )
+    db_session.add(event)
+    db_session.commit()
+
+    file_path = tmp_path / "justificatif.pdf"
+    file_path.write_bytes(b"%PDF-1.4 fake content")
+    attachment = LifecycleEventAttachment(
+        event_id=event.id, filename="justificatif.pdf", file_path=str(file_path)
+    )
+    db_session.add(attachment)
+    db_session.commit()
+
+    response = client.get(
+        f"/api/ihm/invoices/{invoice['id']}/lifecycle-events/{event.id}/attachments/{attachment.id}/download"
+    )
+    assert response.status_code == 200
+    assert response.content == b"%PDF-1.4 fake content"
+
+
+def test_download_lifecycle_event_attachment_missing_file_returns_404(client, db_session):
+    from app.models.lifecycle import EventDirection, LifecycleEvent, LifecycleEventAttachment
+
+    invoice = _make_invoice_via_api(client)
+    event = LifecycleEvent(
+        invoice_id=invoice["id"], company_id=invoice["company_id"], status="approved", direction=EventDirection.IN
+    )
+    db_session.add(event)
+    db_session.commit()
+    attachment = LifecycleEventAttachment(event_id=event.id, filename="missing.pdf", file_path=None)
+    db_session.add(attachment)
+    db_session.commit()
+
+    response = client.get(
+        f"/api/ihm/invoices/{invoice['id']}/lifecycle-events/{event.id}/attachments/{attachment.id}/download"
+    )
+    assert response.status_code == 404

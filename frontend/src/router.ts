@@ -1,12 +1,15 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { ensureAuthStatus, loginUrl } from './api/auth'
+import AuditLogsView from './views/AuditLogsView.vue'
 import CompaniesView from './views/CompaniesView.vue'
 import FailedRoutingsView from './views/FailedRoutingsView.vue'
+import FlowTracesView from './views/FlowTracesView.vue'
 import InvoicesView from './views/InvoicesView.vue'
 import LoginErrorView from './views/LoginErrorView.vue'
 import RoutingRulesView from './views/RoutingRulesView.vue'
 import SettingsView from './views/SettingsView.vue'
 import TargetApplicationsView from './views/TargetApplicationsView.vue'
+import TechnicalLogsView from './views/TechnicalLogsView.vue'
 import UsersView from './views/UsersView.vue'
 
 export const router = createRouter({
@@ -21,6 +24,9 @@ export const router = createRouter({
     { path: '/failed-routings', name: 'failed-routings', component: FailedRoutingsView },
     { path: '/settings', name: 'settings', component: SettingsView },
     { path: '/users', name: 'users', component: UsersView },
+    { path: '/traces/flow-traces', name: 'flow-traces', component: FlowTracesView },
+    { path: '/traces/technical-logs', name: 'technical-logs', component: TechnicalLogsView },
+    { path: '/traces/audit-logs', name: 'audit-logs', component: AuditLogsView },
   ],
 })
 

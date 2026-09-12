@@ -23,7 +23,14 @@ def _target_applications_for(db: Session, oauth_app: OAuthApplication) -> list[T
 
 def list_invoices_for_consumer(db: Session, *, oauth_app: OAuthApplication) -> list[Invoice]:
     """Consultation des factures (§ 4.4) : ne retourne que les factures flaggées comme
-    destinées à ce consommateur, via les `InvoiceRouting` de ses applications cibles."""
+    destinées à ce consommateur, via les `InvoiceRouting` de ses applications cibles.
+
+    Filtre aussi explicitement `Invoice.company_id == oauth_app.company_id` (NF2,
+    cloisonnement strict entre entreprises gérées) : garde-fou redondant avec le filtre
+    déjà appliqué en amont par `RoutingRuleService.resolve` au moment du routage — en
+    cas de désynchronisation (ex. `InvoiceRouting` créé avant un changement ultérieur
+    de rattachement d'une application cible), une facture d'une autre entreprise ne
+    doit jamais être exposée à ce consommateur."""
     target_ids = [t.id for t in _target_applications_for(db, oauth_app)]
     if not target_ids:
         return []
@@ -36,7 +43,12 @@ def list_invoices_for_consumer(db: Session, *, oauth_app: OAuthApplication) -> l
     ids = [row[0] for row in invoice_ids]
     if not ids:
         return []
-    return db.query(Invoice).filter(Invoice.id.in_(ids)).order_by(Invoice.id).all()
+    return (
+        db.query(Invoice)
+        .filter(Invoice.id.in_(ids), Invoice.company_id == oauth_app.company_id)
+        .order_by(Invoice.id)
+        .all()
+    )
 
 
 @dataclass

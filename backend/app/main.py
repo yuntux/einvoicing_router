@@ -7,6 +7,7 @@ from starlette.middleware.sessions import SessionMiddleware
 import app.api.afnor.v1  # noqa: F401  (s'enregistre auprès du registre de versions)
 import app.api.afnor.v2  # noqa: F401  (idem — cf. app/afnor/versioning/registry.py)
 from app.afnor.versioning.registry import get_router
+from app.api.ihm.audit import router as audit_router
 from app.api.ihm.auth import router as auth_router
 from app.api.ihm.companies import router as companies_router
 from app.api.ihm.invoice_routings import router as invoice_routings_router
@@ -17,6 +18,7 @@ from app.api.ihm.routing_rules import router as routing_rules_router
 from app.api.ihm.settings import router as settings_router
 from app.api.ihm.target_applications import router as target_applications_router
 from app.api.ihm.users import router as users_router
+from app.api.testing.invoices import router as testing_invoices_router
 from app.auth.ip_allowlist import IPAllowlistMiddleware
 from app.auth.session import require_current_user
 from app.config import settings
@@ -103,6 +105,15 @@ def create_app() -> FastAPI:
         settings_router, prefix="/api/ihm/settings", tags=["settings"], dependencies=ihm_auth
     )
     app.include_router(users_router, prefix="/api/ihm/users", tags=["users"])
+    app.include_router(audit_router, prefix="/api/ihm/audit", tags=["audit"], dependencies=ihm_auth)
+
+    # Points d'entrée réservés aux tests (pytest/Playwright), hors de l'API produit
+    # (/api/ihm/*, /api/afnor/*) : jamais montés quand un vrai client SuperPDP est
+    # configuré (settings.superpdp_client_mode == "pyfrctc", cas de la production) —
+    # aucune route de simulation de réception de facture n'existe alors, ni dans
+    # l'IHM ni dans l'API.
+    if settings.superpdp_client_mode == "fake":
+        app.include_router(testing_invoices_router, prefix="/api/test", tags=["testing"])
 
     return app
 

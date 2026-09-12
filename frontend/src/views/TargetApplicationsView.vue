@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { listCompanies, type Company } from '../api/companies'
 import {
   createTargetApplication,
   listTargetApplications,
+  setTargetApplicationActive,
+  updateTargetApplication,
   type RoutingMethod,
   type TargetApplication,
   type TargetApplicationCreated,
@@ -29,11 +31,64 @@ const webhookUrl = ref('')
 const error = ref('')
 const createdCredentials = ref<TargetApplicationCreated | null>(null)
 
+// Édition en place des paramètres d'une application existante.
+const editingId = ref<number | null>(null)
+interface EditState {
+  name: string
+  to: string
+  cc: string
+  bcc: string
+  redirectUrls: string
+  preferredConversionFormat: string
+  appType: 'confidential' | 'public'
+  webhookUrl: string
+}
+const edits = reactive<Record<number, EditState>>({})
+
 function splitList(value: string): string[] {
   return value
     .split(/[,\n]/)
     .map((v) => v.trim())
     .filter(Boolean)
+}
+
+function startEdit(ta: TargetApplication) {
+  edits[ta.id] = {
+    name: ta.name,
+    to: ((ta.parameters.to as string[] | undefined) ?? []).join(', '),
+    cc: ((ta.parameters.cc as string[] | undefined) ?? []).join(', '),
+    bcc: ((ta.parameters.bcc as string[] | undefined) ?? []).join(', '),
+    redirectUrls: (ta.oauth_application?.redirect_urls ?? '').split(',').filter(Boolean).join('\n'),
+    preferredConversionFormat: ta.oauth_application?.preferred_conversion_format ?? '',
+    appType: ta.oauth_application?.app_type ?? 'confidential',
+    webhookUrl: ta.oauth_application?.webhook_url ?? '',
+  }
+  editingId.value = ta.id
+}
+
+function cancelEdit() {
+  editingId.value = null
+}
+
+async function saveEdit(ta: TargetApplication) {
+  error.value = ''
+  const edit = edits[ta.id]
+  const parameters =
+    ta.routing_method === 'mail'
+      ? { to: splitList(edit.to), cc: splitList(edit.cc), bcc: splitList(edit.bcc) }
+      : {
+          redirect_urls: splitList(edit.redirectUrls),
+          preferred_conversion_format: edit.preferredConversionFormat || null,
+          app_type: edit.appType,
+          webhook_url: edit.webhookUrl || null,
+        }
+  try {
+    await updateTargetApplication(ta.id, { name: edit.name, parameters })
+    editingId.value = null
+    await refresh()
+  } catch (e) {
+    error.value = (e as Error).message
+  }
 }
 
 async function refresh() {
@@ -44,8 +99,9 @@ async function submit() {
   error.value = ''
   createdCredentials.value = null
 
-  if (routingMethod.value === 'afnor_api' && !companyId.value) {
-    error.value = "L'entreprise est requise pour la méthode afnor_api (§ 4.9.2)."
+  const selectedCompanyId = companyId.value
+  if (!selectedCompanyId) {
+    error.value = "L'entreprise est requise."
     return
   }
 
@@ -63,7 +119,7 @@ async function submit() {
     const created = await createTargetApplication({
       name: name.value,
       routing_method: routingMethod.value,
-      company_id: companyId.value,
+      company_id: selectedCompanyId,
       parameters,
     })
     if (created.oauth_client_id && created.oauth_client_secret) {
@@ -83,6 +139,16 @@ async function submit() {
   }
 }
 
+async function toggleActive(ta: TargetApplication) {
+  error.value = ''
+  try {
+    await setTargetApplicationActive(ta.id, !ta.is_active)
+    await refresh()
+  } catch (e) {
+    error.value = (e as Error).message
+  }
+}
+
 onMounted(async () => {
   await refresh()
   companies.value = await listCompanies()
@@ -90,50 +156,70 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main>
-    <h1>Applications cibles</h1>
+  <main class="stack">
+    <header class="page-header">
+      <h1>Applications cibles</h1>
+      <p>Canaux vers lesquels les factures peuvent être routées : mail ou API AFNOR.</p>
+    </header>
 
-    <form @submit.prevent="submit">
-      <input v-model="name" placeholder="Nom" required data-testid="ta-name-input" />
-      <select v-model="routingMethod" data-testid="ta-method-select">
-        <option value="mail">Routage mail</option>
-        <option value="afnor_api">Mise à disposition via API AFNOR</option>
-      </select>
+    <section class="card">
+      <h2>Ajouter une application cible</h2>
+      <form @submit.prevent="submit">
+        <div class="field">
+          <label for="ta-name-input">Nom</label>
+          <input id="ta-name-input" v-model="name" placeholder="Nom" required data-testid="ta-name-input" />
+        </div>
+        <div class="field">
+          <label for="ta-method-select">Méthode de routage</label>
+          <select id="ta-method-select" v-model="routingMethod" data-testid="ta-method-select">
+            <option value="mail">Routage mail</option>
+            <option value="afnor_api">Mise à disposition via API AFNOR</option>
+          </select>
+        </div>
 
-      <select
-        v-if="routingMethod === 'afnor_api'"
-        v-model="companyId"
-        data-testid="ta-company-select"
-      >
-        <option :value="null" disabled>Entreprise</option>
-        <option v-for="company in companies" :key="company.id" :value="company.id">
-          {{ company.name }}
-        </option>
-      </select>
+        <div class="field">
+          <label for="ta-company-select">Entreprise</label>
+          <select id="ta-company-select" v-model="companyId" required data-testid="ta-company-select">
+            <option :value="null" disabled>Entreprise</option>
+            <option v-for="company in companies" :key="company.id" :value="company.id">
+              {{ company.name }}
+            </option>
+          </select>
+        </div>
 
-      <fieldset v-if="routingMethod === 'mail'">
-        <legend>Destinataires (§ 4.9.1)</legend>
-        <input v-model="to" placeholder="À (séparés par des virgules)" data-testid="ta-to-input" />
-        <input v-model="cc" placeholder="CC" data-testid="ta-cc-input" />
-        <input v-model="bcc" placeholder="CCI" data-testid="ta-bcc-input" />
-      </fieldset>
+        <fieldset v-if="routingMethod === 'mail'">
+          <legend>Destinataires</legend>
+          <input v-model="to" placeholder="À (séparés par des virgules)" data-testid="ta-to-input" />
+          <input v-model="cc" placeholder="CC" data-testid="ta-cc-input" />
+          <input v-model="bcc" placeholder="CCI" data-testid="ta-bcc-input" />
+        </fieldset>
 
-      <fieldset v-else>
-        <legend>Application OAuth (§ 4.9.2)</legend>
-        <input v-model="redirectUrls" placeholder="URLs de redirection" />
-        <input v-model="preferredConversionFormat" placeholder="Format préféré de conversion" />
-        <select v-model="appType">
-          <option value="confidential">Confidentielle</option>
-          <option value="public">Publique</option>
-        </select>
-        <input v-model="webhookUrl" placeholder="URL de webhook" />
-      </fieldset>
+        <fieldset v-else>
+          <legend>Application OAuth</legend>
+          <input v-model="redirectUrls" placeholder="URLs de redirection" />
+          <div class="field">
+            <label for="ta-conversion-format-select">Format préféré de conversion</label>
+            <select id="ta-conversion-format-select" v-model="preferredConversionFormat" data-testid="ta-conversion-format-select">
+              <option value="">Aucun (facultatif)</option>
+              <option value="Factur-X">Factur-X</option>
+              <option value="UBL">UBL</option>
+              <option value="CII">CII</option>
+            </select>
+          </div>
+          <select v-model="appType">
+            <option value="confidential">Confidentielle</option>
+            <option value="public">Publique</option>
+          </select>
+          <input v-model="webhookUrl" placeholder="URL de webhook" />
+        </fieldset>
 
-      <button type="submit" data-testid="ta-submit-button">Ajouter</button>
-    </form>
+        <button type="submit" data-testid="ta-submit-button">Ajouter</button>
+      </form>
+    </section>
+
     <p v-if="error" role="alert">{{ error }}</p>
 
-    <div v-if="createdCredentials" role="status" data-testid="ta-oauth-credentials">
+    <div v-if="createdCredentials" class="card" role="status" data-testid="ta-oauth-credentials">
       <p>
         <strong>Identifiants OAuth générés — à copier maintenant, le secret ne sera plus
         affiché ensuite.</strong>
@@ -145,10 +231,109 @@ onMounted(async () => {
       </p>
     </div>
 
-    <ul data-testid="target-applications-list">
-      <li v-for="ta in targetApplications" :key="ta.id">
-        {{ ta.name }} — {{ ta.routing_method }}
-      </li>
-    </ul>
+    <section class="card">
+      <h2>Canaux configurés</h2>
+      <table data-testid="target-applications-list">
+        <thead>
+          <tr>
+            <th>Nom</th>
+            <th>Méthode de routage</th>
+            <th>Statut</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <template v-for="ta in targetApplications" :key="ta.id">
+            <tr :data-testid="`target-application-row-${ta.id}`">
+              <td>{{ ta.name }}</td>
+              <td><span class="badge badge-info">{{ ta.routing_method }}</span></td>
+              <td>
+                <span class="badge" :class="ta.is_active ? 'badge-success' : 'badge-danger'">
+                  {{ ta.is_active ? 'Actif' : 'Inactif' }}
+                </span>
+              </td>
+              <td class="cluster">
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  :data-testid="`target-application-edit-toggle-${ta.id}`"
+                  @click="editingId === ta.id ? cancelEdit() : startEdit(ta)"
+                >
+                  {{ editingId === ta.id ? 'Annuler' : 'Modifier' }}
+                </button>
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  :data-testid="`target-application-toggle-${ta.id}`"
+                  @click="toggleActive(ta)"
+                >
+                  {{ ta.is_active ? 'Désactiver' : 'Activer' }}
+                </button>
+              </td>
+            </tr>
+            <tr v-if="editingId === ta.id">
+              <td colspan="4">
+                <form
+                  class="stack"
+                  :data-testid="`target-application-edit-form-${ta.id}`"
+                  @submit.prevent="saveEdit(ta)"
+                >
+                  <div class="field">
+                    <label :for="`ta-edit-name-${ta.id}`">Nom</label>
+                    <input
+                      :id="`ta-edit-name-${ta.id}`"
+                      v-model="edits[ta.id].name"
+                      required
+                      :data-testid="`target-application-edit-name-${ta.id}`"
+                    />
+                  </div>
+
+                  <fieldset v-if="ta.routing_method === 'mail'">
+                    <legend>Destinataires</legend>
+                    <input
+                      v-model="edits[ta.id].to"
+                      placeholder="À (séparés par des virgules)"
+                      :data-testid="`target-application-edit-to-${ta.id}`"
+                    />
+                    <input v-model="edits[ta.id].cc" placeholder="CC" />
+                    <input v-model="edits[ta.id].bcc" placeholder="CCI" />
+                  </fieldset>
+
+                  <fieldset v-else>
+                    <legend>Application OAuth</legend>
+                    <textarea
+                      v-model="edits[ta.id].redirectUrls"
+                      placeholder="URLs de redirection (une par ligne)"
+                      :data-testid="`target-application-edit-redirect-urls-${ta.id}`"
+                    />
+                    <select v-model="edits[ta.id].preferredConversionFormat">
+                      <option value="">Aucun format préféré (facultatif)</option>
+                      <option value="Factur-X">Factur-X</option>
+                      <option value="UBL">UBL</option>
+                      <option value="CII">CII</option>
+                    </select>
+                    <select v-model="edits[ta.id].appType">
+                      <option value="confidential">Confidentielle</option>
+                      <option value="public">Publique</option>
+                    </select>
+                    <input v-model="edits[ta.id].webhookUrl" placeholder="URL de webhook" />
+                  </fieldset>
+
+                  <div class="cluster">
+                    <button type="submit" class="btn-sm" :data-testid="`target-application-edit-save-${ta.id}`">
+                      Enregistrer
+                    </button>
+                    <button type="button" class="btn-secondary btn-sm" @click="cancelEdit">Annuler</button>
+                  </div>
+                </form>
+              </td>
+            </tr>
+          </template>
+          <tr v-if="targetApplications.length === 0">
+            <td colspan="4" class="entity-list-empty">Aucune application cible configurée.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
   </main>
 </template>
