@@ -542,7 +542,7 @@
     await sleep(1100);
 
     // Stage 3 — une facture mal étiquetée part de SuperPDP vers la mauvaise boîte
-    setHeadline('Une adresse mal choisie ? <span class="grad">La facture est égarée.</span>');
+    setHeadline('Une adresse mal choisie ? <span class="grad">La facture doit être refusée et réemise.</span>');
     show($('invoiceCard'));
     await sleep(150);
     const inv = $('invoiceCard');
