@@ -1,5 +1,16 @@
 # einvoicing_router
 
+Dans le cadre de la réforme de facturation électronique, chaque entreprise doit déclarer une
+adresse unique auprès d'une plateforme certifiée (PDP) pour recevoir ses factures — mais en
+interne, ces factures doivent souvent atterrir dans plusieurs outils différents selon le
+fournisseur (une adresse mail pour la comptabilité ou un outil comme Spendesk, un flux API pour
+un ERP comme Odoo...). **einvoicing Router** se place entre les deux : il expose la seule adresse
+déclarée par entreprise côté plateforme certifiée, puis route chaque facture reçue vers la ou les
+applications internes concernées selon des règles configurables par fournisseur — avec suivi des
+échecs d'envoi, traçabilité complète des échanges et gestion du cycle de vie de chaque facture
+(approbation, litige, paiement...). L'API normalisée AFNOR exposée par le routeur couvre aussi
+l'émission de factures, le cycle de vie, l'e-reporting et l'annuaire.
+
 Routeur de factures électroniques AFNOR XP Z12-013 — voir [`spec.md`](spec.md) pour la spécification complète.
 
 ## Structure du dépôt

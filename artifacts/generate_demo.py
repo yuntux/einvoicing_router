@@ -251,31 +251,31 @@ script_segments = [
     {
         "id": "00_value_prop",
         "text": (
-            "Toutes vos factures ne sont pas traitées dans la même application de gestion ? Vous n'avez pas envie de multiplier les adresses de facturation électroniques déclarées dans l'annuaire public ?  einvoicing routeur masque cette complexité une fois pour toutes : vis-à-vis de vos "
-            "fournisseurs, une seule adresse de facturation électronique par entreprise suffit, quel que "
-            "soit le nombre d'applications en aval."
+            "Toutes vos factures fournisseur ne sont pas traitées dans la même application de gestion ? Multiplier les adresses de facturation électroniques dans l'annuaire public peut perturber vos fournisseurs et conduire à des erreurs de routage pénibles à résoudre. i-iinvoïcing routeur masque cette complexité : vos fournisseurs ne voient qu'une seule adresse de facturation électronique par entreprise , quel que soit le nombre d'applications en aval. Vous pouvez ainsi réorganiser vos flux interne en toute autonomie."
         ),
     },
     {
         "id": "01_companies",
         "text": (
-            "Chaque entreprise gérée dispose d'une fiche unique : SIREN, raison sociale, et ses "
+            "Dans i-iinvoïcing routeur, chaque entreprise gérée dispose d'une fiche unique : SIREN, raison sociale, et ses "
             "identifiants d'accès à la plateforme certifiée."
         ),
     },
     {
         "id": "02_target_applications",
         "text": (
-            "On configure ensuite les canaux de sortie : une adresse mail pour Spendesk ou le "
+            "On configure ensuite les canaux de sortie : une adresse mail pour Spènne-desk ou le "
             "comptable, ou une mise à disposition via l'API normalisée AFNOR pour un ERP comme Odoo — chacun "
-            "avec ses propres identifiants."
+            "avec ses propres identifiants. Connecté via l'API normalisée AFNOR, Odoo peut également envoyer ses factures client, suivre "
+            "leur cycle de vie, transmettre de l'i-reporting et consulter l'annuaire, exactement comme s'il "
+            "était branché directement sur la plateforme agréée."
         ),
     },
     {
         "id": "03_routing_rules",
         "text": (
             "Il ne reste qu'à décider, pour chaque fournisseur, vers quelles applications cibles "
-            "router ses factures : la matrice croise fournisseurs et applications. Vous êtes notifié par mail lors de l'arrivée de la première facture d'un fournissuer, pour indiquer vers quelles applications la router."
+            "router ses factures : la matrice croise fournisseurs et applications. Vous êtes notifié par mail lors de l'arrivée de la première facture d'un fournisseur, pour indiquer vers quelles applications la router."
         ),
     },
     {
@@ -318,8 +318,8 @@ script_segments = [
     {
         "id": "09_outro",
         "text": (
-            "Factures, règles de routage, échecs, traces : tout reste consultable au même endroit. "
-            "Le routeur de factures, une seule porte d'entrée pour vos factures reçues."
+            "Factures, routage, traces : tout reste consultable au même endroit. "
+            "i-iinvoïcing routeur, une seule porte d'entrée pour vos factures."
         ),
     },
 ]
@@ -546,6 +546,10 @@ async def confirm_dialog(page, reroute_existing=None):
         if await radio.count() > 0:
             await radio.check()
             await asyncio.sleep(0.3)
+    # Laisse le temps de lire le contenu de la popin (titre + message + détail, § ConfirmDialog.vue)
+    # avant de cliquer sur "Confirmer" — sans cette pause, la popin apparaît et disparaît trop vite
+    # pour un spectateur de la vidéo.
+    await asyncio.sleep(1.5)
     await click_with_cursor(page, page.locator('[data-testid="confirm-dialog-confirm"]'))
     await dialog.wait_for(state="detached", timeout=5000)
 
@@ -689,29 +693,25 @@ async def capture(durations):
                 print(f"  ⚠️  Entreprises : {e}")
             await narrator.end(padding=1.0)
 
-            # --- 02. Applications cibles (mail + AFNOR API) ---
+            # --- 02. Applications cibles (AFNOR API uniquement — "Spendesk" existe déjà
+            #     dans la base de démo, § seed_demo_data.py, pas besoin de la recréer ici) ---
             await narrator.start("02_target_applications")
-            print("🎬 Applications cibles — création d'une cible mail puis AFNOR API")
+            print("🎬 Applications cibles — création d'une cible AFNOR API")
             try:
                 await open_nav(page, "Applications cibles", group_toggle_testid="nav-settings-toggle")
-                await page.fill('[data-testid="ta-name-input"]', "Spendesk")
-                await page.select_option('[data-testid="ta-method-select"]', "mail")
-                company_select = page.locator('[data-testid="ta-company-select"]')
-                await company_select.select_option(label=company_name)
-                await page.fill('[data-testid="ta-to-input"]', "factures@spendesk.example")
-                await click_with_cursor(page, page.locator('[data-testid="ta-submit-button"]'))
-                await page.wait_for_selector('[data-testid="target-applications-list"]', timeout=8000)
-                print("  ✅ Application cible mail créée (Spendesk)")
-            except Exception as e:
-                print(f"  ⚠️  Application cible mail : {e}")
-            try:
-                await page.fill('[data-testid="ta-name-input"]', "Odoo")
+                # Le formulaire démarre en méthode "mail" par défaut (TargetApplicationFormFields) —
+                # bascule d'abord sur "afnor_api" AVANT de remplir le nom : changer
+                # `ta-method-select` réinitialise TOUT `formState` côté Vue, y compris le champ
+                # `name` — piège découvert en testant ce script (le remplir avant le changement de
+                # méthode le faisait silencieusement effacer, d'où un `required` HTML resté vide et
+                # un timeout sur le panneau d'identifiants qui suivait).
                 await page.select_option('[data-testid="ta-method-select"]', "afnor_api")
                 # Attend le rendu effectif des champs propres à afnor_api (TargetApplicationFormFields
                 # bascule sur un `v-if` piloté par routingMethod) avant de continuer, plutôt qu'un
                 # sleep() arbitraire — un délai fixe s'est révélé parfois insuffisant en testant ce
                 # script (soumission avec l'ancien jeu de champs encore affiché, échec silencieux).
                 await page.wait_for_selector('[data-testid="ta-app-type-select"]', timeout=5000)
+                await page.fill('[data-testid="ta-name-input"]', "Odoo")
                 await page.locator('[data-testid="ta-company-select"]').select_option(label=company_name)
                 await click_with_cursor(page, page.locator('[data-testid="ta-submit-button"]'))
                 # 20s (plutôt que 12s) : marge pour l'enregistrement vidéo Playwright + la liste
@@ -728,15 +728,15 @@ async def capture(durations):
             partner_siren = "100000009"  # SIREN valide (clé de contrôle Luhn correcte)
             partner_name = "Fournisseur Demo"
             await narrator.start("03_routing_rules")
-            print("🎬 Règles de routage — ajout d'un fournisseur, activation vers Spendesk")
+            print("🎬 Règles de routage — ajout d'un fournisseur, activation vers Odoo")
             try:
                 await open_nav(page, "Règles de routage")
                 await page.fill('[data-testid="partner-siren-input"]', partner_siren)
                 await page.fill('[data-testid="partner-name-input"]', partner_name)
                 await click_with_cursor(page, page.locator('[data-testid="partner-submit-button"]'))
                 await page.wait_for_selector('[data-testid="routing-rules-list"]', timeout=8000)
-                await check_routing_cell(page, partner_siren, "Spendesk", reroute_existing=True)
-                print("  ✅ Règle de routage activée (fournisseur -> Spendesk)")
+                await check_routing_cell(page, partner_siren, "Odoo", reroute_existing=True)
+                print("  ✅ Règle de routage activée (fournisseur -> Odoo)")
             except Exception as e:
                 print(f"  ⚠️  Règles de routage : {e}")
             await narrator.end(padding=1.0)
