@@ -4,7 +4,9 @@ Seed de données de démonstration — Routeur de factures électroniques
 Peuple une base de démo jetable avec un jeu de données cohérent (entreprises,
 fournisseurs, applications cibles, règles de routage, factures, cycle de vie,
 échecs de routage, traces AFNOR, utilisateurs, contacts, configuration) via les
-VRAIS endpoints HTTP du backend — mêmes règles métier/validations qu'un usage réel,
+VRAIS endpoints HTTP du backend — mêmes règles métier/validations qu'un usage réel
+(y compris la connexion : le backend de démo tourne en `ROUTER_OIDC_MODE=dev`, pas
+`disabled`, § seed_demo_data() se connecte elle-même en admin avant tout le reste),
 jamais de ligne injectée directement en base (cf. la docstring de generate_demo.py :
 "la démo EST le seed").
 
@@ -43,6 +45,11 @@ DEMO_DB_PATH = DEMO_DB_DIR / "demo_router.db"
 # Isolé du VRAI répertoire de stockage des factures (backend/.env,
 # ROUTER_INVOICE_STORAGE_ROOT en prod/dev local) — jamais les données réelles.
 DEMO_INVOICE_STORAGE_ROOT = DEMO_DB_DIR / "invoices"
+# Identité admin par défaut pour l'exécution autonome (§ main()) — même convention
+# que generate_demo.py (DEMO_ADMIN_EMAIL/NAME), qui passe la sienne explicitement à
+# `seed_demo_data()` pour partager le même compte que sa capture Playwright.
+DEMO_ADMIN_EMAIL = "alice.admin@example.com"
+DEMO_ADMIN_NAME = "Alice Administrateur"
 
 
 def _valid_siren(prefix8: str) -> str:
@@ -115,12 +122,21 @@ def reset_demo_database(*, db_path: Path, invoice_storage_root: Path) -> None:
 # manuelle, pas seulement pendant la vidéo. La séquence scriptée de capture()
 # s'ajoute ensuite par-dessus (nouvelle société "Ma Société Demo", nouveau
 # fournisseur "Fournisseur Demo") sans collision, ni dépendance à l'ordre.
-def seed_demo_data(*, backend_url: str) -> None:
+def seed_demo_data(*, backend_url: str, admin_email: str, admin_name: str) -> None:
     """Peuple la base de démo (entreprises, fournisseurs, applications cibles,
     règles de routage, factures, cycle de vie, échecs de routage, traces AFNOR,
     utilisateurs, contacts, configuration) via les vrais endpoints HTTP du backend
     de démo — tolère un échec ponctuel par entrée (log un avertissement, continue),
-    plutôt que de faire échouer toute la préparation pour une seule collision."""
+    plutôt que de faire échouer toute la préparation pour une seule collision.
+
+    Commence par se connecter en admin (`GET /api/ihm/auth/login`, § mode `dev`,
+    seule façon de passer les dépendances `require_current_user`/`require_admin`
+    désormais en vigueur — cf. `app/auth/session.py`) : la base venant d'être
+    réinitialisée, cette première connexion amorce elle-même le compte admin
+    (`user_service.resolve_login_user`, "si la table users est vide") — inutile de
+    le pré-provisionner séparément. Le même email, passé par `generate_demo.py` à sa
+    propre capture Playwright, permet de retrouver EXACTEMENT ce compte (retrouvé
+    par `oidc_subject`, pas ré-amorcé)."""
     import requests
 
     print("🌱 Phase Seed — remplissage de la base de démo...")
@@ -130,6 +146,19 @@ def seed_demo_data(*, backend_url: str) -> None:
         resp = session.request(method, f"{backend_url}{path}", timeout=15, **kwargs)
         resp.raise_for_status()
         return resp.json() if resp.content else None
+
+    # --- Connexion admin (amorce le compte si la base est vierge, § docstring) ---
+    try:
+        session.get(
+            f"{backend_url}/api/ihm/auth/login",
+            params={"email": admin_email, "name": admin_name},
+            allow_redirects=False,
+            timeout=15,
+        )
+        print(f"  ✅ Connecté en tant que {admin_name} ({admin_email})")
+    except Exception as e:
+        print(f"  ❌ Connexion admin échouée, seed interrompu : {e}")
+        return
 
     # --- Entreprises (+ identifiants de plateforme certifiée pour certaines) ---
     companies = []
@@ -340,9 +369,9 @@ def seed_demo_data(*, backend_url: str) -> None:
             print(f"  ⚠️  Traces AFNOR (entreprise {cid}) : {e}")
     print("  ✅ Traces AFNOR générées (jeton + recherche de flux)")
 
-    # --- Gestion des accès (utilisateurs) ---
+    # --- Gestion des accès (utilisateurs) --- (l'admin lui-même, `admin_email`, a
+    # déjà été provisionné par la connexion en tout début de fonction, ci-dessus.)
     seed_users = [
-        {"email": "alice.admin@example.com", "role": "admin", "company_ids": []},
         {"email": "bruno.compta@example.com", "role": "user", "company_ids": [c["id"] for c in companies[:2]]},
         {"email": "claire.gestion@example.com", "role": "user", "company_ids": [companies[2]["id"]] if len(companies) > 2 else []},
         {"email": "denis.inactif@example.com", "role": "user", "company_ids": [companies[3]["id"]] if len(companies) > 3 else [], "is_active": False},
@@ -421,13 +450,19 @@ def _is_port_open(port: int) -> bool:
 
 
 def _start_demo_backend() -> None:
+    # ROUTER_OIDC_MODE=dev (pas disabled) : `seed_demo_data()` se connecte en admin
+    # (§ sa docstring) — indispensable depuis que les dépendances
+    # `require_current_user`/`require_admin` sont réellement appliquées. Pas besoin
+    # de ROUTER_FRONTEND_BASE_URL ici (contrairement à generate_demo.py) : le login
+    # HTTP autonome de `seed_demo_data()` n'suit jamais la redirection
+    # (`allow_redirects=False`), et aucun frontend ne tourne dans ce mode autonome.
     cmd = [
         "bash", "-c",
         f"cd {BACKEND_DIR} && "
-        f"ROUTER_OIDC_MODE=disabled ROUTER_DATABASE_URL=sqlite:///{DEMO_DB_PATH} "
+        f"ROUTER_OIDC_MODE=dev ROUTER_DATABASE_URL=sqlite:///{DEMO_DB_PATH} "
         f"ROUTER_CERTIFIED_PLATFORM_CLIENT_MODE=fake ROUTER_INVOICE_STORAGE_ROOT={DEMO_INVOICE_STORAGE_ROOT} "
         f".venv/bin/alembic upgrade head && "
-        f"ROUTER_OIDC_MODE=disabled ROUTER_DATABASE_URL=sqlite:///{DEMO_DB_PATH} "
+        f"ROUTER_OIDC_MODE=dev ROUTER_DATABASE_URL=sqlite:///{DEMO_DB_PATH} "
         f"ROUTER_CERTIFIED_PLATFORM_CLIENT_MODE=fake ROUTER_INVOICE_STORAGE_ROOT={DEMO_INVOICE_STORAGE_ROOT} "
         f".venv/bin/uvicorn app.main:app --host 127.0.0.1 --port {DEMO_BACKEND_PORT}",
     ]
@@ -470,7 +505,7 @@ def main() -> None:
             print(f"❌ Le backend de démo n'a pas démarré à temps sur le port {DEMO_BACKEND_PORT}.")
             return
 
-    seed_demo_data(backend_url=BACKEND_URL)
+    seed_demo_data(backend_url=BACKEND_URL, admin_email=DEMO_ADMIN_EMAIL, admin_name=DEMO_ADMIN_NAME)
     seed_technical_logs(
         backend_dir=BACKEND_DIR, db_path=DEMO_DB_PATH, invoice_storage_root=DEMO_INVOICE_STORAGE_ROOT
     )
