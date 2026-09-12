@@ -418,10 +418,10 @@
   <div class="frame">
     <div class="brand-intro" id="brandIntro">
       <div class="brand-mark">R</div>
-      <h1>Routeur de factures</h1>
+      <h1>einvoicing Router</h1>
       <div class="brand-subtitle">Une seule adresse de facturation électronique par entreprise,<br>quel que soit le nombre d'applications connectées en aval</div>
       <div class="brand-bar"></div>
-      <div class="brand-footer">Factures • Règles de routage • Entreprises • Applications cibles • Traces &amp; audit</div>
+      <div class="brand-footer">Factures • Applications cibles • Règles de routage • Traces &amp; audit</div>
     </div>
 
     <div class="heading">
@@ -641,7 +641,7 @@
     await sleep(1100);
 
     // Stage 5 — deux protocoles, une porte d'entrée
-    setHeadline('&nbsp;');
+    setHeadline('Connecté via <span class="grad">API normalisée AFNOR</span>, Odoo envoie, reçoit, suit le cycle de vie et consulte l\'annuaire — comme s\'il était branché en direct sur la plateforme agréée');
     draw($('wireApiOdoo'));
     $('protoOdoo').querySelectorAll('.proto-icon, .pill').forEach(show);
     await sleep(350);
@@ -649,7 +649,7 @@
     draw($('wireMailComptable'));
     $('protoSpendesk').querySelectorAll('.proto-icon, .pill').forEach(show);
     $('protoComptable').querySelectorAll('.proto-icon, .pill').forEach(show);
-    await sleep(1200);
+    await sleep(1800);
 
     show($('veil'));
     await sleep(300);

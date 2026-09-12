@@ -71,11 +71,23 @@ def _valid_siren(prefix8: str) -> str:
 
 
 SEED_COMPANIES = [
-    {"siren": _valid_siren("90000000"), "name": "Cabinet Comptable Lefèvre & Associés"},
-    {"siren": _valid_siren("90000001"), "name": "Groupe Industriel Nord"},
-    {"siren": _valid_siren("90000002"), "name": "Distribution Ouest SARL"},
-    {"siren": _valid_siren("90000003"), "name": "Tech Solutions Paris"},
-    {"siren": _valid_siren("90000004"), "name": "Clinique Vétérinaire du Parc"},
+    {"siren": _valid_siren("90000000"), "name": "Turbotop"},
+    {"siren": _valid_siren("90000001"), "name": "Filgood"},
+]
+
+# Seulement 2 applications cibles seedées (§ demande utilisateur : pas de canal
+# générique par entreprise, et pas d'"Odoo" ici — celui-ci est créé EN DIRECT par
+# generate_demo.capture() sur sa propre société de démo, § 02_target_applications)
+# — rattachées à `companies[0]` (une application cible a forcément UNE entreprise,
+# § TargetApplication.company_id) ; `companies[1]` n'a aucun canal configuré, ses
+# factures simulées restent donc "non routées" (§ 4.7).
+SEED_TARGET_APPLICATIONS = [
+    {"name": "Spendesk", "routing_method": "mail", "parameters": {"to": ["compta@spendesk.example"]}},
+    {
+        "name": "Expert comptable",
+        "routing_method": "mail",
+        "parameters": {"to": ["contact@expert-comptable.example"]},
+    },
 ]
 
 SEED_PARTNERS = [
@@ -189,7 +201,7 @@ def seed_demo_data(*, backend_url: str, admin_email: str, admin_name: str) -> No
             print(f"  ✅ Entreprise créée : {spec['name']}")
         except Exception as e:
             print(f"  ⚠️  Entreprise '{spec['name']}' : {e}")
-    for company in companies[:3]:
+    for company in companies[:1]:
         try:
             call(
                 "PUT",
@@ -212,122 +224,121 @@ def seed_demo_data(*, backend_url: str, admin_email: str, admin_name: str) -> No
         print("  ❌ Aucune entreprise/fournisseur créé, seed interrompu.")
         return
 
-    # --- Applications cibles (une mail + une AFNOR API par entreprise) ---
-    mail_apps, afnor_apps = {}, {}
-    for company in companies:
+    # --- Applications cibles (2 seules, § SEED_TARGET_APPLICATIONS ci-dessus) —
+    # toutes rattachées à `companies[0]` : `companies[1]` n'a aucun canal de sortie.
+    main_company = companies[0]
+    target_apps = {}
+    for spec in SEED_TARGET_APPLICATIONS:
         try:
-            mail_apps[company["id"]] = call(
+            target_apps[spec["name"]] = call(
                 "POST",
                 "/api/ihm/target-applications",
                 json={
-                    "name": f"Comptabilité {company['name']}",
-                    "routing_method": "mail",
-                    "company_id": company["id"],
-                    "parameters": {"to": [f"compta+{company['id']}@example.com"]},
-                },
-            )
-            afnor_apps[company["id"]] = call(
-                "POST",
-                "/api/ihm/target-applications",
-                json={
-                    "name": f"ERP {company['name']}",
-                    "routing_method": "afnor_api",
-                    "company_id": company["id"],
-                    "parameters": {},
+                    "name": spec["name"],
+                    "routing_method": spec["routing_method"],
+                    "company_id": main_company["id"],
+                    "parameters": spec["parameters"],
                 },
             )
         except Exception as e:
-            print(f"  ⚠️  Applications cibles ({company['name']}) : {e}")
-    print(f"  ✅ {len(mail_apps)} paires d'applications cibles créées (mail + AFNOR API)")
+            print(f"  ⚠️  Application cible '{spec['name']}' : {e}")
+    print(f"  ✅ {len(target_apps)} applications cibles créées (Spendesk, Expert comptable)")
 
-    # --- Règles de routage (matrice fournisseurs x applications cibles) ---
-    # Pour chaque entreprise, 3 fournisseurs routés (mail seul / AFNOR API seul / les
-    # deux) et 1 fournisseur volontairement SANS règle (déclenche l'alerte "nouveau
-    # fournisseur sans règle de routage", § 4.7, et son affichage en rouge, § 4.3).
-    routed_partners_by_company = {}
-    unrouted_partner_by_company = {}
-    for i, company in enumerate(companies):
-        cid = company["id"]
-        if cid not in mail_apps or cid not in afnor_apps:
-            continue
-        p_mail = partners[(i * 4) % len(partners)]
-        p_afnor = partners[(i * 4 + 1) % len(partners)]
-        p_both = partners[(i * 4 + 2) % len(partners)]
-        p_none = partners[(i * 4 + 3) % len(partners)]
-        routed_partners_by_company[cid] = [(p_mail, "mail"), (p_afnor, "afnor"), (p_both, "both")]
-        unrouted_partner_by_company[cid] = p_none
-        try:
-            call(
-                "PUT",
-                f"/api/ihm/routing-rules/{p_mail['id']}/{mail_apps[cid]['id']}",
-                json={"active": True, "reroute_existing": True},
-            )
-            call(
-                "PUT",
-                f"/api/ihm/routing-rules/{p_afnor['id']}/{afnor_apps[cid]['id']}",
-                json={"active": True, "reroute_existing": True},
-            )
-            call(
-                "PUT",
-                f"/api/ihm/routing-rules/{p_both['id']}/{mail_apps[cid]['id']}",
-                json={"active": True, "reroute_existing": True},
-            )
-            call(
-                "PUT",
-                f"/api/ihm/routing-rules/{p_both['id']}/{afnor_apps[cid]['id']}",
-                json={"active": True, "reroute_existing": True},
-            )
-        except Exception as e:
-            print(f"  ⚠️  Règles de routage ({company['name']}) : {e}")
+    # --- Règles de routage (fournisseurs -> les 2 canaux de `main_company`) ---
+    # 3 fournisseurs routés (Spendesk seul / Expert comptable seul / les deux à la
+    # fois) et 1 fournisseur volontairement SANS règle (déclenche l'alerte "nouveau
+    # fournisseur sans règle de routage", § 4.7, et son affichage en rouge, § 4.3) —
+    # les fournisseurs restants n'invoicent que `companies[1]` (aucun canal
+    # configuré là-bas, § plus bas : toutes ses factures sont "non routées", même
+    # scénario d'alerte sans avoir à y créer de règle).
+    routing_plan = []
+    if "Spendesk" in target_apps:
+        routing_plan.append((partners[0], [target_apps["Spendesk"]]))
+    if "Expert comptable" in target_apps:
+        routing_plan.append((partners[1], [target_apps["Expert comptable"]]))
+    if "Spendesk" in target_apps and "Expert comptable" in target_apps:
+        routing_plan.append((partners[2], [target_apps["Spendesk"], target_apps["Expert comptable"]]))
+    unrouted_partner = partners[3]
+
+    for partner, targets in routing_plan:
+        for target in targets:
+            try:
+                call(
+                    "PUT",
+                    f"/api/ihm/routing-rules/{partner['id']}/{target['id']}",
+                    json={"active": True, "reroute_existing": True},
+                )
+            except Exception as e:
+                print(f"  ⚠️  Règle de routage ({partner['name']} -> {target['name']}) : {e}")
     print("  ✅ Règles de routage activées")
 
     # --- Factures reçues (simulées, § endpoint réservé aux tests) ---
     invoices = []
-    for i, company in enumerate(companies):
-        cid = company["id"]
-        for j, (partner, _kind) in enumerate(routed_partners_by_company.get(cid, [])):
-            for k in range(2):
-                days_ago = 3 + (i + j + k) * 4
-                invoice_date = (datetime.now() - timedelta(days=days_ago)).strftime("%Y-%m-%d")
-                try:
-                    invoice = call(
-                        "POST",
-                        "/api/test/invoices/simulate",
-                        json={
-                            "company_id": cid,
-                            "emitter_siren": partner["siren"],
-                            "emitter_name": partner["name"],
-                            "invoice_number": f"FAC-{cid}-{partner['id']}-{k}",
-                            "invoice_date": invoice_date,
-                            "invoice_type": "credit_note" if (j + k) % 5 == 0 else "invoice",
-                            "amount_total": round(120.0 + (i + 1) * (j + 1) * (k + 1) * 37.5, 2),
-                            "amount_excl_tax": round(100.0 + (i + 1) * (j + 1) * (k + 1) * 31.25, 2),
-                            "syntax": SEED_SYNTAXES[(i + j + k) % len(SEED_SYNTAXES)],
-                            "processing_rule": SEED_PROCESSING_RULES[(i + j) % len(SEED_PROCESSING_RULES)],
-                        },
-                    )
-                    invoices.append(invoice)
-                except Exception as e:
-                    print(f"  ⚠️  Facture simulée ({company['name']} / {partner['name']}) : {e}")
-        unrouted = unrouted_partner_by_company.get(cid)
-        if unrouted:
+    for j, (partner, _targets) in enumerate(routing_plan):
+        for k in range(2):
+            invoice_date = (datetime.now() - timedelta(days=3 + (j + k) * 4)).strftime("%Y-%m-%d")
             try:
                 invoice = call(
                     "POST",
                     "/api/test/invoices/simulate",
                     json={
-                        "company_id": cid,
-                        "emitter_siren": unrouted["siren"],
-                        "emitter_name": unrouted["name"],
-                        "invoice_number": f"FAC-{cid}-{unrouted['id']}-UNROUTED",
-                        "invoice_date": datetime.now().strftime("%Y-%m-%d"),
-                        "amount_total": 800.0,
-                        "amount_excl_tax": 666.67,
+                        "company_id": main_company["id"],
+                        "emitter_siren": partner["siren"],
+                        "emitter_name": partner["name"],
+                        "invoice_number": f"FAC-{main_company['id']}-{partner['id']}-{k}",
+                        "invoice_date": invoice_date,
+                        "invoice_type": "credit_note" if (j + k) % 5 == 0 else "invoice",
+                        "amount_total": round(120.0 + (j + 1) * (k + 1) * 37.5, 2),
+                        "amount_excl_tax": round(100.0 + (j + 1) * (k + 1) * 31.25, 2),
+                        "syntax": SEED_SYNTAXES[(j + k) % len(SEED_SYNTAXES)],
+                        "processing_rule": SEED_PROCESSING_RULES[j % len(SEED_PROCESSING_RULES)],
                     },
                 )
                 invoices.append(invoice)
             except Exception as e:
-                print(f"  ⚠️  Facture non routée ({company['name']}) : {e}")
+                print(f"  ⚠️  Facture simulée ({main_company['name']} / {partner['name']}) : {e}")
+
+    # Fournisseur sans règle chez `main_company` (alerte "nouveau fournisseur").
+    try:
+        invoice = call(
+            "POST",
+            "/api/test/invoices/simulate",
+            json={
+                "company_id": main_company["id"],
+                "emitter_siren": unrouted_partner["siren"],
+                "emitter_name": unrouted_partner["name"],
+                "invoice_number": f"FAC-{main_company['id']}-{unrouted_partner['id']}-UNROUTED",
+                "invoice_date": datetime.now().strftime("%Y-%m-%d"),
+                "amount_total": 800.0,
+                "amount_excl_tax": 666.67,
+            },
+        )
+        invoices.append(invoice)
+    except Exception as e:
+        print(f"  ⚠️  Facture non routée ({main_company['name']}) : {e}")
+
+    # `companies[1]` : aucun canal configuré (§ ci-dessus) — toutes ses factures
+    # restent "non routées", quel que soit le fournisseur.
+    if len(companies) > 1:
+        second_company = companies[1]
+        for partner in partners[5:7]:
+            try:
+                invoice = call(
+                    "POST",
+                    "/api/test/invoices/simulate",
+                    json={
+                        "company_id": second_company["id"],
+                        "emitter_siren": partner["siren"],
+                        "emitter_name": partner["name"],
+                        "invoice_number": f"FAC-{second_company['id']}-{partner['id']}-UNROUTED",
+                        "invoice_date": datetime.now().strftime("%Y-%m-%d"),
+                        "amount_total": 450.0,
+                        "amount_excl_tax": 375.0,
+                    },
+                )
+                invoices.append(invoice)
+            except Exception as e:
+                print(f"  ⚠️  Facture non routée ({second_company['name']} / {partner['name']}) : {e}")
     print(f"  ✅ {len(invoices)} factures simulées")
 
     # --- Cycle de vie (statuts saisis manuellement) ---
@@ -364,37 +375,18 @@ def seed_demo_data(*, backend_url: str, admin_email: str, admin_name: str) -> No
     except Exception as e:
         print(f"  ⚠️  Cycle d'envoi forcé : {e}")
 
-    # --- Traces AFNOR (FlowTrace) : jeton OAuth + recherche de flux, pour chaque
-    #     application AFNOR API — endpoints purement locaux (§ pas de passthrough
-    #     SuperPDP réel), sans dépendance réseau externe. ---
-    for cid, app in afnor_apps.items():
-        client_id, client_secret = app.get("oauth_client_id"), app.get("oauth_client_secret")
-        if not client_id or not client_secret:
-            continue
-        try:
-            token_resp = session.post(
-                f"{backend_url}/api/afnor/v1/oauth/token",
-                data={"grant_type": "client_credentials", "client_id": client_id, "client_secret": client_secret},
-                timeout=15,
-            )
-            token_resp.raise_for_status()
-            access_token = token_resp.json()["access_token"]
-            session.post(
-                f"{backend_url}/api/afnor/v1/afnor-flow/flows/search",
-                json={"where": {}, "limit": 25},
-                headers={"Authorization": f"Bearer {access_token}"},
-                timeout=15,
-            )
-        except Exception as e:
-            print(f"  ⚠️  Traces AFNOR (entreprise {cid}) : {e}")
-    print("  ✅ Traces AFNOR générées (jeton + recherche de flux)")
+    # Pas de canal AFNOR API dans ce seed (§ SEED_TARGET_APPLICATIONS ci-dessus :
+    # "Odoo" est créé EN DIRECT par generate_demo.capture()) — donc pas de trace
+    # AFNOR (FlowTrace) générée ici ; la table reste vide tant que la vidéo complète
+    # n'a pas tourné (capture() affiche les identifiants OAuth d'Odoo mais ne fait
+    # lui-même aucun appel /oauth/token ni /flows/search).
 
     # --- Gestion des accès (utilisateurs) --- (l'admin lui-même, `admin_email`, a
     # déjà été provisionné par la connexion en tout début de fonction, ci-dessus.)
     seed_users = [
-        {"email": "bruno.compta@example.com", "role": "user", "company_ids": [c["id"] for c in companies[:2]]},
-        {"email": "claire.gestion@example.com", "role": "user", "company_ids": [companies[2]["id"]] if len(companies) > 2 else []},
-        {"email": "denis.inactif@example.com", "role": "user", "company_ids": [companies[3]["id"]] if len(companies) > 3 else [], "is_active": False},
+        {"email": "bruno.compta@example.com", "role": "user", "company_ids": [c["id"] for c in companies]},
+        {"email": "claire.gestion@example.com", "role": "user", "company_ids": [companies[0]["id"]]},
+        {"email": "denis.inactif@example.com", "role": "user", "company_ids": [companies[-1]["id"]], "is_active": False},
     ]
     for spec in seed_users:
         try:
