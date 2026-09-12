@@ -19,7 +19,7 @@ const message = computed(() => {
 </script>
 
 <template>
-  <main>
+  <main class="card" style="max-width: 420px">
     <h1>Connexion refusée</h1>
     <p role="alert" data-testid="login-error-message">{{ message }}</p>
     <p><a :href="loginUrl()">Réessayer</a></p>

@@ -23,7 +23,7 @@ def _make_invoice(db, company):
     return result.created[0]
 
 
-def _make_company(client, siren="123456789"):
+def _make_company(client, siren="123456782"):
     response = client.post("/api/ihm/companies", json={"siren": siren, "name": "Ma Société"})
     return response.json()["id"]
 
@@ -74,3 +74,65 @@ def test_download_records_ip_address(client, db_session):
 
     log = db_session.query(AuditLog).filter(AuditLog.action == "invoice_download").one()
     assert log.ip_address is not None
+
+
+def test_list_invoices_filter_by_downloaded_status(client, db_session):
+    company_id = _make_company(client)
+    company = db_session.get(Company, company_id)
+    downloaded_invoice = _make_invoice(db_session, company)
+    not_downloaded_invoice = ingest_from_client(
+        db_session,
+        company=company,
+        client=FakeSuperPDPClient(
+            [
+                RawInvoice(
+                    superpdp_flow_id="flow-dl-2",
+                    emitter_siren="987654321",
+                    invoice_number="F-dl-2",
+                    invoice_date=date(2026, 1, 2),
+                    file_name="F-dl-2.pdf",
+                    file_content=b"%PDF-fake-content-2",
+                )
+            ]
+        ),
+    ).created[0]
+
+    client.get(f"/api/ihm/invoices/{downloaded_invoice.id}/download")
+
+    downloaded_resp = client.get("/api/ihm/invoices", params={"downloaded": True})
+    downloaded_ids = {inv["id"] for inv in downloaded_resp.json()}
+    assert downloaded_ids == {downloaded_invoice.id}
+
+    not_downloaded_resp = client.get("/api/ihm/invoices", params={"downloaded": False})
+    not_downloaded_ids = {inv["id"] for inv in not_downloaded_resp.json()}
+    assert not_downloaded_ids == {not_downloaded_invoice.id}
+
+
+def test_list_invoices_shows_last_download_via_join(client, db_session):
+    """La colonne "Dernier téléchargement" du tableau de la liste (§ 8.3) vient de la
+    même jointure AuditLog que la fiche détail — jamais dénormalisée sur Invoice."""
+    company_id = _make_company(client)
+    company = db_session.get(Company, company_id)
+    downloaded_invoice = _make_invoice(db_session, company)
+    other_invoice = ingest_from_client(
+        db_session,
+        company=company,
+        client=FakeSuperPDPClient(
+            [
+                RawInvoice(
+                    superpdp_flow_id="flow-dl-3",
+                    emitter_siren="987654321",
+                    invoice_number="F-dl-3",
+                    invoice_date=date(2026, 1, 3),
+                    file_name="F-dl-3.pdf",
+                    file_content=b"%PDF-fake-content-3",
+                )
+            ]
+        ),
+    ).created[0]
+
+    client.get(f"/api/ihm/invoices/{downloaded_invoice.id}/download")
+
+    invoices = {inv["id"]: inv for inv in client.get("/api/ihm/invoices").json()}
+    assert invoices[downloaded_invoice.id]["last_download_at"] is not None
+    assert invoices[other_invoice.id]["last_download_at"] is None

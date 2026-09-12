@@ -6,7 +6,11 @@ from app.auth.session import get_current_user
 from app.db.session import get_db
 from app.models.referential import Company, User
 from app.schemas.company import CompanyCreate, CompanyRead
-from app.schemas.superpdp_credentials import SuperPDPCredentialsCreate, SuperPDPCredentialsStatus
+from app.schemas.superpdp_credentials import (
+    AfnorPlatform,
+    SuperPDPCredentialsCreate,
+    SuperPDPCredentialsStatus,
+)
 from app.services import superpdp_credentials_service
 
 router = APIRouter()
@@ -20,6 +24,13 @@ def list_companies(
     (`user.companies`) — un admin, ou hors authentification, voit tout."""
     query = apply_company_scope(db.query(Company), user=user, company_id_column=Company.id)
     return list(query.order_by(Company.id).all())
+
+
+@router.get("/afnor-platforms", response_model=list[AfnorPlatform])
+def list_afnor_platforms() -> list[dict[str, str]]:
+    """Plateformes AFNOR connues de `pyfrctc` (§ 4.10) — alimente le sélecteur de
+    plateforme par entreprise, plutôt qu'une URL libre non validée."""
+    return superpdp_credentials_service.list_platforms()
 
 
 @router.post("", response_model=CompanyRead, status_code=201)
@@ -46,7 +57,9 @@ def get_superpdp_credentials_status(
     )
     if application is None:
         return SuperPDPCredentialsStatus(configured=False)
-    return SuperPDPCredentialsStatus(configured=True, client_id=application.client_id)
+    return SuperPDPCredentialsStatus(
+        configured=True, client_id=application.client_id, platform=application.platform
+    )
 
 
 @router.put(
@@ -62,7 +75,25 @@ def set_superpdp_credentials(
     company = db.get(Company, company_id)
     if company is None:
         raise HTTPException(status_code=404, detail="Company not found")
-    application = superpdp_credentials_service.set_credentials(
-        db, company_id=company_id, client_id=payload.client_id, client_secret=payload.client_secret
+
+    connection_ok, connection_error = superpdp_credentials_service.test_connection(
+        company_siren=company.siren,
+        client_id=payload.client_id,
+        client_secret=payload.client_secret,
+        platform=payload.platform,
     )
-    return SuperPDPCredentialsStatus(configured=True, client_id=application.client_id)
+    if not connection_ok:
+        raise HTTPException(
+            status_code=422, detail=f"Test de connexion à l'API AFNOR échoué : {connection_error}"
+        )
+
+    application = superpdp_credentials_service.set_credentials(
+        db,
+        company_id=company_id,
+        client_id=payload.client_id,
+        client_secret=payload.client_secret,
+        platform=payload.platform,
+    )
+    return SuperPDPCredentialsStatus(
+        configured=True, client_id=application.client_id, platform=application.platform
+    )

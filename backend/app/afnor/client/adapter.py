@@ -39,6 +39,7 @@ class AfnorClientAdapter:
                 "(§ 4.10) — à saisir depuis l'IHM avant d'activer le client réel."
             )
         client_secret = superpdp_credentials_service.get_decrypted_secret(application)
+        platform = application.platform or settings.superpdp_platform
 
         def get_token_method(grant_type: str) -> dict:
             cache = json.loads(application.token_cache) if application.token_cache else {}
@@ -49,7 +50,7 @@ class AfnorClientAdapter:
             db.commit()
 
         session = core.get_session(
-            platform=settings.superpdp_platform,
+            platform=platform,
             auth_method="client_credentials",
             company_ident4log=company.siren,
             get_token_method=get_token_method,

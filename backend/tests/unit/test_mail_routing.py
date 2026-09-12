@@ -38,10 +38,11 @@ def _make_company(db, siren="111111111"):
     return company
 
 
-def _make_mail_target(db, name="Spendesk", to=None, cc=None, bcc=None):
+def _make_mail_target(db, company, name="Spendesk", to=None, cc=None, bcc=None):
     target = TargetApplication(
         name=name,
         routing_method=RoutingMethod.MAIL,
+        company_id=company.id,
         parameters={"to": to or ["spendesk@example.com"], "cc": cc or [], "bcc": bcc or []},
     )
     db.add(target)
@@ -85,7 +86,7 @@ def _make_routed_invoice(db, *, company, target, emitter_siren="222222222", flow
 
 def test_send_routing_success_reads_invoice_file(db_session):
     company = _make_company(db_session)
-    target = _make_mail_target(db_session)
+    target = _make_mail_target(db_session, company)
     invoice, routing = _make_routed_invoice(db_session, company=company, target=target)
 
     sender = RecordingMailSender()
@@ -103,7 +104,7 @@ def test_send_routing_success_reads_invoice_file(db_session):
 
 def test_send_routing_failure_returns_false(db_session):
     company = _make_company(db_session)
-    target = _make_mail_target(db_session)
+    target = _make_mail_target(db_session, company)
     invoice, routing = _make_routed_invoice(db_session, company=company, target=target)
 
     sender = RecordingMailSender(fail_invoice_sends=True)
@@ -117,7 +118,7 @@ def test_send_routing_failure_returns_false(db_session):
 
 def test_run_send_cycle_sends_initial_to_send_routing(db_session):
     company = _make_company(db_session)
-    target = _make_mail_target(db_session)
+    target = _make_mail_target(db_session, company)
     invoice, routing = _make_routed_invoice(db_session, company=company, target=target)
     assert routing.transfer_status == TransferStatus.TO_SEND
 
@@ -132,7 +133,7 @@ def test_run_send_cycle_sends_initial_to_send_routing(db_session):
 
 def test_run_send_cycle_schedules_retry_on_failure(db_session):
     company = _make_company(db_session)
-    target = _make_mail_target(db_session)
+    target = _make_mail_target(db_session, company)
     invoice, routing = _make_routed_invoice(db_session, company=company, target=target)
 
     sender = RecordingMailSender(fail_invoice_sends=True)
@@ -149,7 +150,7 @@ def test_run_send_cycle_schedules_retry_on_failure(db_session):
 
 def test_run_send_cycle_ignores_retry_not_yet_due(db_session):
     company = _make_company(db_session)
-    target = _make_mail_target(db_session)
+    target = _make_mail_target(db_session, company)
     invoice, routing = _make_routed_invoice(db_session, company=company, target=target)
 
     sender = RecordingMailSender(fail_invoice_sends=True)
@@ -166,7 +167,7 @@ def test_run_send_cycle_ignores_retry_not_yet_due(db_session):
 
 def test_run_send_cycle_final_failure_after_max_attempts_alerts_billing_managers(db_session):
     company = _make_company(db_session)
-    target = _make_mail_target(db_session)
+    target = _make_mail_target(db_session, company)
     invoice, routing = _make_routed_invoice(db_session, company=company, target=target)
     db_session.add(BillingManagerContact(email="gestion@example.com"))
     db_session.commit()
@@ -262,7 +263,7 @@ def test_alert_unrouted_invoice_no_contacts_sends_nothing(db_session):
 
 def test_replay_manual_success_marks_sent(db_session):
     company = _make_company(db_session)
-    target = _make_mail_target(db_session)
+    target = _make_mail_target(db_session, company)
     invoice, routing = _make_routed_invoice(db_session, company=company, target=target)
     routing.transfer_status = TransferStatus.FAILED_FINAL
     routing.attempt_count = 6
@@ -281,7 +282,7 @@ def test_replay_manual_is_single_attempt_and_does_not_reschedule(db_session):
     """§ 4.7 : le rejeu manuel ne relance pas le cycle de retry automatique — un
     nouvel échec retombe directement en échec définitif, pas en 'retrying'."""
     company = _make_company(db_session)
-    target = _make_mail_target(db_session)
+    target = _make_mail_target(db_session, company)
     invoice, routing = _make_routed_invoice(db_session, company=company, target=target)
     routing.transfer_status = TransferStatus.FAILED_FINAL
     routing.attempt_count = 6

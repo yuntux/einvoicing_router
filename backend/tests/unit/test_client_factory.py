@@ -35,3 +35,26 @@ def test_resolve_client_pyfrctc_mode_returns_pyfrctc_client(db_session, monkeypa
         client = resolve_client_for_company(db_session, company)
 
     assert isinstance(client, PyfrctcSuperPDPClient)
+
+
+def test_resolve_client_pyfrctc_mode_uses_company_platform_when_set(db_session, monkeypatch):
+    """Une entreprise avec un `platform` explicite (§ 4.10) prime sur
+    `settings.superpdp_platform` lors de l'ouverture de session pyfrctc."""
+    monkeypatch.setattr(settings, "superpdp_client_mode", "pyfrctc")
+    company = Company(siren="123456789", name="Test")
+    db_session.add(company)
+    db_session.commit()
+
+    with patch("app.afnor.client.adapter.core.get_session", return_value="fake-session") as get_session:
+        from app.services import superpdp_credentials_service
+
+        superpdp_credentials_service.set_credentials(
+            db_session,
+            company_id=company.id,
+            client_id="cid",
+            client_secret="csecret",
+            platform="superpdp",
+        )
+        resolve_client_for_company(db_session, company)
+
+    assert get_session.call_args.kwargs["platform"] == "superpdp"

@@ -82,57 +82,83 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main>
-    <h1>Configuration générale</h1>
+  <main class="stack">
+    <header class="page-header">
+      <h1>Configuration générale</h1>
+      <p>Paramètres transverses du routeur, communs à toutes les entreprises gérées.</p>
+    </header>
 
-    <section>
-      <h2>Serveur d'envoi SMTP (§ 4.9.1)</h2>
+    <p v-if="error" role="alert">{{ error }}</p>
+
+    <section class="card">
+      <h2>Serveur d'envoi SMTP</h2>
       <form @submit.prevent="submitSettings">
-        <input v-model="smtpHost" placeholder="Hôte SMTP" data-testid="smtp-host-input" />
-        <input v-model.number="smtpPort" type="number" placeholder="Port" data-testid="smtp-port-input" />
-        <input v-model="smtpUsername" placeholder="Identifiant" data-testid="smtp-username-input" />
-        <input
-          v-model="smtpPassword"
-          type="password"
-          placeholder="Mot de passe"
-          data-testid="smtp-password-input"
-        />
-        <input
-          v-model="smtpFromAddress"
-          placeholder="Adresse expéditeur"
-          data-testid="smtp-from-input"
-        />
+        <div class="field">
+          <label for="smtp-host-input">Hôte SMTP</label>
+          <input id="smtp-host-input" v-model="smtpHost" placeholder="smtp.example.com" data-testid="smtp-host-input" />
+        </div>
+        <div class="field">
+          <label for="smtp-port-input">Port</label>
+          <input id="smtp-port-input" v-model.number="smtpPort" type="number" placeholder="Port" data-testid="smtp-port-input" />
+        </div>
+        <div class="field">
+          <label for="smtp-username-input">Identifiant</label>
+          <input id="smtp-username-input" v-model="smtpUsername" placeholder="Identifiant" data-testid="smtp-username-input" />
+        </div>
+        <div class="field">
+          <label for="smtp-password-input">Mot de passe</label>
+          <input
+            id="smtp-password-input"
+            v-model="smtpPassword"
+            type="password"
+            placeholder="Mot de passe"
+            data-testid="smtp-password-input"
+          />
+        </div>
+        <div class="field">
+          <label for="smtp-from-input">Adresse expéditeur</label>
+          <input
+            id="smtp-from-input"
+            v-model="smtpFromAddress"
+            placeholder="Adresse expéditeur"
+            data-testid="smtp-from-input"
+          />
+        </div>
         <label><input v-model="smtpUseTls" type="checkbox" /> TLS</label>
         <button type="submit" data-testid="settings-submit-button">Enregistrer</button>
       </form>
     </section>
 
-    <section>
-      <h2>Allowlist IP (§ NF6)</h2>
-      <p>Adresses ou CIDR IPv4/IPv6 séparés par des virgules. Vide = aucune restriction.</p>
+    <section class="card">
+      <h2>Allowlist IP</h2>
+      <p class="card-hint">Adresses ou CIDR IPv4/IPv6 séparés par des virgules. Vide = aucune restriction.</p>
       <form @submit.prevent="submitSettings">
-        <label>
-          IHM
+        <div class="field">
+          <label for="ihm-ip-allowlist-input">IHM</label>
           <input
+            id="ihm-ip-allowlist-input"
             v-model="ihmIpAllowlist"
             placeholder="ex. 203.0.113.0/24, 2001:db8::1"
             data-testid="ihm-ip-allowlist-input"
+            style="width: 660px"
           />
-        </label>
-        <label>
-          API AFNOR
+        </div>
+        <div class="field">
+          <label for="afnor-api-ip-allowlist-input">API AFNOR</label>
           <input
+            id="afnor-api-ip-allowlist-input"
             v-model="afnorApiIpAllowlist"
             placeholder="ex. 203.0.113.0/24"
             data-testid="afnor-api-ip-allowlist-input"
+            style="width: 660px"
           />
-        </label>
+        </div>
         <button type="submit" data-testid="ip-allowlist-submit-button">Enregistrer</button>
       </form>
     </section>
 
-    <section>
-      <h2>Gestionnaires de facturation (§ 4.7)</h2>
+    <section class="card">
+      <h2>Gestionnaires de facturation</h2>
       <form @submit.prevent="submitContact">
         <input
           v-model="newContactEmail"
@@ -141,16 +167,15 @@ onMounted(async () => {
           required
           data-testid="contact-email-input"
         />
-        <button type="submit" data-testid="contact-submit-button">Ajouter</button>
+        <button type="submit" class="btn-secondary" data-testid="contact-submit-button">Ajouter</button>
       </form>
-      <ul data-testid="billing-manager-contacts-list">
+      <ul class="entity-list" data-testid="billing-manager-contacts-list">
+        <li v-if="contacts.length === 0" class="entity-list-empty">Aucun gestionnaire de facturation paramétré.</li>
         <li v-for="contact in contacts" :key="contact.id">
-          {{ contact.email }}
-          <button type="button" @click="removeContact(contact.id)">Supprimer</button>
+          <span>{{ contact.email }}</span>
+          <button type="button" class="btn-danger btn-sm" @click="removeContact(contact.id)">Supprimer</button>
         </li>
       </ul>
     </section>
-
-    <p v-if="error" role="alert">{{ error }}</p>
   </main>
 </template>

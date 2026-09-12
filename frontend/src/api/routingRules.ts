@@ -33,3 +33,21 @@ export async function createRoutingRule(payload: RoutingRuleCreate): Promise<Rou
   if (!response.ok) throw new Error(`Failed to create routing rule: ${response.status}`)
   return response.json()
 }
+
+export async function upsertRoutingRule(
+  partnerDirectoryId: number,
+  targetApplicationId: number,
+  payload: { start_date: string | null; end_date: string | null },
+): Promise<RoutingRule> {
+  const response = await fetch(
+    `${API_BASE}/api/ihm/routing-rules/${partnerDirectoryId}/${targetApplicationId}`,
+    {
+      credentials: 'include',
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    },
+  )
+  if (!response.ok) throw new Error(`Failed to save routing rule: ${response.status}`)
+  return response.json()
+}

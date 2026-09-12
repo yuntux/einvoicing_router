@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { simulateInvoiceReception } from './helpers'
 
 test('records a dispute lifecycle event with a reason', async ({ page }) => {
   const unique = String(Date.now()).slice(-9)
@@ -11,13 +12,14 @@ test('records a dispute lifecycle event with a reason', async ({ page }) => {
   await page.getByTestId('submit-button').click()
   await expect(page.getByTestId('companies-list')).toContainText(companyName)
 
-  await page.goto('/invoices')
-  await page.getByTestId('sim-company-select').selectOption({ label: `${unique} — ${companyName}` })
-  await page.getByTestId('sim-emitter-siren-input').fill(unique)
-  await page.getByTestId('sim-invoice-number-input').fill(invoiceNumber)
-  await page.getByTestId('sim-invoice-date-input').fill('2026-04-01')
-  await page.getByTestId('sim-submit-button').click()
+  await simulateInvoiceReception(page, {
+    companySiren: unique,
+    emitterSiren: unique,
+    invoiceNumber,
+    invoiceDate: '2026-04-01',
+  })
 
+  await page.goto('/invoices')
   await page.getByTestId('filter-invoice-number').fill(invoiceNumber)
   await page.getByTestId('filter-submit-button').click()
   await page.getByTestId(`invoice-row-${invoiceNumber}`).click()

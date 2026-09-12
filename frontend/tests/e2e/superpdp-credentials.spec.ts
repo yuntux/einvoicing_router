@@ -11,7 +11,7 @@ test('configures SuperPDP credentials for a company', async ({ page }) => {
 
   const row = page.getByTestId(new RegExp('company-row-\\d+')).filter({ hasText: companyName })
   await expect(row).toBeVisible()
-  await expect(row).toContainText('Identifiants SuperPDP non configurés')
+  await expect(row).toContainText('Non configurés')
 
   // Identifiants uniques par exécution : oauth_applications.client_id est contraint
   // en unicité, et la base de dev n'est pas nécessairement réinitialisée entre deux
@@ -23,6 +23,7 @@ test('configures SuperPDP credentials for a company', async ({ page }) => {
   await row.getByTestId('superpdp-client-secret-input').fill('sandbox-client-secret')
   await row.getByTestId('superpdp-credentials-submit-button').click()
 
-  await expect(row).toContainText(`Identifiants SuperPDP configurés (${clientId})`)
+  await expect(page.getByTestId('superpdp-credentials-test-success')).toContainText('Test de connexion OK')
+  await expect(row).toContainText(`Configurés (${clientId})`)
   await expect(row).not.toContainText('sandbox-client-secret')
 })

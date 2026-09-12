@@ -14,6 +14,8 @@ from app.schemas.referential import (
     TargetApplicationCreate,
     TargetApplicationCreated,
     TargetApplicationRead,
+    TargetApplicationStatusUpdate,
+    TargetApplicationUpdate,
 )
 
 router = APIRouter()
@@ -31,11 +33,6 @@ def create_target_application(payload: TargetApplicationCreate, db: Session = De
     oauth_application_id: int | None = None
 
     if payload.routing_method == RoutingMethod.AFNOR_API:
-        if payload.company_id is None:
-            raise HTTPException(
-                status_code=422,
-                detail="company_id est requis pour la méthode afnor_api (§ 4.9.2).",
-            )
         oauth_client_id, oauth_client_secret = generate_client_credentials()
         oauth_app = OAuthApplication(
             company_id=payload.company_id,
@@ -67,3 +64,52 @@ def create_target_application(payload: TargetApplicationCreate, db: Session = De
         oauth_client_id=oauth_client_id,
         oauth_client_secret=oauth_client_secret,
     )
+
+
+@router.put("/{target_application_id}", response_model=TargetApplicationRead)
+def update_target_application(
+    target_application_id: int, payload: TargetApplicationUpdate, db: Session = Depends(get_db)
+):
+    """Modifie le nom et les paramètres propres à la méthode de routage déjà choisie
+    (§ 4.9.1/4.9.2) — destinataires mail, ou URLs de redirection/format préféré de
+    conversion/type d'application/URL de webhook pour une application OAuth
+    (portés par l'`OAuthApplication` liée, jamais par `TargetApplication.parameters`
+    pour cette méthode, cf. § 6.1)."""
+    target_application = db.get(TargetApplication, target_application_id)
+    if target_application is None:
+        raise HTTPException(status_code=404, detail="Target application not found")
+
+    target_application.name = payload.name
+    if target_application.routing_method == RoutingMethod.MAIL:
+        target_application.parameters = payload.parameters
+    else:
+        oauth_app = target_application.oauth_application
+        if oauth_app is not None:
+            oauth_app.redirect_urls = (
+                ",".join(payload.parameters.get("redirect_urls", []) or []) or None
+            )
+            oauth_app.preferred_conversion_format = payload.parameters.get(
+                "preferred_conversion_format"
+            )
+            oauth_app.app_type = payload.parameters.get("app_type", oauth_app.app_type)
+            oauth_app.webhook_url = payload.parameters.get("webhook_url")
+
+    db.commit()
+    db.refresh(target_application)
+    return target_application
+
+
+@router.put("/{target_application_id}/status", response_model=TargetApplicationRead)
+def update_target_application_status(
+    target_application_id: int, payload: TargetApplicationStatusUpdate, db: Session = Depends(get_db)
+):
+    """Activation/désactivation sans suppression (§ 6.1) : une application désactivée
+    n'est plus retenue par RoutingRuleService.resolve pour de nouvelles factures,
+    mais son historique de routage reste intact."""
+    target_application = db.get(TargetApplication, target_application_id)
+    if target_application is None:
+        raise HTTPException(status_code=404, detail="Target application not found")
+    target_application.is_active = payload.is_active
+    db.commit()
+    db.refresh(target_application)
+    return target_application

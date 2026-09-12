@@ -1,11 +1,25 @@
 export type RoutingMethod = 'mail' | 'afnor_api'
 
+export interface TargetApplicationOAuth {
+  app_type: 'confidential' | 'public'
+  redirect_urls: string | null
+  preferred_conversion_format: string | null
+  webhook_url: string | null
+}
+
 export interface TargetApplication {
   id: number
   name: string
   routing_method: RoutingMethod
-  company_id: number | null
+  company_id: number
   oauth_application_id: number | null
+  oauth_application: TargetApplicationOAuth | null
+  parameters: Record<string, unknown>
+  is_active: boolean
+}
+
+export interface TargetApplicationUpdate {
+  name: string
   parameters: Record<string, unknown>
 }
 
@@ -17,7 +31,7 @@ export interface TargetApplicationCreated extends TargetApplication {
 export interface TargetApplicationCreate {
   name: string
   routing_method: RoutingMethod
-  company_id?: number | null
+  company_id: number
   parameters: Record<string, unknown>
 }
 
@@ -39,5 +53,33 @@ export async function createTargetApplication(
     body: JSON.stringify(payload),
   })
   if (!response.ok) throw new Error(`Failed to create target application: ${response.status}`)
+  return response.json()
+}
+
+export async function updateTargetApplication(
+  id: number,
+  payload: TargetApplicationUpdate,
+): Promise<TargetApplication> {
+  const response = await fetch(`${API_BASE}/api/ihm/target-applications/${id}`, {
+    credentials: 'include',
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok) throw new Error(`Failed to update target application: ${response.status}`)
+  return response.json()
+}
+
+export async function setTargetApplicationActive(
+  id: number,
+  isActive: boolean,
+): Promise<TargetApplication> {
+  const response = await fetch(`${API_BASE}/api/ihm/target-applications/${id}/status`, {
+    credentials: 'include',
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_active: isActive }),
+  })
+  if (!response.ok) throw new Error(`Failed to update target application status: ${response.status}`)
   return response.json()
 }

@@ -13,7 +13,7 @@ test('manages a user access scope from the users page', async ({ page }) => {
   // Par défaut (oidc_mode=disabled), la page est accessible sans connexion et ne
   // liste aucun utilisateur tant qu'aucun n'a été provisionné (pas de login réel ici).
   await page.goto('/users')
-  await expect(page.getByRole('heading', { name: 'Gestion des accès (§ NF4)' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Gestion des accès' })).toBeVisible()
   await expect(page.getByTestId('users-table')).toBeVisible()
 
   // Pré-provisionnement d'un compte par email (§ NF4) : visible dans la liste avant

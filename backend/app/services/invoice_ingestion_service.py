@@ -70,7 +70,10 @@ def _route_invoice(db: Session, invoice: Invoice) -> bool:
     Retourne True si la facture n'a résolu aucune cible (cas "facture non routée",
     § 4.7) — l'appelant déclenche alors l'alerte email correspondante."""
     targets = routing_rule_service.resolve(
-        db, siren=invoice.emitter_siren, reference_date=invoice.invoice_date
+        db,
+        siren=invoice.emitter_siren,
+        reference_date=invoice.invoice_date,
+        company_id=invoice.company_id,
     )
     existing_target_ids = {r.target_application_id for r in invoice.routings}
     for target in targets:

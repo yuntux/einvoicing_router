@@ -20,13 +20,30 @@ export interface LifecycleEventDetail {
   comment: string | null
 }
 
+export interface LifecycleEventPayment {
+  id: number
+  amount: number
+  currency: string
+  payment_date: string
+}
+
+export interface LifecycleEventAttachment {
+  id: number
+  filename: string
+  has_file: boolean
+}
+
 export interface LifecycleEvent {
   id: number
   invoice_id: number
   event_datetime: string
   status: string
   direction: string
+  amount: number | null
+  currency: string | null
   details: LifecycleEventDetail[]
+  payments: LifecycleEventPayment[]
+  attachments: LifecycleEventAttachment[]
 }
 
 export interface CreateLifecycleEventPayload {
@@ -49,6 +66,14 @@ export async function listLifecycleEvents(invoiceId: number): Promise<LifecycleE
   const response = await fetch(`${API_BASE}/api/ihm/invoices/${invoiceId}/lifecycle-events`, { credentials: 'include' })
   if (!response.ok) throw new Error(`Failed to list lifecycle events: ${response.status}`)
   return response.json()
+}
+
+export function lifecycleEventAttachmentDownloadUrl(
+  invoiceId: number,
+  eventId: number,
+  attachmentId: number,
+): string {
+  return `${API_BASE}/api/ihm/invoices/${invoiceId}/lifecycle-events/${eventId}/attachments/${attachmentId}/download`
 }
 
 export async function createLifecycleEvent(

@@ -56,22 +56,33 @@ class TargetApplication(Base):
     sont portés par l'`OAuthApplication` liée (`oauth_application_id`) — c'est elle
     qui détient les identifiants OAuth réels (§ 4.10), pas `parameters`, pour éviter
     de dupliquer ces champs à deux endroits du modèle (redondance identifiée au lot 1,
-    résolue au lot 4 en branchant l'authentification réelle)."""
+    résolue au lot 4 en branchant l'authentification réelle).
+
+    `company_id` est obligatoire quelle que soit `routing_method` (y compris `mail`) :
+    une application cible sans entreprise rattachée ne peut pas être distinguée par
+    `RoutingRuleService.resolve` selon l'entreprise réceptrice, ce qui fait fuiter le
+    routage d'un même fournisseur facturant plusieurs entreprises gérées vers toutes
+    leurs applications mail au lieu de la seule concernée (§ NF2 : cloisonnement
+    strict, aligné sur ce qui était déjà appliqué à `afnor_api`)."""
 
     __tablename__ = "target_applications"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255))
     routing_method: Mapped[RoutingMethod] = mapped_column(String(20))
-    company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id"), nullable=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"))
     oauth_application_id: Mapped[int | None] = mapped_column(
         ForeignKey("oauth_applications.id"), nullable=True
     )
     # Paramètres propres à la méthode mail (§ 4.9.1 : to/cc/bcc). Vide/non utilisé
     # pour la méthode afnor_api (cf. docstring ci-dessus).
     parameters: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Désactivation sans suppression (conserve l'historique de routage, § 6.1) : une
+    # application inactive n'est plus jamais retenue par RoutingRuleService.resolve
+    # pour de nouvelles factures, mais les InvoiceRouting déjà créés restent inchangés.
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
 
-    company: Mapped[Company | None] = relationship()
+    company: Mapped[Company] = relationship()
     oauth_application: Mapped["OAuthApplication | None"] = relationship()
     routing_rules: Mapped[list["RoutingRule"]] = relationship(back_populates="target_application")
 
@@ -120,6 +131,11 @@ class OAuthApplication(Base):
     preferred_conversion_format: Mapped[str | None] = mapped_column(String(50), nullable=True)
     afnor_api_version: Mapped[str | None] = mapped_column(String(10), nullable=True)
     webhook_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Plateforme AFNOR à utiliser pour cette entreprise (scope `router_to_superpdp`) —
+    # une clé du dict `pyfrctc.pyfrctc.PLATFORMS` (§ 4.10). `None` = plateforme par
+    # défaut du serveur (`settings.superpdp_platform`) : permet de pointer une
+    # entreprise vers un environnement AFNOR distinct sans redéployer le routeur.
+    platform: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     company: Mapped[Company] = relationship()
 

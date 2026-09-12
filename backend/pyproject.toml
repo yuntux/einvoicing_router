@@ -32,6 +32,9 @@ dependencies = [
     # seulement un outil de test, malgré son usage principal comme TestClient HTTP
     # dans la suite pytest (cf. dev ci-dessous).
     "httpx>=0.27",
+    # Validation de la clé (Luhn) des SIREN/SIRET saisis dans les formulaires IHM
+    # (app/schemas/validators.py) plutôt que de réimplémenter l'algorithme.
+    "python-stdnum>=1.20",
 ]
 
 [project.optional-dependencies]

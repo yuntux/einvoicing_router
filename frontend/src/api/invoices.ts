@@ -17,6 +17,8 @@ export interface Invoice {
   syntax: string | null
   processing_rule: string | null
   received_at: string
+  last_download_at: string | null
+  last_download_by: string | null
 }
 
 export interface InvoiceRouting {
@@ -27,36 +29,41 @@ export interface InvoiceRouting {
   next_attempt_at: string | null
 }
 
+export interface AfnorFlow {
+  id: number
+  flow_id: string | null
+  direction: string
+  flow_type: string
+  syntax: string
+  processing_rule: string | null
+  state: string
+  has_file: boolean
+}
+
 export interface InvoiceDetail extends Invoice {
   routings: InvoiceRouting[]
   emitter_name: string | null
   last_download_at: string | null
   last_download_by: string | null
+  afnor_flows: AfnorFlow[]
 }
 
 export interface InvoiceFilters {
   company_id?: number
   emitter_siren?: string
+  emitter_name?: string
   invoice_number?: string
-  currency?: string
   syntax?: string
   processing_rule?: string
   invoice_date_from?: string
   invoice_date_to?: string
-}
-
-export interface SimulateInvoicePayload {
-  company_id: number
-  emitter_siren: string
-  emitter_siret?: string | null
-  invoice_number: string
-  invoice_date: string
-  due_date?: string | null
-  amount_total?: number | null
-  amount_excl_tax?: number | null
-  currency?: string
-  syntax?: string
-  processing_rule?: string
+  amount_excl_tax_min?: number
+  amount_excl_tax_max?: number
+  vat_amount_min?: number
+  vat_amount_max?: number
+  amount_total_min?: number
+  amount_total_max?: number
+  downloaded?: boolean
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000'
@@ -81,13 +88,6 @@ export function invoiceDownloadUrl(id: number): string {
   return `${API_BASE}/api/ihm/invoices/${id}/download`
 }
 
-export async function simulateInvoiceReception(payload: SimulateInvoicePayload): Promise<Invoice> {
-  const response = await fetch(`${API_BASE}/api/ihm/invoices/simulate`, {
-    credentials: 'include',
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!response.ok) throw new Error(`Failed to simulate invoice: ${response.status}`)
-  return response.json()
+export function afnorFlowDownloadUrl(invoiceId: number, flowId: number): string {
+  return `${API_BASE}/api/ihm/invoices/${invoiceId}/afnor-flows/${flowId}/download`
 }
