@@ -64,7 +64,7 @@ onMounted(ensureAuthStatus)
     <aside class="sidebar">
       <div class="sidebar-brand">
         <span class="sidebar-brand-mark">R</span>
-        <span class="sidebar-brand-name">Routeur de factures</span>
+        <span class="sidebar-brand-name">einvoicing Router</span>
       </div>
 
       <nav class="sidebar-nav">
