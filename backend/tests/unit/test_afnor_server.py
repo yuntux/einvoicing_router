@@ -170,7 +170,15 @@ def _authenticate(client, oauth_app, secret):
     return response.json()["access_token"]
 
 
-def test_list_invoices_scoped_to_consumer(client, db_session):
+def _search_flows(client, token):
+    return client.post(
+        "/api/afnor/v1/afnor-flow/flows/search",
+        json={"where": {}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+
+def test_search_flows_scoped_to_consumer(client, db_session):
     company_a = _make_company(db_session, siren="111111111", name="Société A")
     company_b = _make_company(db_session, siren="222222222", name="Société B")
 
@@ -189,17 +197,17 @@ def test_list_invoices_scoped_to_consumer(client, db_session):
 
     token_a = _authenticate(client, oauth_app_a, "secret-a")
 
-    response = client.get(
-        "/api/afnor/v1/invoices", headers={"Authorization": f"Bearer {token_a}"}
-    )
+    response = _search_flows(client, token_a)
 
     assert response.status_code == 200
     body = response.json()
-    assert len(body) == 1
-    assert body[0]["id"] == invoice_a.id
+    assert len(body["results"]) == 1
+    assert body["results"][0]["flowId"] == invoice_a.superpdp_flow_id
+    assert body["results"][0]["flowType"] == "SupplierInvoice"
+    assert body["results"][0]["flowDirection"] == "In"
 
 
-def test_list_invoices_excludes_invoice_of_another_company_even_if_routed_there(
+def test_search_flows_excludes_invoice_of_another_company_even_if_routed_there(
     client, db_session
 ):
     """Garde-fou NF2 (défense en profondeur, cf. list_invoices_for_consumer) : même si
@@ -219,34 +227,80 @@ def test_list_invoices_excludes_invoice_of_another_company_even_if_routed_there(
     _route(db_session, invoice_b, target_a)
 
     token_a = _authenticate(client, oauth_app_a, "secret-a")
-    response = client.get(
-        "/api/afnor/v1/invoices", headers={"Authorization": f"Bearer {token_a}"}
-    )
+    response = _search_flows(client, token_a)
 
     assert response.status_code == 200
-    assert response.json() == []
+    assert response.json()["results"] == []
 
 
-def test_list_invoices_no_target_returns_empty(client, db_session):
+def test_search_flows_no_target_returns_empty(client, db_session):
     company = _make_company(db_session)
     oauth_app = _make_oauth_app(db_session, company, client_secret="s3cret-value")
     token = _authenticate(client, oauth_app, "s3cret-value")
 
+    response = _search_flows(client, token)
+
+    assert response.status_code == 200
+    assert response.json()["results"] == []
+
+
+def test_search_flows_rejects_missing_token(client, db_session):
+    response = client.post("/api/afnor/v1/afnor-flow/flows/search", json={"where": {}})
+    assert response.status_code == 401
+
+
+def test_search_flows_rejects_invalid_token(client, db_session):
+    response = client.post(
+        "/api/afnor/v1/afnor-flow/flows/search",
+        json={"where": {}},
+        headers={"Authorization": "Bearer not-a-real-token"},
+    )
+    assert response.status_code == 401
+
+
+def test_get_flow_metadata_scoped_to_consumer(client, db_session):
+    company = _make_company(db_session)
+    oauth_app = _make_oauth_app(db_session, company, client_secret="secret-1")
+    target = _make_target(db_session, company, oauth_app=oauth_app)
+    partner = _make_partner(db_session)
+    invoice = _make_invoice(db_session, company, partner, flow_id="flow-x")
+    _route(db_session, invoice, target)
+    token = _authenticate(client, oauth_app, "secret-1")
+
     response = client.get(
-        "/api/afnor/v1/invoices", headers={"Authorization": f"Bearer {token}"}
+        "/api/afnor/v1/afnor-flow/flows/flow-x", headers={"Authorization": f"Bearer {token}"}
     )
 
     assert response.status_code == 200
-    assert response.json() == []
+    assert response.json()["flowId"] == "flow-x"
 
 
-def test_list_invoices_rejects_missing_token(client, db_session):
-    response = client.get("/api/afnor/v1/invoices")
-    assert response.status_code == 401
+def test_get_flow_metadata_unknown_flow_returns_404(client, db_session):
+    company = _make_company(db_session)
+    oauth_app = _make_oauth_app(db_session, company, client_secret="secret-1")
+    token = _authenticate(client, oauth_app, "secret-1")
 
-
-def test_list_invoices_rejects_invalid_token(client, db_session):
     response = client.get(
-        "/api/afnor/v1/invoices", headers={"Authorization": "Bearer not-a-real-token"}
+        "/api/afnor/v1/afnor-flow/flows/does-not-exist",
+        headers={"Authorization": f"Bearer {token}"},
     )
-    assert response.status_code == 401
+
+    assert response.status_code == 404
+
+
+def test_get_flow_converted_doctype_returns_501(client, db_session):
+    company = _make_company(db_session)
+    oauth_app = _make_oauth_app(db_session, company, client_secret="secret-1")
+    target = _make_target(db_session, company, oauth_app=oauth_app)
+    partner = _make_partner(db_session)
+    invoice = _make_invoice(db_session, company, partner, flow_id="flow-y")
+    _route(db_session, invoice, target)
+    token = _authenticate(client, oauth_app, "secret-1")
+
+    response = client.get(
+        "/api/afnor/v1/afnor-flow/flows/flow-y",
+        params={"docType": "Converted"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 501

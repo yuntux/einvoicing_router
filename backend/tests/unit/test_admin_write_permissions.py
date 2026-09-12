@@ -74,11 +74,12 @@ def test_create_company_works_for_admin(client, monkeypatch):
     assert response.status_code == 201
 
 
-def test_get_router_settings_still_readable_by_regular_user(client, monkeypatch):
-    """Seule l'écriture est réservée aux admins — la lecture reste ouverte à tout
-    utilisateur authentifié, comme le reste de l'IHM."""
+def test_get_router_settings_requires_admin(client, monkeypatch):
+    """Page Configuration réservée aux admins, lecture comme écriture (§ 5.1) — ces
+    réglages (SMTP, allowlist IP...) sont sensibles, pas de lecture pour un
+    utilisateur restreint contrairement à d'autres pages IHM."""
     monkeypatch.setattr(settings, "oidc_mode", "dev")
     _login_as_regular_user(client, "admin7@example.com", "user7@example.com")
 
     response = client.get("/api/ihm/settings")
-    assert response.status_code == 200
+    assert response.status_code == 403

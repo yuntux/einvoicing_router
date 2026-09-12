@@ -5,8 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 import app.api.afnor.v1  # noqa: F401  (s'enregistre auprès du registre de versions)
-import app.api.afnor.v2  # noqa: F401  (idem — cf. app/afnor/versioning/registry.py)
 from app.afnor.versioning.registry import get_router
+from app.api.afnor.errors import register_afnor_error_handlers
 from app.api.ihm.audit import router as audit_router
 from app.api.ihm.auth import router as auth_router
 from app.api.ihm.companies import admin_router as companies_admin_router
@@ -16,8 +16,8 @@ from app.api.ihm.invoices import router as invoices_router
 from app.api.ihm.lifecycle import router as lifecycle_router
 from app.api.ihm.partners import router as partners_router
 from app.api.ihm.routing_rules import router as routing_rules_router
-from app.api.ihm.settings import admin_router as settings_admin_router
 from app.api.ihm.settings import router as settings_router
+from app.api.ihm.target_applications import admin_router as target_applications_admin_router
 from app.api.ihm.target_applications import router as target_applications_router
 from app.api.ihm.users import router as users_router
 from app.api.testing.invoices import router as testing_invoices_router
@@ -37,6 +37,7 @@ async def _lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Routeur de factures électroniques", lifespan=_lifespan)
+    register_afnor_error_handlers(app)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173"],
@@ -72,19 +73,18 @@ def create_app() -> FastAPI:
     #   Préfixe                              Accès
     #   ------------------------------------ ----------------------------------
     #   /api/ihm/auth/*                      public (flux de connexion)
-    #   /api/ihm/companies (GET)             authentifié, filtré par périmètre
-    #   /api/ihm/companies (POST)            admin uniquement
-    #   /api/ihm/companies/*/superpdp-*      authentifié, filtré par périmètre
+    #   /api/ihm/companies/lookup            authentifié (id+nom uniquement, non filtré)
+    #   /api/ihm/companies (reste)           admin uniquement — page Entreprises (§ 5.1)
     #   /api/ihm/partners                    authentifié
-    #   /api/ihm/target-applications         authentifié
+    #   /api/ihm/target-applications/lookup  authentifié (id+nom+entreprise, non filtré)
+    #   /api/ihm/target-applications (reste) admin uniquement — page Applications cibles (§ 5.1)
     #   /api/ihm/routing-rules               authentifié
     #   /api/ihm/invoices                    authentifié, filtré par périmètre
     #   /api/ihm/invoice-routings            authentifié, filtré par périmètre
     #   /api/ihm/lifecycle-catalog           authentifié
-    #   /api/ihm/settings (GET)              authentifié
-    #   /api/ihm/settings (PUT/POST/DELETE)  admin uniquement (réglages globaux)
+    #   /api/ihm/settings/*                  admin uniquement — page Configuration (§ 5.1)
     #   /api/ihm/users/*                     admin uniquement (gestion des accès)
-    #   /api/ihm/audit/*                     authentifié
+    #   /api/ihm/audit/*                     admin uniquement — traces techniques (§ 5.1)
     # ---------------------------------------------------------------------------
 
     app.include_router(auth_router, prefix="/api/ihm/auth", tags=["auth"])
@@ -105,6 +105,12 @@ def create_app() -> FastAPI:
         prefix="/api/ihm/target-applications",
         tags=["target-applications"],
         dependencies=ihm_auth,
+    )
+    app.include_router(
+        target_applications_admin_router,
+        prefix="/api/ihm/target-applications",
+        tags=["target-applications"],
+        dependencies=ihm_admin_only,
     )
     app.include_router(
         routing_rules_router,
@@ -138,18 +144,14 @@ def create_app() -> FastAPI:
         dependencies=ihm_auth,
     )
     app.include_router(
-        settings_router, prefix="/api/ihm/settings", tags=["settings"], dependencies=ihm_auth
-    )
-    app.include_router(
-        settings_admin_router,
-        prefix="/api/ihm/settings",
-        tags=["settings"],
-        dependencies=ihm_admin_only,
+        settings_router, prefix="/api/ihm/settings", tags=["settings"], dependencies=ihm_admin_only
     )
     app.include_router(
         users_router, prefix="/api/ihm/users", tags=["users"], dependencies=ihm_admin_only
     )
-    app.include_router(audit_router, prefix="/api/ihm/audit", tags=["audit"], dependencies=ihm_auth)
+    app.include_router(
+        audit_router, prefix="/api/ihm/audit", tags=["audit"], dependencies=ihm_admin_only
+    )
 
     # Points d'entrée réservés aux tests (pytest/Playwright), hors de l'API produit
     # (/api/ihm/*, /api/afnor/*) : jamais montés quand un vrai client SuperPDP est

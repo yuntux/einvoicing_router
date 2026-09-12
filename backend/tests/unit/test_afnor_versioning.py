@@ -1,8 +1,18 @@
-"""Registre de versions AFNOR (spec.md § 4.8, lot 8) — preuve qu'une v2 s'ajoute sans
-toucher aux services existants."""
+"""Registre de versions AFNOR (spec.md § 4.8) — preuve que le dispositif permet
+d'ajouter une future version sans toucher aux services existants, sans qu'une v2
+fictive ne soit pour autant montée en permanence tant qu'elle ne correspond à rien
+de réel (§ 4.8 met justement en garde contre une anticipation prématurée)."""
 
-from app.afnor.versioning.registry import registered_versions
+from fastapi import APIRouter
+from fastapi.testclient import TestClient
+
+from app.afnor.versioning import registry
+from app.afnor.versioning.registry import register_version, registered_versions
+from app.api.afnor._common import register_common_routes
 from app.auth.oauth import generate_client_credentials, hash_secret
+from app.config import settings
+from app.db.session import get_db
+from app.main import create_app
 from app.models.referential import Company, OAuthAppType, OAuthApplication, OAuthScope
 
 
@@ -28,62 +38,89 @@ def _make_oauth_app(db, company, client_secret="s3cret-value"):
     return oauth_app
 
 
-def test_registry_contains_v1_and_v2():
-    assert registered_versions() == ["v1", "v2"]
+def test_registry_contains_only_v1_today():
+    assert registered_versions() == ["v1"]
 
 
-def test_v2_reuses_same_service_modules_as_v1_not_duplicated_logic():
-    """La preuve architecturale du § 4.8 : v1 et v2 enregistrent, pour `/invoices` et
-    `/directory/{siren}`, le même `__code__` compilé — une unique implémentation
-    (`register_common_routes` dans `_common.py`, appelée une fois par version, chacune
-    créant sa propre fermeture sur `afnor_api_version`), jamais recopiée à la main."""
+def test_a_future_version_reuses_same_service_modules_not_duplicated_logic():
+    """Enregistre une version hypothétique ("v2-future") via le même mécanisme que
+    v1 (`register_common_routes`) — preuve que l'ajout d'une vraie v2 le jour venu
+    réutiliserait le même `__code__` compilé, sans dupliquer la logique métier."""
     import app.api.afnor.v1 as v1
-    import app.api.afnor.v2 as v2
+
+    future_router = APIRouter()
+    register_common_routes(future_router, "v2-future")
 
     def endpoint_for(router, path: str):
         return next(route.endpoint for route in router.routes if route.path == path)
 
-    assert endpoint_for(v1.router, "/invoices").__code__ is endpoint_for(v2.router, "/invoices").__code__
     assert (
-        endpoint_for(v1.router, "/directory/{siren}").__code__
-        is endpoint_for(v2.router, "/directory/{siren}").__code__
+        endpoint_for(v1.router, "/afnor-flow/flows/search").__code__
+        is endpoint_for(future_router, "/afnor-flow/flows/search").__code__
+    )
+    assert (
+        endpoint_for(v1.router, "/afnor-directory/siren/code-insee:{siren}").__code__
+        is endpoint_for(future_router, "/afnor-directory/siren/code-insee:{siren}").__code__
     )
 
 
-def test_v1_and_v2_endpoints_both_work_independently(client, db_session):
+def test_enabling_a_future_version_mounts_it_without_touching_main(db_session):
+    """Bout-en-bout : active une version hypothétique via
+    `afnor_api_enabled_versions` et prouve qu'elle répond, sans avoir modifié
+    `app/main.py` ni aucun service pour l'occasion."""
+    future_router = APIRouter()
+    register_common_routes(future_router, "v2-future")
+    register_version("v2-future", future_router)
+
+    original = settings.afnor_api_enabled_versions
+    settings.afnor_api_enabled_versions = "v1,v2-future"
+    try:
+        app = create_app()
+    finally:
+        settings.afnor_api_enabled_versions = original
+        registry._REGISTRY.pop("v2-future", None)
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = override_get_db
+
     company = _make_company(db_session)
     oauth_app = _make_oauth_app(db_session, company, client_secret="secret-1")
 
-    token_response = client.post(
-        "/api/afnor/v1/oauth/token",
-        data={
-            "grant_type": "client_credentials",
-            "client_id": oauth_app.client_id,
-            "client_secret": "secret-1",
-        },
-    )
-    assert token_response.status_code == 200
-    token = token_response.json()["access_token"]
-    headers = {"Authorization": f"Bearer {token}"}
+    with TestClient(app, base_url="https://testserver") as client:
+        token_response = client.post(
+            "/api/afnor/v1/oauth/token",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": oauth_app.client_id,
+                "client_secret": "secret-1",
+            },
+        )
+        assert token_response.status_code == 200
+        token = token_response.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
 
-    v1_response = client.get("/api/afnor/v1/invoices", headers=headers)
-    assert v1_response.status_code == 200
+        search_body = {"where": {}}
+        v1_response = client.post(
+            "/api/afnor/v1/afnor-flow/flows/search", json=search_body, headers=headers
+        )
+        assert v1_response.status_code == 200
 
-    v2_response = client.get("/api/afnor/v2/invoices", headers=headers)
-    assert v2_response.status_code == 200
-
-    from app.models.audit import FlowTrace
-
-    traces = db_session.query(FlowTrace).all()
-    versions_traced = {t.afnor_api_version for t in traces if t.request.get("endpoint") == "GET /invoices"}
-    assert versions_traced == {"v1", "v2"}
+        future_response = client.post(
+            "/api/afnor/v2-future/afnor-flow/flows/search", json=search_body, headers=headers
+        )
+        assert future_response.status_code == 200
 
 
-def test_v2_has_no_own_token_endpoint(client):
+def test_v1_has_the_only_token_endpoint():
     """L'émission de jeton reste une infrastructure non versionnée (§ 4.10) — seule
-    la surface métier (factures, annuaire) est dupliquée par version."""
-    response = client.post(
-        "/api/afnor/v2/oauth/token",
-        data={"grant_type": "client_credentials", "client_id": "x", "client_secret": "y"},
-    )
-    assert response.status_code == 404
+    la surface métier (factures, annuaire) serait dupliquée par une future version,
+    via `register_common_routes` (cf. tests ci-dessus)."""
+    import app.api.afnor.v1 as v1
+
+    paths = {route.path for route in v1.router.routes}
+    assert "/oauth/token" in paths

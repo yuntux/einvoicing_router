@@ -1,9 +1,8 @@
-"""Cloisonnement par entreprise sur les applications cibles (spec.md § 6.1/NF4).
-
-Avant ce correctif, `target_applications.py` ne filtrait jamais par périmètre : un
-utilisateur restreint à une entreprise pouvait lire (destinataires mail, URLs de
-webhook/redirection OAuth) et modifier les applications cibles de n'importe quelle
-autre entreprise — ces tests couvrent la régression."""
+"""Page Applications cibles réservée aux admins (spec.md § 5.1/NF4) : un utilisateur
+restreint n'a plus aucun accès (lecture complète, création, modification,
+activation/désactivation) — seule la référence minimale id+nom+entreprise
+(`/lookup`), sans donnée sensible, reste accessible pour l'affichage croisé de
+pages non admin-only (ex. Règles de routage)."""
 
 from stdnum.fr import siren as siren_stdnum
 
@@ -60,7 +59,7 @@ def _make_target_application(client, *, company_id, name="Spendesk"):
     return response.json()
 
 
-def test_restricted_user_cannot_list_target_applications_of_another_company(client, monkeypatch):
+def test_restricted_user_cannot_list_target_applications(client, monkeypatch):
     monkeypatch.setattr(settings, "oidc_mode", "dev")
     _login_as_first_admin(client, "admin1@example.com")
     company_a = _make_company(client, _valid_siren("11111111"), "Société A")
@@ -72,8 +71,7 @@ def test_restricted_user_cannot_list_target_applications_of_another_company(clie
     )
 
     response = client.get("/api/ihm/target-applications")
-    assert response.status_code == 200
-    assert response.json() == []
+    assert response.status_code == 403
 
 
 def test_restricted_user_cannot_create_target_application_for_another_company(client, monkeypatch):
@@ -133,16 +131,46 @@ def test_restricted_user_cannot_toggle_status_of_target_application_of_another_c
     assert response.status_code == 403
 
 
-def test_restricted_user_still_sees_own_company_target_applications(client, monkeypatch):
+def test_restricted_user_cannot_list_own_company_target_applications_either(client, monkeypatch):
+    """Contrairement à d'autres pages IHM, aucune exception de périmètre ici : la
+    page Applications cibles est réservée aux admins, même pour l'entreprise du
+    périmètre de l'utilisateur restreint (§ 5.1)."""
     monkeypatch.setattr(settings, "oidc_mode", "dev")
     _login_as_first_admin(client, "admin5@example.com")
     company_a = _make_company(client, _valid_siren("11111115"), "Société A")
-    target_a = _make_target_application(client, company_id=company_a, name="Cible A")
+    _make_target_application(client, company_id=company_a, name="Cible A")
 
     _create_restricted_user_scoped_to(
         client, admin_email="admin5@example.com", user_email="user5@example.com", company_id=company_a
     )
 
     response = client.get("/api/ihm/target-applications")
+    assert response.status_code == 403
+
+
+def test_restricted_user_can_read_target_application_lookup_across_all_companies(client, monkeypatch):
+    """La référence minimale (id+nom+entreprise, `/lookup`) reste accessible à tout
+    utilisateur authentifié, non filtrée par périmètre — nécessaire à la page Règles
+    de routage (non admin-only) pour afficher ses colonnes (§ 5.1)."""
+    monkeypatch.setattr(settings, "oidc_mode", "dev")
+    _login_as_first_admin(client, "admin6@example.com")
+    company_a = _make_company(client, _valid_siren("11111116"), "Société A")
+    company_b = _make_company(client, _valid_siren("22222226"), "Société B")
+    target_a = _make_target_application(client, company_id=company_a, name="Cible A")
+    target_b = _make_target_application(client, company_id=company_b, name="Cible B")
+
+    _create_restricted_user_scoped_to(
+        client, admin_email="admin6@example.com", user_email="user6@example.com", company_id=company_a
+    )
+
+    response = client.get("/api/ihm/target-applications/lookup")
     assert response.status_code == 200
-    assert [t["id"] for t in response.json()] == [target_a["id"]]
+    body = {row["id"]: row for row in response.json()}
+    assert set(body) == {target_a["id"], target_b["id"]}
+    assert body[target_a["id"]] == {
+        "id": target_a["id"],
+        "name": "Cible A",
+        "company_id": company_a,
+    }
+    # Pas de paramètres sensibles (destinataires mail, etc.) dans la réponse.
+    assert "parameters" not in body[target_a["id"]]

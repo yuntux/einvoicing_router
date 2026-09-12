@@ -1,14 +1,20 @@
-"""Registre de versions de l'API AFNOR exposée à Odoo (spec.md § 4.8, lot 8).
+"""Registre de versions de l'API AFNOR exposée à Odoo (spec.md § 4.8).
 
-Chaque version (`app/api/afnor/v1.py`, `v2.py`, …) enregistre son propre router
-FastAPI via `register_version` ; `app/main.py` monte dynamiquement toutes les
-versions activées (`settings.afnor_api_enabled_versions`) sous `/api/afnor/{version}`
-— routage par préfixe d'URL, cf. § 4.8. Aucun service (`AfnorServerController`,
-`AfnorClientAdapter`, `AuditTraceService`...) n'a besoin d'être modifié pour ajouter
-une version : ils sont simplement réutilisés par le nouveau router, jamais dupliqués
-(preuve dans `tests/unit/test_afnor_versioning.py`). Une version peut être retirée du
-service sans supprimer son code, en l'omettant de `afnor_api_enabled_versions`
-(dépréciation progressive, § 4.8) — son router reste enregistré, seul le montage change."""
+Seule `v1` (`app/api/afnor/v1.py`) existe aujourd'hui — la norme XP Z12-013 n'a pas
+encore de v2 publiée, et exposer par avance un router `v2` qui ne ferait que copier
+`v1` serait anticiper inutilement (§ 4.8 met en garde contre ce travers pour une
+décision voisine : "sans que cette extraction future ne soit anticipée
+prématurément"). Ce module est le dispositif qui permettra d'ajouter une vraie
+version future sans rien modifier ailleurs : un nouveau module `app/api/afnor/v2.py`
+n'aurait qu'à construire son router via `register_common_routes` (`_common.py`) et
+l'enregistrer ici avec `register_version` ; `app/main.py` le monterait alors
+automatiquement sous `/api/afnor/v2`, dès qu'il est ajouté à
+`settings.afnor_api_enabled_versions` — sans qu'aucun service
+(`AfnorServerController`, `AfnorClientAdapter`, `AuditTraceService`...) n'ait besoin
+d'être modifié ni dupliqué (mécanisme prouvé, sans v2 réelle, par
+`tests/unit/test_afnor_versioning.py`). Une version pourra de la même façon être
+dépréciée puis retirée sans supprimer son code, en l'omettant simplement de
+`afnor_api_enabled_versions`."""
 
 from fastapi import APIRouter
 

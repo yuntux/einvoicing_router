@@ -36,9 +36,9 @@ test('creates an afnor_api target application and reveals OAuth credentials once
   await editForm.getByRole('button', { name: 'Enregistrer' }).click()
   await expect(editForm).toHaveCount(0)
 
-  // Simule un vrai appel consommateur (Odoo) : authentification OAuth2 puis deux
-  // requêtes sur l'API AFNOR — de quoi peupler le journal `FlowTrace` (NF1) que la
-  // page /traces/flow-traces affiche.
+  // Simule un vrai appel consommateur (Odoo) : authentification OAuth2 puis un
+  // appel sur la ressource /flows (émulation de PDP, § 4.4) — de quoi peupler le
+  // journal `FlowTrace` (NF1) que la page /traces/flow-traces affiche.
   const clientId = await page.getByTestId('ta-oauth-client-id').textContent()
   const clientSecret = await page.getByTestId('ta-oauth-client-secret').textContent()
 
@@ -52,14 +52,15 @@ test('creates an afnor_api target application and reveals OAuth credentials once
   expect(tokenResponse.ok()).toBeTruthy()
   const { access_token: accessToken } = await tokenResponse.json()
 
-  const invoicesResponse = await page.request.get(`${API_BASE}/api/afnor/v1/invoices`, {
+  const flowsResponse = await page.request.post(`${API_BASE}/api/afnor/v1/afnor-flow/flows/search`, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    data: { where: {} },
   })
-  expect(invoicesResponse.ok()).toBeTruthy()
+  expect(flowsResponse.ok()).toBeTruthy()
 
-  // Note : la consultation d'annuaire (/directory/{siren}) exigerait en plus des
-  // identifiants SuperPDP configurés pour l'entreprise (§ 4.10) — hors périmètre ici,
-  // les deux appels ci-dessus suffisent à peupler le journal FlowTrace (NF1).
+  // Note : la consultation d'annuaire (/siren/code-insee:{siren}) exigerait en plus
+  // des identifiants SuperPDP configurés pour l'entreprise (§ 4.10) — hors périmètre
+  // ici, l'appel ci-dessus suffit à peupler le journal FlowTrace (NF1).
   await page.goto('/traces/flow-traces')
   const traceRow = page.locator('[data-testid^="flow-trace-row-"]').first()
   await expect(traceRow).toBeVisible()

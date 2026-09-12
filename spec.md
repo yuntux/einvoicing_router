@@ -217,6 +217,25 @@ Cette méthode couvre le cas Odoo (§ 4.4) et tout futur consommateur de l'API A
 | NF9 | Des **logs techniques** tracent avec précision toutes les actions des utilisateurs sur l'IHM (audit applicatif, distinct du traçage des flux NF1). |
 | NF10 | Deux suites de tests automatisés (**pytest** backoffice, **Playwright** frontoffice), déclenchées par la **CI GitHub**, avec base **SQLite en mémoire** pour les tests ; surveillance des CVE des dépendances via GitHub (Dependabot/Advisory Database) ; suite d'intégration séparée (non bloquante) contre le bac à sable SuperPDP — cf. § 10. |
 
+### 5.1 Matrice des permissions par page (NF3/NF4)
+
+Deux rôles : **admin** (voit toutes les entreprises) et **user** (restreint à son périmètre d'entreprises, cf. § NF4). Le contrôle d'accès est appliqué côté backend ; les pages réservées aux admins sont en plus **masquées du menu latéral** pour un utilisateur restreint (pas seulement bloquées à l'appel).
+
+| Page | Admin | Utilisateur restreint |
+|---|---|---|
+| **Factures** | Voit toutes les factures de toutes les entreprises ; consultation, téléchargement, saisie d'un événement de cycle de vie sur n'importe quelle facture. | Liste et détail filtrés à son périmètre d'entreprises ; mêmes actions que l'admin, mais uniquement sur les factures de son périmètre. |
+| **Entreprises** | Voit toutes les entreprises ; seul rôle pouvant **créer** une entreprise ; consultation/modification des identifiants SuperPDP de n'importe quelle entreprise. | **Page et API réservées aux admins** — aucun accès (403), page masquée du menu. Seule exception : une référence minimale non sensible (id + nom, sans SIREN), accessible en API à tout utilisateur authentifié, alimente l'affichage croisé d'autres pages (ex. Règles de routage) sans donner accès à la page Entreprises elle-même. |
+| **Applications cibles** | Voit toutes les applications cibles ; peut créer, modifier, activer/désactiver n'importe quelle application. | **Page et API réservées aux admins** — aucun accès (403), page masquée du menu, y compris pour les applications de son propre périmètre. Même exception que ci-dessus : une référence minimale (id + nom + entreprise, sans paramètres ni infos OAuth) reste accessible en API pour l'affichage de la page Règles de routage. |
+| **Règles de routage** | Voit la matrice complète ; peut cocher/décocher n'importe quelle règle, avec rejeu des factures en attente. | Voit la **même matrice complète, non filtrée par périmètre**, et peut cocher/décocher n'importe quelle règle — y compris pour des entreprises hors de son périmètre. |
+| **Échecs de routage** | Voit tous les échecs/tentatives ; peut rejouer n'importe quel routage ; peut forcer un cycle d'envoi global. | Liste **filtrée à son périmètre** (ne voit que les échecs des entreprises pour lesquelles il est habilité) ; le rejeu d'un routage est vérifié par périmètre (refusé si hors périmètre) ; **peut également forcer un cycle d'envoi global**, affectant toutes les entreprises. |
+| **Configuration** | Consultation des réglages et des contacts gestionnaires de facturation ; seul rôle pouvant les **modifier/créer/supprimer**. | **Page et API réservées aux admins** — aucun accès, y compris en lecture (403), page masquée du menu. |
+| **Gestion des accès** | Seul rôle ayant accès à la page : liste des utilisateurs, création de compte par email, modification du rôle/périmètre/statut actif de n'importe quel utilisateur. | **Aucun accès** (403 sur tous les appels), page masquée du menu. |
+| **Traces techniques** | Voit toutes les requêtes/réponses HTTP brutes des appels AFNOR. | **Page et API réservées aux admins** — aucun accès (403), page masquée du menu (le groupe *Traces & journaux* entier disparaît du menu). |
+| **Journal des traitements** | Voit tous les journaux techniques (cycles de polling, etc.) de toutes les entreprises. | **Page et API réservées aux admins** — aucun accès (403). |
+| **Journal d'audit** | Voit toutes les actions utilisateur (connexions, téléchargements, créations/modifications) de tous les utilisateurs, toutes entreprises. | **Page et API réservées aux admins** — aucun accès (403). |
+
+> **Écart à trancher avec le métier avant de le considérer comme définitif** : la page *Règles de routage* n'est pas filtrée par périmètre pour un utilisateur restreint — il y voit/agit sur des règles d'entreprises hors de son périmètre. De même, l'action *forcer un cycle d'envoi global* (page *Échecs de routage*) n'est soumise à aucune restriction de rôle ni de périmètre. Choix assumés (référentiel global, action de maintenance) ou oublis à corriger — à confirmer.
+
 ## 6. Modèle de données (esquisse)
 
 À affiner en phase de conception détaillée, mais la spécification fonctionnelle implique a minima les entités suivantes.

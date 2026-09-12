@@ -256,8 +256,11 @@ def test_update_afnor_api_target_application_updates_oauth_application(client):
     assert updated["oauth_application"]["redirect_urls"] == (
         "https://odoo.example/callback,https://odoo.example/other"
     )
-    # client_id/secret ne sont jamais exposés par cet endpoint (§ 4.9.2).
-    assert "client_id" not in updated["oauth_application"]
+    # `client_id` reste affiché en permanence, comme sur la fiche application de
+    # SuperPDP (identifiant public, immuable) — seul le secret n'est jamais exposé
+    # après sa création (§ 4.9.2), et cet endpoint ne le modifie pas non plus.
+    assert updated["oauth_application"]["client_id"] == target["oauth_application"]["client_id"]
+    assert "client_secret" not in updated["oauth_application"]
 
 
 def test_update_unknown_target_application_returns_404(client):

@@ -1,5 +1,10 @@
-"""Proxy émission/cycle de vie Odoo -> SuperPDP (spec.md § 4.4, lot 6)."""
+"""Proxy émission (POST /flows) / cycle de vie / annuaire, Odoo -> SuperPDP
+(spec.md § 4.4). Depuis la convergence vers le vrai contrat AFNOR Flow Service,
+l'émission de facture et de message de cycle de vie CDAR passent par le même
+endpoint `POST /flows`, distingués par `flowInfo.flowSyntax` ("CDAR" pour un
+cycle de vie, tout le reste pour une facture)."""
 
+import json
 from unittest.mock import patch
 
 from app.auth.oauth import generate_client_credentials, hash_secret
@@ -38,21 +43,27 @@ def _token(client, oauth_app, secret):
     return response.json()["access_token"]
 
 
-def test_emit_invoice_proxies_and_traces_without_storing_invoice(client, db_session):
+def _post_flow(client, token, *, flow_info: dict, content: bytes = b"<invoice/>", filename="invoice.xml"):
+    return client.post(
+        "/api/afnor/v1/afnor-flow/flows",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"flowInfo": json.dumps(flow_info)},
+        files={"file": (filename, content, "application/xml")},
+    )
+
+
+def test_create_flow_invoice_proxies_and_traces_without_storing_invoice(client, db_session):
     company = _make_company(db_session)
     oauth_app = _make_oauth_app(db_session, company, client_secret="secret-1")
     token = _token(client, oauth_app, "secret-1")
 
     with patch("app.afnor.client.adapter.afnor_client_adapter.send_invoice") as mock_send:
         mock_send.return_value = {"id": "superpdp-flow-1", "state": "sent"}
-        response = client.post(
-            "/api/afnor/v1/invoices/emit",
-            headers={"Authorization": f"Bearer {token}"},
-            data={"flow_syntax": "Factur-X", "processing_rule": "B2B"},
-            files={"file": ("invoice.xml", b"<invoice/>", "application/xml")},
+        response = _post_flow(
+            client, token, flow_info={"flowSyntax": "Factur-X", "name": "invoice.xml", "processingRule": "B2B"}
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     assert response.json() == {"id": "superpdp-flow-1", "state": "sent"}
     mock_send.assert_called_once()
     _, kwargs = mock_send.call_args
@@ -64,58 +75,69 @@ def test_emit_invoice_proxies_and_traces_without_storing_invoice(client, db_sess
     assert db_session.query(Invoice).count() == 0
 
     traces = db_session.query(FlowTrace).all()
-    odoo_traces = [t for t in traces if t.request.get("endpoint") == "POST /invoices/emit"]
+    odoo_traces = [t for t in traces if t.request.get("endpoint") == "POST /afnor-flow/flows"]
     assert len(odoo_traces) == 1
 
 
-def test_emit_invoice_superpdp_failure_returns_502(client, db_session):
+def test_create_flow_invoice_superpdp_failure_returns_502(client, db_session):
     company = _make_company(db_session)
     oauth_app = _make_oauth_app(db_session, company, client_secret="secret-1")
     token = _token(client, oauth_app, "secret-1")
 
     with patch("app.afnor.client.adapter.afnor_client_adapter.send_invoice") as mock_send:
         mock_send.side_effect = RuntimeError("unreachable")
-        response = client.post(
-            "/api/afnor/v1/invoices/emit",
-            headers={"Authorization": f"Bearer {token}"},
-            data={"flow_syntax": "Factur-X", "processing_rule": "B2B"},
-            files={"file": ("invoice.xml", b"<invoice/>", "application/xml")},
+        response = _post_flow(
+            client, token, flow_info={"flowSyntax": "Factur-X", "name": "invoice.xml", "processingRule": "B2B"}
         )
 
     assert response.status_code == 502
 
 
-def test_emit_lifecycle_event_proxies_and_traces(client, db_session):
+def test_create_flow_cdar_proxies_and_traces(client, db_session):
     company = _make_company(db_session)
     oauth_app = _make_oauth_app(db_session, company, client_secret="secret-2")
     token = _token(client, oauth_app, "secret-2")
 
     with patch("app.afnor.client.adapter.afnor_client_adapter.send_cdar") as mock_send:
         mock_send.return_value = {"id": "superpdp-flow-2"}
-        response = client.post(
-            "/api/afnor/v1/lifecycle-events/emit",
-            headers={"Authorization": f"Bearer {token}"},
-            files={"file": ("cdar.xml", b"<CrossDomainAcknowledgementAndResponse/>", "application/xml")},
+        response = _post_flow(
+            client,
+            token,
+            flow_info={"flowSyntax": "CDAR", "name": "cdar.xml"},
+            content=b"<CrossDomainAcknowledgementAndResponse/>",
+            filename="cdar.xml",
         )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     assert response.json() == {"id": "superpdp-flow-2"}
     mock_send.assert_called_once()
 
     traces = db_session.query(FlowTrace).all()
-    odoo_traces = [
-        t for t in traces if t.request.get("endpoint") == "POST /lifecycle-events/emit"
-    ]
+    odoo_traces = [t for t in traces if t.request.get("endpoint") == "POST /afnor-flow/flows"]
     assert len(odoo_traces) == 1
 
 
-def test_emit_endpoints_reject_missing_token(client, db_session):
+def test_create_flow_rejects_missing_token(client, db_session):
     response = client.post(
-        "/api/afnor/v1/invoices/emit",
-        data={"flow_syntax": "Factur-X", "processing_rule": "B2B"},
+        "/api/afnor/v1/afnor-flow/flows",
+        data={"flowInfo": json.dumps({"flowSyntax": "Factur-X", "name": "invoice.xml"})},
         files={"file": ("invoice.xml", b"<invoice/>", "application/xml")},
     )
     assert response.status_code == 401
+
+
+def test_create_flow_rejects_invalid_flow_info(client, db_session):
+    company = _make_company(db_session)
+    oauth_app = _make_oauth_app(db_session, company, client_secret="secret-x")
+    token = _token(client, oauth_app, "secret-x")
+
+    response = client.post(
+        "/api/afnor/v1/afnor-flow/flows",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"flowInfo": json.dumps({"flowSyntax": "NotAValidSyntax", "name": "invoice.xml"})},
+        files={"file": ("invoice.xml", b"<invoice/>", "application/xml")},
+    )
+    assert response.status_code == 400
 
 
 def test_lookup_directory_proxies_and_traces_without_creating_partner(client, db_session):
@@ -134,7 +156,7 @@ def test_lookup_directory_proxies_and_traces_without_creating_partner(client, db
             "entity_type": "private",
         }
         response = client.get(
-            "/api/afnor/v1/directory/999999999",
+            "/api/afnor/v1/afnor-directory/siren/code-insee:999999999",
             headers={"Authorization": f"Bearer {token}"},
         )
 
@@ -156,7 +178,9 @@ def test_lookup_directory_proxies_and_traces_without_creating_partner(client, db
     assert db_session.query(RoutingRule).count() == 0
 
     traces = db_session.query(FlowTrace).all()
-    odoo_traces = [t for t in traces if t.request.get("endpoint") == "GET /directory/{siren}"]
+    odoo_traces = [
+        t for t in traces if t.request.get("endpoint") == "GET /afnor-directory/siren/code-insee:{siren}"
+    ]
     assert len(odoo_traces) == 1
 
 
@@ -168,14 +192,14 @@ def test_lookup_directory_superpdp_failure_returns_502(client, db_session):
     with patch("app.afnor.client.adapter.afnor_client_adapter.lookup_directory_siren") as mock_lookup:
         mock_lookup.side_effect = RuntimeError("unreachable")
         response = client.get(
-            "/api/afnor/v1/directory/999999999",
+            "/api/afnor/v1/afnor-directory/siren/code-insee:999999999",
             headers={"Authorization": f"Bearer {token}"},
         )
 
     assert response.status_code == 502
 
 
-def test_emit_invoice_rejects_oversized_file(client, db_session, monkeypatch):
+def test_create_flow_rejects_oversized_file(client, db_session, monkeypatch):
     from app.config import settings
 
     monkeypatch.setattr(settings, "max_upload_size_bytes", 10)
@@ -184,18 +208,18 @@ def test_emit_invoice_rejects_oversized_file(client, db_session, monkeypatch):
     token = _token(client, oauth_app, "secret-5")
 
     with patch("app.afnor.client.adapter.afnor_client_adapter.send_invoice") as mock_send:
-        response = client.post(
-            "/api/afnor/v1/invoices/emit",
-            headers={"Authorization": f"Bearer {token}"},
-            data={"flow_syntax": "Factur-X", "processing_rule": "B2B"},
-            files={"file": ("invoice.xml", b"x" * 1000, "application/xml")},
+        response = _post_flow(
+            client,
+            token,
+            flow_info={"flowSyntax": "Factur-X", "name": "invoice.xml", "processingRule": "B2B"},
+            content=b"x" * 1000,
         )
 
     assert response.status_code == 413
     mock_send.assert_not_called()
 
 
-def test_emit_lifecycle_event_rejects_oversized_file(client, db_session, monkeypatch):
+def test_create_flow_cdar_rejects_oversized_file(client, db_session, monkeypatch):
     from app.config import settings
 
     monkeypatch.setattr(settings, "max_upload_size_bytes", 10)
@@ -204,10 +228,12 @@ def test_emit_lifecycle_event_rejects_oversized_file(client, db_session, monkeyp
     token = _token(client, oauth_app, "secret-6")
 
     with patch("app.afnor.client.adapter.afnor_client_adapter.send_cdar") as mock_send:
-        response = client.post(
-            "/api/afnor/v1/lifecycle-events/emit",
-            headers={"Authorization": f"Bearer {token}"},
-            files={"file": ("cdar.xml", b"x" * 1000, "application/xml")},
+        response = _post_flow(
+            client,
+            token,
+            flow_info={"flowSyntax": "CDAR", "name": "cdar.xml"},
+            content=b"x" * 1000,
+            filename="cdar.xml",
         )
 
     assert response.status_code == 413

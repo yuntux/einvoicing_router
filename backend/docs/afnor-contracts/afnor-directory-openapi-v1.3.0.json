@@ -1,0 +1,2554 @@
+{
+  "components": {
+    "parameters": {
+      "addressingIdentifier": {
+        "description": "Addressing identifier of the directory line",
+        "example": "dcsc456sdcsdcs556",
+        "in": "path",
+        "name": "addressing-identifier",
+        "required": true,
+        "schema": {
+          "maxLength": 125,
+          "type": "string"
+        }
+      },
+      "directoryLineFields": {
+        "description": "Fields of the Directory Line resource",
+        "example": [
+          "addressingIdentifier",
+          "siren",
+          "siret",
+          "routingIdentifier",
+          "addressingSuffix"
+        ],
+        "explode": false,
+        "in": "query",
+        "name": "fields",
+        "schema": {
+          "items": {
+            "$ref": "#/components/schemas/directoryLineField"
+          },
+          "type": "array"
+        }
+      },
+      "includeSiren": {
+        "description": "Relations to include in the response.",
+        "example": [
+          "siren"
+        ],
+        "explode": false,
+        "in": "query",
+        "name": "include",
+        "schema": {
+          "items": {
+            "enum": [
+              "siren"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "includeSirenSiret": {
+        "description": "Relations to include in the response.",
+        "example": [
+          "siren",
+          "siret"
+        ],
+        "explode": false,
+        "in": "query",
+        "name": "include",
+        "schema": {
+          "items": {
+            "enum": [
+              "siren",
+              "siret"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "includeSirenSiretRoutingCodePlatform": {
+        "description": "Relations to include in the response..",
+        "example": [
+          "siren",
+          "siret",
+          "routingCode"
+        ],
+        "explode": false,
+        "in": "query",
+        "name": "include",
+        "schema": {
+          "items": {
+            "enum": [
+              "siren",
+              "siret",
+              "routingCode"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "routingCodeFields": {
+        "description": "Fields of the Routing Code resource",
+        "example": [
+          "siret",
+          "routingIdentifierType",
+          "routingCodeName",
+          "routingIdentifier",
+          "managesLegalCommitment",
+          "administrativeStatus",
+          "address"
+        ],
+        "explode": false,
+        "in": "query",
+        "name": "fields",
+        "schema": {
+          "items": {
+            "$ref": "#/components/schemas/routingCodeField"
+          },
+          "type": "array"
+        }
+      },
+      "routingIdentifier": {
+        "description": "Routing Identifier of a routing code",
+        "example": "702042755",
+        "in": "path",
+        "name": "routing-identifier",
+        "required": true,
+        "schema": {
+          "maxLength": 100,
+          "type": "string"
+        }
+      },
+      "sirenFields": {
+        "description": "Fields of the SIREN resource.",
+        "example": [
+          "siren",
+          "businessName",
+          "entityType",
+          "administrativeStatus",
+          "instructions"
+        ],
+        "explode": false,
+        "in": "query",
+        "name": "fields",
+        "schema": {
+          "items": {
+            "$ref": "#/components/schemas/sirenField"
+          },
+          "type": "array"
+        }
+      },
+      "sirenPath": {
+        "description": "Corresponds to the SIREN number of a legal unit.",
+        "example": "702042755",
+        "in": "path",
+        "name": "siren",
+        "required": true,
+        "schema": {
+          "maxLength": 9,
+          "pattern": "^([0-9]{9})$",
+          "type": "string"
+        }
+      },
+      "siretFields": {
+        "description": "Fields of the SIRET resource.",
+        "example": [
+          "siret",
+          "siren",
+          "businessName",
+          "facilityType",
+          "siretInstructions",
+          "address",
+          "administrativeStatus",
+          "pmStatus",
+          "pmOnly",
+          "managesPaymentStatus",
+          "managesLegalCommitment",
+          "managesLegalCommitmentOrService",
+          "serviceCodeStatus"
+        ],
+        "explode": false,
+        "in": "query",
+        "name": "fields",
+        "schema": {
+          "items": {
+            "$ref": "#/components/schemas/siretField"
+          },
+          "type": "array"
+        }
+      },
+      "siretPath": {
+        "description": "SIRET number of a facility.",
+        "example": "70204275500240",
+        "in": "path",
+        "name": "siret",
+        "required": true,
+        "schema": {
+          "maxLength": 14,
+          "pattern": "^([0-9]{14})$",
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "Error400Response": {
+        "content": {
+          "application/json": {
+            "example": {
+              "errorCode": "MISSING_REQUIRED_FIELD",
+              "errorMessage": "Invalid request format"
+            },
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "Error 400 : Bad request."
+      },
+      "Error401Response": {
+        "content": {
+          "application/json": {
+            "example": {
+              "errorCode": "MISSING_TOKEN",
+              "errorMessage": null
+            },
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "Error 401 : Authentication error."
+      },
+      "Error403Response": {
+        "content": {
+          "application/json": {
+            "example": {
+              "errorCode": "FORBIDDEN_ACCESS",
+              "errorMessage": null
+            },
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "Error 403 : Forbidden."
+      },
+      "Error404Response": {
+        "content": {
+          "application/json": {
+            "example": {
+              "errorCode": "MISSING_RESOURCE",
+              "errorMessage": "Requested resource is Not Found"
+            },
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "Error 404 : Resource Not Found."
+      },
+      "Error408Response": {
+        "content": {
+          "application/json": {
+            "example": {
+              "errorCode": "REQUEST_TIMEOUT",
+              "errorMessage": "Requested timeout is Exceeded"
+            },
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "Error 408 : Request Timeout Exceeded."
+      },
+      "Error422Response": {
+        "content": {
+          "application/json": {
+            "example": {
+              "errorCode": "UNPROCESSABLE_ENTITY",
+              "errorMessage": "Entity consistency error"
+            },
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "Error 422 : Unprocessable entity."
+      },
+      "Error429Response": {
+        "content": {
+          "application/json": {
+            "example": {
+              "errorCode": "TOO_MANY_REQUESTS",
+              "errorMessage": "The client emitted too many requests"
+            },
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "Error 429 : Too many requests."
+      },
+      "Error500Response": {
+        "content": {
+          "application/json": {
+            "example": {
+              "errorCode": "INTERNAL_ERROR",
+              "errorMessage": null
+            },
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "Error 500 : Server Internal Error."
+      },
+      "Error501Response": {
+        "content": {
+          "application/json": {
+            "example": {
+              "errorCode": "NOT_IMPLEMENTED",
+              "errorMessage": null
+            },
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "Error 501 : Not Implemented."
+      },
+      "Error503Response": {
+        "content": {
+          "application/json": {
+            "example": {
+              "errorCode": "RESOURCE_ERROR",
+              "errorMessage": null
+            },
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "Error 503 : Unavailable Resource."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "description": "Error code",
+        "properties": {
+          "details": {
+            "example": "Error detailed description",
+            "type": "string"
+          },
+          "errorCode": {
+            "description": "Short numerical or alphanumerical code that identifies precisely a unique error.",
+            "example": "MISSING_REQUIRED_FIELD",
+            "type": "string"
+          },
+          "errorMessage": {
+            "description": "Contains information on the error. Not intended to be displayed to an end user. For security reasons, a tradeoff between clarity & security shall be found.",
+            "example": "Invalid request format",
+            "type": "string"
+          },
+          "instance": {
+            "example": "/chemin/url-de-reference#instance-du-contexte",
+            "format": "uri-reference",
+            "type": "string"
+          },
+          "type": {
+            "default": "about:blank",
+            "example": "/path/reference-url",
+            "format": "uri-reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "errorCode"
+        ],
+        "type": "object"
+      },
+      "addressLines": {
+        "description": "address lines of the recipient structure having defined the directory line(s).",
+        "example": "16 BIS RUE HENRI BARBUSSE - CEDEX 1 - Bâtiment le Callipso",
+        "maxLength": 600,
+        "type": "string"
+      },
+      "addressRead": {
+        "description": "Wrapper for postal addresses",
+        "properties": {
+          "addressLine1": {
+            "$ref": "#/components/schemas/recipientAddressLine1"
+          },
+          "addressLine2": {
+            "$ref": "#/components/schemas/recipientAddressLine2"
+          },
+          "addressLine3": {
+            "$ref": "#/components/schemas/recipientAddressLine3"
+          },
+          "countryCode": {
+            "$ref": "#/components/schemas/recipientCountryCode"
+          },
+          "countryName": {
+            "$ref": "#/components/schemas/recipientCountryName"
+          },
+          "countrySubdivision": {
+            "$ref": "#/components/schemas/countrySubdivision"
+          },
+          "locality": {
+            "$ref": "#/components/schemas/locality"
+          },
+          "postalCode": {
+            "$ref": "#/components/schemas/postalCode"
+          }
+        },
+        "type": "object"
+      },
+      "addressingIdentifier": {
+        "description": "Addressing identifier of the directory line.",
+        "example": "dcsc456sdcsdcs556",
+        "maxLength": 125,
+        "type": "string"
+      },
+      "addressingSuffix": {
+        "description": "suffix of the directory line which defines an address mesh not attached to a facility",
+        "example": "dcsc456sdcsdcs556",
+        "maxLength": 100,
+        "type": "string"
+      },
+      "containsOrStartWithOperator": {
+        "description": "\\\"contains\\\" or \\\"startWith\\\" comparison operator",
+        "enum": [
+          "contains",
+          "startWith"
+        ],
+        "example": "contains",
+        "type": "string"
+      },
+      "containsOrStrictOperator": {
+        "description": "\\\"contains\\\" or \\\"strict\\\" comparison operator",
+        "enum": [
+          "contains",
+          "strict"
+        ],
+        "example": "contains",
+        "type": "string"
+      },
+      "containsOrStrictOrStartWithOperator": {
+        "description": "\\\"contains\\\", \\\"strict\\\" or \\\"startWith\\\" comparison operator",
+        "enum": [
+          "contains",
+          "strict",
+          "startWith"
+        ],
+        "example": "contains",
+        "type": "string"
+      },
+      "countrySubdivision": {
+        "description": "Subdivision of the country",
+        "example": "Bretagne",
+        "maxLength": 255,
+        "type": "string"
+      },
+      "directoryLineField": {
+        "description": "Fields of the directory line resource",
+        "enum": [
+          "addressingIdentifier",
+          "siren",
+          "siret",
+          "routingIdentifier",
+          "addressingSuffix"
+        ],
+        "example": "siren",
+        "type": "string"
+      },
+      "directoryLinePayloadHistoryLegalUnitFacilityRoutingCodeRoutingCode": {
+        "properties": {
+          "address": {
+            "$ref": "#/components/schemas/addressRead"
+          },
+          "administrativeStatus": {
+            "$ref": "#/components/schemas/routingCodeAdministrativeStatus"
+          },
+          "managesLegalCommitment": {
+            "$ref": "#/components/schemas/managesLegalCommitmentCode"
+          },
+          "routingCodeName": {
+            "$ref": "#/components/schemas/recipientRoutingCodeName"
+          },
+          "routingIdentifier": {
+            "$ref": "#/components/schemas/routingIdentifier"
+          },
+          "routingIdentifierType": {
+            "$ref": "#/components/schemas/routingIdentifierType"
+          }
+        },
+        "type": "object"
+      },
+      "directoryLinePayloadLegalUnitFacilityRoutingCode": {
+        "properties": {
+          "addressingIdentifier": {
+            "$ref": "#/components/schemas/addressingIdentifier"
+          },
+          "addressingSuffix": {
+            "$ref": "#/components/schemas/addressingSuffix"
+          },
+          "directoryLineStatus": {
+            "$ref": "#/components/schemas/uniqueDirectoryLineStatus"
+          },
+          "facility": {
+            "$ref": "#/components/schemas/facilityPayloadIncluded"
+          },
+          "legalUnit": {
+            "$ref": "#/components/schemas/legalUnitPayloadIncluded"
+          },
+          "platformType": {
+            "$ref": "#/components/schemas/recipientPlatformType"
+          },
+          "routingCode": {
+            "$ref": "#/components/schemas/directoryLinePayloadHistoryLegalUnitFacilityRoutingCodeRoutingCode"
+          },
+          "routingIdentifier": {
+            "$ref": "#/components/schemas/routingIdentifier"
+          },
+          "siren": {
+            "$ref": "#/components/schemas/siren"
+          },
+          "siret": {
+            "$ref": "#/components/schemas/siret"
+          }
+        },
+        "title": "directoryLinePayloadHistoryLegalUnitFacilityRoutingCode",
+        "type": "object"
+      },
+      "directoryLinePayloadStatusLegalUnitFacilityRoutingCode": {
+        "properties": {
+          "addressingIdentifier": {
+            "$ref": "#/components/schemas/addressingIdentifier"
+          },
+          "addressingSuffix": {
+            "$ref": "#/components/schemas/addressingSuffix"
+          },
+          "directoryLineStatus": {
+            "$ref": "#/components/schemas/directoryLineStatus"
+          },
+          "facility": {
+            "$ref": "#/components/schemas/facilityPayloadIncluded"
+          },
+          "legalUnit": {
+            "$ref": "#/components/schemas/legalUnitPayloadIncluded"
+          },
+          "platformType": {
+            "$ref": "#/components/schemas/recipientPlatformType"
+          },
+          "routingCode": {
+            "$ref": "#/components/schemas/directoryLinePayloadHistoryLegalUnitFacilityRoutingCodeRoutingCode"
+          },
+          "routingIdentifier": {
+            "$ref": "#/components/schemas/routingIdentifier"
+          },
+          "siren": {
+            "$ref": "#/components/schemas/siren"
+          },
+          "siret": {
+            "$ref": "#/components/schemas/siret"
+          }
+        },
+        "title": "directoryLinePayloadHistoryLegalUnitFacilityRoutingCode",
+        "type": "object"
+      },
+      "directoryLineSearchPost200Response": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/directoryLinePayloadStatusLegalUnitFacilityRoutingCode"
+            },
+            "type": "array"
+          },
+          "search": {
+            "$ref": "#/components/schemas/searchDirectoryLine"
+          },
+          "totalNumberOfResults": {
+            "$ref": "#/components/schemas/totalNumberOfResults"
+          }
+        },
+        "type": "object"
+      },
+      "directoryLineStatus": {
+        "description": "Line status of the platform.\n  - Enabled : Active line linked to a platform\n  - Disabled : No platform linked to the line\n  - Upcoming : Line associated with a platform, with an effective date in the future\n",
+        "enum": [
+          "Enabled",
+          "Disabled",
+          "Upcoming"
+        ],
+        "example": "Enabled",
+        "maxLength": 7,
+        "type": "string"
+      },
+      "entityType": {
+        "description": "Business structure type",
+        "enum": [
+          "Public",
+          "PrivateVatRegistered"
+        ],
+        "example": "Public",
+        "maxLength": 20,
+        "type": "string"
+      },
+      "facilityAdministrativeStatus": {
+        "description": "Facility administrative status [A - Active , C - Closed]",
+        "enum": [
+          "A",
+          "C"
+        ],
+        "example": "A",
+        "maxLength": 1,
+        "type": "string"
+      },
+      "facilityPayloadHistory": {
+        "properties": {
+          "address": {
+            "$ref": "#/components/schemas/addressRead"
+          },
+          "administrativeStatus": {
+            "$ref": "#/components/schemas/facilityAdministrativeStatus"
+          },
+          "b2gAdditionalData": {
+            "$ref": "#/components/schemas/facilityPayloadHistoryUleB2gAdditionalData"
+          },
+          "facilityType": {
+            "$ref": "#/components/schemas/facilityType"
+          },
+          "legalUnit": {
+            "$ref": "#/components/schemas/legalUnitPayloadIncluded"
+          },
+          "name": {
+            "$ref": "#/components/schemas/name"
+          },
+          "siren": {
+            "$ref": "#/components/schemas/siren"
+          },
+          "siret": {
+            "$ref": "#/components/schemas/siret"
+          },
+          "siretInstructions": {
+            "$ref": "#/components/schemas/siretInstructions"
+          }
+        },
+        "title": "facilityPayloadHistory",
+        "type": "object"
+      },
+      "facilityPayloadHistoryUleB2gAdditionalData": {
+        "properties": {
+          "managesLegalCommitmentCode": {
+            "$ref": "#/components/schemas/managesLegalCommitmentCode"
+          },
+          "managesLegalCommitmentOrServiceCode": {
+            "$ref": "#/components/schemas/managesLegalCommitmentOrServiceCode"
+          },
+          "managesPaymentStatus": {
+            "$ref": "#/components/schemas/managesPaymentStatus"
+          },
+          "pm": {
+            "$ref": "#/components/schemas/pmStatus"
+          },
+          "pmOnly": {
+            "$ref": "#/components/schemas/pmOnly"
+          },
+          "serviceCodeStatus": {
+            "$ref": "#/components/schemas/serviceCodeStatus"
+          }
+        },
+        "type": "object"
+      },
+      "facilityPayloadIncluded": {
+        "properties": {
+          "address": {
+            "$ref": "#/components/schemas/addressRead"
+          },
+          "administrativeStatus": {
+            "$ref": "#/components/schemas/facilityAdministrativeStatus"
+          },
+          "b2gAdditionalData": {
+            "$ref": "#/components/schemas/facilityPayloadHistoryUleB2gAdditionalData"
+          },
+          "facilityType": {
+            "$ref": "#/components/schemas/facilityType"
+          },
+          "instructions": {
+            "$ref": "#/components/schemas/siretInstructions"
+          },
+          "name": {
+            "$ref": "#/components/schemas/name"
+          },
+          "siren": {
+            "$ref": "#/components/schemas/siren"
+          },
+          "siret": {
+            "$ref": "#/components/schemas/siret"
+          }
+        },
+        "title": "facilityPayloadIncluded",
+        "type": "object"
+      },
+      "facilityType": {
+        "description": "Indicates whether the facility is listed as the main facility or not [P - Main facility , S - Secondary facility]",
+        "enum": [
+          "P",
+          "S"
+        ],
+        "example": "P",
+        "maxLength": 1,
+        "type": "string"
+      },
+      "ignore": {
+        "description": "Number of results to skip",
+        "example": 0,
+        "format": "int32",
+        "type": "integer"
+      },
+      "isSalesProspectingForbidden": {
+        "description": "Indicates whether the information is forbidden from being used for sales prospecting purposes.",
+        "example": false,
+        "type": "boolean"
+      },
+      "legalUnitAdministrativeStatus": {
+        "description": "Refers to the administrative status of the legal unit [A - Active , C - Closed]",
+        "enum": [
+          "A",
+          "C"
+        ],
+        "example": "A",
+        "maxLength": 1,
+        "type": "string"
+      },
+      "legalUnitPayloadHistory": {
+        "properties": {
+          "administrativeStatus": {
+            "$ref": "#/components/schemas/legalUnitAdministrativeStatus"
+          },
+          "businessName": {
+            "$ref": "#/components/schemas/recipientBusinessName"
+          },
+          "entityType": {
+            "$ref": "#/components/schemas/entityType"
+          },
+          "instructions": {
+            "$ref": "#/components/schemas/sirenInstructions"
+          },
+          "siren": {
+            "$ref": "#/components/schemas/siren"
+          }
+        },
+        "title": "legalUnitPayloadHistory",
+        "type": "object"
+      },
+      "legalUnitPayloadIncluded": {
+        "properties": {
+          "administrativeStatus": {
+            "$ref": "#/components/schemas/legalUnitAdministrativeStatus"
+          },
+          "businessName": {
+            "$ref": "#/components/schemas/recipientBusinessName"
+          },
+          "entityType": {
+            "$ref": "#/components/schemas/entityType"
+          },
+          "instructions": {
+            "$ref": "#/components/schemas/sirenInstructions"
+          },
+          "siren": {
+            "$ref": "#/components/schemas/siren"
+          }
+        },
+        "title": "legalUnitPayloadIncluded",
+        "type": "object"
+      },
+      "limit": {
+        "description": "Maximum number of results",
+        "example": 50,
+        "format": "int32",
+        "type": "integer"
+      },
+      "locality": {
+        "description": "Municipality of the recipient structure having defined the directory line(s).",
+        "example": "Grenoble",
+        "maxLength": 100,
+        "type": "string"
+      },
+      "managesLegalCommitmentCode": {
+        "description": "Indicates whether the public structure requires a legal commitment number. This attribute is only returned if the directory line is defined for a public structure at the SIREN / SIRET or SIREN / SIRET / Routing code level.",
+        "example": true,
+        "type": "boolean"
+      },
+      "managesLegalCommitmentOrServiceCode": {
+        "description": "Indicates whether the public structure requires a service code or a commitment code in its exchanges. This attribute is only returned if the directory line is defined for a public structure at the SIREN / SIRET or SIREN / SIRET / Routing code level.",
+        "example": true,
+        "type": "boolean"
+      },
+      "managesPaymentStatus": {
+        "description": "Indicates whether the public structure manages the payment status of invoices. This attribute is only returned if the directory line is defined for a public structure at the SIREN / SIRET or SIREN / SIRET / Routing code level.",
+        "example": true,
+        "type": "boolean"
+      },
+      "name": {
+        "description": "business name",
+        "example": "Boulangerie Pascale",
+        "maxLength": 100,
+        "type": "string"
+      },
+      "pmOnly": {
+        "description": "Indicates whether the public structure only acts as a project manager; if so, it can only receive invoices for work. This attribute is only returned if the directory line is defined for a public structure at the SIREN/SIRET or SIREN/SIRET/Routing code level.",
+        "example": true,
+        "type": "boolean"
+      },
+      "pmStatus": {
+        "description": "Indicates whether the public structure acts as project manager for work invoices in addition to receiving simple invoices. This attribute is only returned if the directory line is defined for a public structure at the SIREN / SIRET or SIREN / SIRET / Routing code level.",
+        "example": true,
+        "type": "boolean"
+      },
+      "postalCode": {
+        "description": "Service postal code",
+        "example": "38100",
+        "maxLength": 5,
+        "pattern": "[0-9]*",
+        "type": "string"
+      },
+      "recipientAddressLine1": {
+        "description": "Corresponds to the address of the recipient structure having defined the directory line(s).",
+        "example": "16 BIS RUE HENRI BARBUSSE",
+        "maxLength": 255,
+        "type": "string"
+      },
+      "recipientAddressLine2": {
+        "description": "Corresponds to the address of the recipient structure having defined the directory line(s).",
+        "example": "CEDEX 1",
+        "maxLength": 255,
+        "type": "string"
+      },
+      "recipientAddressLine3": {
+        "description": "Corresponds to the address of the recipient structure having defined the directory line(s).",
+        "example": "Bâtiment le Callipso",
+        "maxLength": 255,
+        "type": "string"
+      },
+      "recipientBusinessName": {
+        "description": "Business name",
+        "example": "Boulangerie Pascale",
+        "maxLength": 150,
+        "type": "string"
+      },
+      "recipientCountryCode": {
+        "description": "Corresponds to the country of the recipient structure.",
+        "example": "FR",
+        "maxLength": 2,
+        "type": "string"
+      },
+      "recipientCountryName": {
+        "description": "Corresponds to the country of the recipient structure having defined the directory line(s).",
+        "example": "France",
+        "maxLength": 100,
+        "type": "string"
+      },
+      "recipientPlatformType": {
+        "description": "The type of platform for document reception (from UNCL 3035 list) :\n  - WK : Value added network provider (PA)\n  - DFH : Government service requestor (PPF)\n",
+        "enum": [
+          "WK",
+          "DFH"
+        ],
+        "example": "WK",
+        "maxLength": 3,
+        "type": "string"
+      },
+      "recipientRoutingCodeName": {
+        "description": "Name of the directory line routing code. This attribute is only returned if the directory line is defined at the SIREN / SIRET / Routing code mesh.",
+        "example": "Libellé Code routage",
+        "maxLength": 100,
+        "pattern": "^(?!\\s*$).+",
+        "type": "string"
+      },
+      "routingCodeAdministrativeStatus": {
+        "description": "Administrative status of the routing code [A - Active , C - Closed]",
+        "enum": [
+          "A",
+          "C"
+        ],
+        "example": "A",
+        "maxLength": 1,
+        "type": "string"
+      },
+      "routingCodeField": {
+        "description": "Fields of the routing code resource.",
+        "enum": [
+          "siret",
+          "routingIdentifierType",
+          "routingCodeName",
+          "routingIdentifier",
+          "managesLegalCommitmentCode",
+          "administrativeStatus",
+          "address"
+        ],
+        "example": "siret",
+        "type": "string"
+      },
+      "routingCodeNameSearch": {
+        "description": "Name of the routing code.",
+        "example": "Libellé Code routage",
+        "maxLength": 100,
+        "pattern": "^$|^(?!\\s*$).+",
+        "type": "string"
+      },
+      "routingCodePayloadHistoryLegalUnitFacility": {
+        "properties": {
+          "address": {
+            "$ref": "#/components/schemas/addressRead"
+          },
+          "administrativeStatus": {
+            "$ref": "#/components/schemas/routingCodeAdministrativeStatus"
+          },
+          "facility": {
+            "$ref": "#/components/schemas/facilityPayloadIncluded"
+          },
+          "legalUnit": {
+            "$ref": "#/components/schemas/legalUnitPayloadIncluded"
+          },
+          "managesLegalCommitmentCode": {
+            "$ref": "#/components/schemas/managesLegalCommitmentCode"
+          },
+          "routingCodeName": {
+            "$ref": "#/components/schemas/recipientRoutingCodeName"
+          },
+          "routingIdentifier": {
+            "$ref": "#/components/schemas/routingIdentifier"
+          },
+          "routingIdentifierType": {
+            "$ref": "#/components/schemas/routingIdentifierType"
+          },
+          "siret": {
+            "$ref": "#/components/schemas/siret"
+          }
+        },
+        "title": "routingCodePayloadHistoryLegalUnitFacility",
+        "type": "object"
+      },
+      "routingCodeSearch": {
+        "properties": {
+          "fields": {
+            "description": "Allows you to filter the desired fields in the response.",
+            "example": [
+              "siret",
+              "routingIdentifierType",
+              "routingCodeName",
+              "routingIdentifier",
+              "managesLegalCommitmentCode",
+              "administrativeStatus",
+              "address"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/routingCodeField"
+            },
+            "type": "array"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/routingCodeSearchFilters"
+          },
+          "ignore": {
+            "$ref": "#/components/schemas/ignore"
+          },
+          "include": {
+            "example": [
+              "siren",
+              "siret"
+            ],
+            "items": {
+              "enum": [
+                "siren",
+                "siret"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "$ref": "#/components/schemas/limit"
+          },
+          "sorting": {
+            "description": "Sorting criteria on a field and an order (ascending or descending).",
+            "example": [
+              {
+                "field": "siret",
+                "order": "ascending"
+              },
+              {
+                "field": "routingIdentifier",
+                "order": "ascending"
+              }
+            ],
+            "items": {
+              "$ref": "#/components/schemas/routingCodeSearchSortingInner"
+            },
+            "type": "array"
+          }
+        },
+        "title": "routingCodeSearch",
+        "type": "object"
+      },
+      "routingCodeSearchFilters": {
+        "properties": {
+          "addressLines": {
+            "$ref": "#/components/schemas/searchSiretFiltersAddressLines"
+          },
+          "administrativeStatus": {
+            "$ref": "#/components/schemas/routingCodeSearchFiltersAdministrativeStatus"
+          },
+          "locality": {
+            "$ref": "#/components/schemas/searchSiretFiltersLocality"
+          },
+          "postalCode": {
+            "$ref": "#/components/schemas/searchSiretFiltersPostalCode"
+          },
+          "routingCodeName": {
+            "$ref": "#/components/schemas/routingCodeSearchFiltersRoutingCodeName"
+          },
+          "routingIdentifier": {
+            "$ref": "#/components/schemas/routingCodeSearchFiltersRoutingIdentifier"
+          },
+          "siret": {
+            "$ref": "#/components/schemas/searchSiretFiltersSiret"
+          }
+        },
+        "type": "object"
+      },
+      "routingCodeSearchFiltersAdministrativeStatus": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/strictOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/routingCodeAdministrativeStatus"
+          }
+        },
+        "type": "object"
+      },
+      "routingCodeSearchFiltersRoutingCodeName": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/containsOrStrictOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/routingCodeNameSearch"
+          }
+        },
+        "type": "object"
+      },
+      "routingCodeSearchFiltersRoutingIdentifier": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/containsOrStrictOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/routingIdentifierSearch"
+          }
+        },
+        "type": "object"
+      },
+      "routingCodeSearchPost200Response": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/routingCodePayloadHistoryLegalUnitFacility"
+            },
+            "type": "array"
+          },
+          "search": {
+            "$ref": "#/components/schemas/routingCodeSearch"
+          },
+          "totalNumberOfResults": {
+            "$ref": "#/components/schemas/totalNumberOfResults"
+          }
+        },
+        "type": "object"
+      },
+      "routingCodeSearchSortingInner": {
+        "description": "A sort criteria composed of a field and an order (ascending or descending).",
+        "example": {
+          "field": "siret",
+          "order": "descending"
+        },
+        "properties": {
+          "field": {
+            "$ref": "#/components/schemas/routingCodeField"
+          },
+          "order": {
+            "$ref": "#/components/schemas/sortingOrder"
+          }
+        },
+        "type": "object"
+      },
+      "routingIdentifier": {
+        "description": "Routing identifier od a routing code.",
+        "example": "dcsc456sdcsdcs556",
+        "maxLength": 100,
+        "pattern": "^(?!\\s+$)[\\-_/a-zA-Z0-9]{1,100}$",
+        "type": "string"
+      },
+      "routingIdentifierSearch": {
+        "description": "Routing identifier for a routing code.",
+        "example": "dcsc456sdcsdcs556",
+        "maxLength": 100,
+        "pattern": "^$|^(?!\\s*$).+",
+        "type": "string"
+      },
+      "routingIdentifierType": {
+        "description": "Routing Identifier type.",
+        "example": "0224",
+        "maxLength": 4,
+        "pattern": "^(?!\\s*$).+",
+        "type": "string"
+      },
+      "searchDirectoryLine": {
+        "properties": {
+          "fields": {
+            "description": "Allows you to filter the desired fields in the response.",
+            "example": [
+              "addressingIdentifier",
+              "siren",
+              "siret",
+              "addressingSuffix",
+              "routingIdentifier"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/directoryLineField"
+            },
+            "type": "array"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/searchDirectoryLineFilters"
+          },
+          "ignore": {
+            "$ref": "#/components/schemas/ignore"
+          },
+          "include": {
+            "example": [
+              "siren",
+              "siret",
+              "routingCode"
+            ],
+            "items": {
+              "enum": [
+                "siren",
+                "siret",
+                "routingCode"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "$ref": "#/components/schemas/limit"
+          },
+          "sorting": {
+            "description": "Sorting criteria on a field and an order (ascending or descending).",
+            "example": [
+              {
+                "field": "addressingIdentifier",
+                "order": "ascending"
+              }
+            ],
+            "items": {
+              "$ref": "#/components/schemas/searchDirectoryLineSortingInner"
+            },
+            "type": "array"
+          }
+        },
+        "title": "searchDirectoryLine",
+        "type": "object"
+      },
+      "searchDirectoryLineFilters": {
+        "properties": {
+          "addressingIdentifier": {
+            "$ref": "#/components/schemas/searchDirectoryLineFiltersAddressingIdentifier"
+          },
+          "addressingSuffix": {
+            "$ref": "#/components/schemas/searchDirectoryLineFiltersAddressingSuffix"
+          },
+          "routingIdentifier": {
+            "$ref": "#/components/schemas/routingCodeSearchFiltersRoutingIdentifier"
+          },
+          "siren": {
+            "$ref": "#/components/schemas/searchSirenFiltersSiren"
+          },
+          "siret": {
+            "$ref": "#/components/schemas/searchSiretFiltersSiret"
+          }
+        },
+        "type": "object"
+      },
+      "searchDirectoryLineFiltersAddressingIdentifier": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/containsOrStrictOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/addressingIdentifier"
+          }
+        },
+        "type": "object"
+      },
+      "searchDirectoryLineFiltersAddressingSuffix": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/containsOrStrictOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/addressingSuffix"
+          }
+        },
+        "type": "object"
+      },
+      "searchDirectoryLineSortingInner": {
+        "description": "A sort criteria composed of a field and an order (ascending or descending).",
+        "example": {
+          "field": "addressingIdentifier",
+          "order": "ascending"
+        },
+        "properties": {
+          "field": {
+            "$ref": "#/components/schemas/directoryLineField"
+          },
+          "order": {
+            "$ref": "#/components/schemas/sortingOrder"
+          }
+        },
+        "type": "object"
+      },
+      "searchSiren": {
+        "properties": {
+          "fields": {
+            "description": "Allows you to filter the desired fields in the response.",
+            "example": [
+              "siren",
+              "businessName",
+              "entityType",
+              "administrativeStatus",
+              "instructions"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/sirenField"
+            },
+            "type": "array"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/searchSirenFilters"
+          },
+          "ignore": {
+            "$ref": "#/components/schemas/ignore"
+          },
+          "limit": {
+            "$ref": "#/components/schemas/limit"
+          },
+          "sorting": {
+            "description": "Sorting criteria on a field and an order (ascending or descending).",
+            "example": [
+              {
+                "field": "siren",
+                "order": "ascending"
+              },
+              {
+                "field": "administrativeStatus",
+                "order": "descending"
+              }
+            ],
+            "items": {
+              "$ref": "#/components/schemas/searchSirenSortingInner"
+            },
+            "type": "array"
+          }
+        },
+        "title": "searchSiren",
+        "type": "object"
+      },
+      "searchSirenFilters": {
+        "properties": {
+          "administrativeStatus": {
+            "$ref": "#/components/schemas/searchSirenFiltersAdministrativeStatus"
+          },
+          "businessName": {
+            "$ref": "#/components/schemas/searchSirenFiltersBusinessName"
+          },
+          "entityType": {
+            "$ref": "#/components/schemas/searchSirenFiltersEntityType"
+          },
+          "siren": {
+            "$ref": "#/components/schemas/searchSirenFiltersSiren"
+          }
+        },
+        "type": "object"
+      },
+      "searchSirenFiltersAdministrativeStatus": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/strictOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/legalUnitAdministrativeStatus"
+          }
+        },
+        "type": "object"
+      },
+      "searchSirenFiltersBusinessName": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/containsOrStrictOrStartWithOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/recipientBusinessName"
+          }
+        },
+        "type": "object"
+      },
+      "searchSirenFiltersEntityType": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/strictOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/entityType"
+          }
+        },
+        "type": "object"
+      },
+      "searchSirenFiltersSiren": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/strictOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/sirenSearch"
+          }
+        },
+        "type": "object"
+      },
+      "searchSirenSortingInner": {
+        "description": "A sorting criteria composed of a field and an order (ascending or descending).",
+        "example": {
+          "field": "siren",
+          "order": "ascending"
+        },
+        "properties": {
+          "field": {
+            "$ref": "#/components/schemas/sirenField"
+          },
+          "order": {
+            "$ref": "#/components/schemas/sortingOrder"
+          }
+        },
+        "type": "object"
+      },
+      "searchSiret": {
+        "properties": {
+          "fields": {
+            "description": "Allows you to filter the desired fields in the response.",
+            "example": [
+              "siret",
+              "siren",
+              "name",
+              "facilityType",
+              "administrativeStatus",
+              "siretInstructions",
+              "address",
+              "pmStatus",
+              "pmOnly",
+              "managesPaymentStatus",
+              "managesLegalCommitment",
+              "managesLegalCommitmentOrService",
+              "serviceCodeStatus"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/siretField"
+            },
+            "type": "array"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/searchSiretFilters"
+          },
+          "ignore": {
+            "$ref": "#/components/schemas/ignore"
+          },
+          "include": {
+            "example": [
+              "siren"
+            ],
+            "items": {
+              "enum": [
+                "siren"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "$ref": "#/components/schemas/limit"
+          },
+          "sorting": {
+            "description": "Sorting criteria on a field and an order (ascending or descending).",
+            "example": [
+              {
+                "field": "siret",
+                "order": "ascending"
+              },
+              {
+                "field": "name",
+                "order": "descending"
+              }
+            ],
+            "items": {
+              "$ref": "#/components/schemas/searchSiretSortingInner"
+            },
+            "type": "array"
+          }
+        },
+        "title": "searchSiret",
+        "type": "object"
+      },
+      "searchSiretFilters": {
+        "properties": {
+          "addressLines": {
+            "$ref": "#/components/schemas/searchSiretFiltersAddressLines"
+          },
+          "administrativeStatus": {
+            "$ref": "#/components/schemas/searchSiretFiltersAdministrativeStatus"
+          },
+          "countrySubdivision": {
+            "$ref": "#/components/schemas/searchSiretFiltersCountrySubdivision"
+          },
+          "facilityType": {
+            "$ref": "#/components/schemas/searchSiretFiltersFacilityType"
+          },
+          "locality": {
+            "$ref": "#/components/schemas/searchSiretFiltersLocality"
+          },
+          "name": {
+            "$ref": "#/components/schemas/searchSiretFiltersName"
+          },
+          "postalCode": {
+            "$ref": "#/components/schemas/searchSiretFiltersPostalCode"
+          },
+          "siren": {
+            "$ref": "#/components/schemas/searchSirenFiltersSiren"
+          },
+          "siret": {
+            "$ref": "#/components/schemas/searchSiretFiltersSiret"
+          }
+        },
+        "type": "object"
+      },
+      "searchSiretFiltersAddressLines": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/containsOrStartWithOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/addressLines"
+          }
+        },
+        "type": "object"
+      },
+      "searchSiretFiltersAdministrativeStatus": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/strictOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/facilityAdministrativeStatus"
+          }
+        },
+        "type": "object"
+      },
+      "searchSiretFiltersCountrySubdivision": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/strictOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/countrySubdivision"
+          }
+        },
+        "type": "object"
+      },
+      "searchSiretFiltersFacilityType": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/strictOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/facilityType"
+          }
+        },
+        "type": "object"
+      },
+      "searchSiretFiltersLocality": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/containsOrStrictOrStartWithOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/locality"
+          }
+        },
+        "type": "object"
+      },
+      "searchSiretFiltersName": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/containsOrStrictOrStartWithOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/name"
+          }
+        },
+        "type": "object"
+      },
+      "searchSiretFiltersPostalCode": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/strictOrStartWithOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/postalCode"
+          }
+        },
+        "type": "object"
+      },
+      "searchSiretFiltersSiret": {
+        "properties": {
+          "op": {
+            "$ref": "#/components/schemas/strictOperator"
+          },
+          "value": {
+            "$ref": "#/components/schemas/siretSearch"
+          }
+        },
+        "type": "object"
+      },
+      "searchSiretSortingInner": {
+        "description": "A sorting criteria composed of a field and an order (ascending or descending).",
+        "example": {
+          "field": "siret",
+          "order": "ascending"
+        },
+        "properties": {
+          "field": {
+            "$ref": "#/components/schemas/siretField"
+          },
+          "order": {
+            "$ref": "#/components/schemas/sortingOrder"
+          }
+        },
+        "type": "object"
+      },
+      "serviceCodeStatus": {
+        "description": "Indicates whether the structure requires a service code. This attribute is only returned if the directory line is defined for a public structure at the SIREN / SIRET or SIREN / SIRET / Routing code level.",
+        "example": true,
+        "type": "boolean"
+      },
+      "siren": {
+        "description": "SIREN number",
+        "example": "702042755",
+        "maxLength": 9,
+        "pattern": "^([0-9]{9})$",
+        "type": "string"
+      },
+      "sirenField": {
+        "description": "Fields of the Siren resource.",
+        "enum": [
+          "siren",
+          "businessName",
+          "entityType",
+          "administrativeStatus",
+          "instructions"
+        ],
+        "example": "siren",
+        "type": "string"
+      },
+      "sirenInstructions": {
+        "description": "Instructions regarding the SIREN",
+        "properties": {
+          "isSalesProspectingForbidden": {
+            "$ref": "#/components/schemas/isSalesProspectingForbidden"
+          }
+        },
+        "type": "object"
+      },
+      "sirenSearch": {
+        "description": "SIREN number to search for.",
+        "example": "702042755",
+        "maxLength": 9,
+        "pattern": "[0-9]*",
+        "type": "string"
+      },
+      "sirenSearchPost200Response": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/legalUnitPayloadHistory"
+            },
+            "type": "array"
+          },
+          "search": {
+            "$ref": "#/components/schemas/searchSiren"
+          },
+          "totalNumberOfResults": {
+            "$ref": "#/components/schemas/totalNumberOfResults"
+          }
+        },
+        "type": "object"
+      },
+      "siret": {
+        "description": "SIRET Number",
+        "example": "70204275500240",
+        "maxLength": 14,
+        "pattern": "^([0-9]{14})$",
+        "type": "string"
+      },
+      "siretField": {
+        "description": "Fields of the Siret resource.",
+        "enum": [
+          "siret",
+          "siren",
+          "name",
+          "facilityType",
+          "administrativeStatus",
+          "siretInstructions",
+          "address",
+          "pmStatus",
+          "pmOnly",
+          "managesPaymentStatus",
+          "managesLegalCommitment",
+          "managesLegalCommitmentOrService",
+          "serviceCodeStatus"
+        ],
+        "example": "siret",
+        "type": "string"
+      },
+      "siretInstructions": {
+        "description": "Instructions regarding the SIRET",
+        "properties": {
+          "isSalesProspectingForbidden": {
+            "$ref": "#/components/schemas/isSalesProspectingForbidden"
+          }
+        },
+        "type": "object"
+      },
+      "siretSearch": {
+        "description": "SIRET number to search for.",
+        "example": "70204275500000",
+        "maxLength": 14,
+        "pattern": "[0-9]*",
+        "type": "string"
+      },
+      "siretSearchPost200Response": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/facilityPayloadHistory"
+            },
+            "type": "array"
+          },
+          "search": {
+            "$ref": "#/components/schemas/searchSiret"
+          },
+          "totalNumberOfResults": {
+            "$ref": "#/components/schemas/totalNumberOfResults"
+          }
+        },
+        "type": "object"
+      },
+      "sortingOrder": {
+        "description": "Sorting order (ascending or descending)",
+        "enum": [
+          "ascending",
+          "descending"
+        ],
+        "example": "ascending",
+        "type": "string"
+      },
+      "strictOperator": {
+        "description": "\\\"strict\\\" comparison operator",
+        "enum": [
+          "strict"
+        ],
+        "example": "strict",
+        "type": "string"
+      },
+      "strictOrStartWithOperator": {
+        "description": "\\\"strict\\\" or \\\"startWith\\\" comparison operator",
+        "enum": [
+          "startWith",
+          "strict"
+        ],
+        "example": "startWith",
+        "type": "string"
+      },
+      "totalNumberOfResults": {
+        "default": -1,
+        "description": "The total number of results, if -1 is returned then this value is not managed due to performance issue",
+        "example": 1500,
+        "format": "int32",
+        "type": "integer"
+      },
+      "uniqueDirectoryLineStatus": {
+        "description": "Current line status of the platform.\n  - Enabled : Active line linked to a platform\n  - Disabled : No platform linked to the line\n",
+        "enum": [
+          "Enabled",
+          "Disabled"
+        ],
+        "example": "Enabled",
+        "maxLength": 7,
+        "type": "string"
+      }
+    },
+    "securitySchemes": {
+      "BearerAuth": {
+        "description": "Use authorization code to access data of another user after he gives his consent.\nUse client credentials to access your own data (similar to api key).\n\nWhen initiating the Authorization Code Flow, you can pre-fill specific user and company details by appending the following query parameters to the `/oauth2/authorize` endpoint:\n- `login_hint`: Prefills the user's email address.\n- `superpdp_company_number`: Prefills the identification number of the company. Required if `superpdp_company_number_scheme` is provided\n- `superpdp_company_number_scheme`: one of `sandbox`, `fr_siren`, `be_numero_entreprise`. Required if  `superpdp_company_number` is provided",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "/oauth2/authorize",
+            "scopes": {},
+            "tokenUrl": "/oauth2/token"
+          },
+          "clientCredentials": {
+            "scopes": {},
+            "tokenUrl": "/oauth2/token"
+          }
+        },
+        "type": "oauth2"
+      }
+    }
+  },
+  "externalDocs": {
+    "description": "Spécifications externes du PPF v3.0",
+    "url": "https://www.impots.gouv.fr"
+  },
+  "info": {
+    "contact": {
+      "name": "SUPER PDP"
+    },
+    "description": "\nThe __Directory Service__ API allows you to:\n- View and search for companies (SIREN)\n- View and search for establishments (SIRET)\n- View, and search for routing codes\n- View, and search for directory entries\n\n**Authentication :** Each endpoint must be called with an access token (Bearer). This token is retrieved by a call to a token URL.\n\n---\n## Siren\n\nCompany by Siren number\n\n- `POST /siren/search` => Search for companies (legal unit) meeting all the criteria passed as parameters, potentially multiple results returned.\n  - Permissions : _according to your permissions_\n  - **Request Body** : `{ <search criteria in JSON format> }`\n    - filters : the list of filters to apply to the search.\n    - sorting : sorting criteria by field with ascending or descending value.\n    - fields : the list of fields expected in the response.\n    - limit : the maximum number of results to return.\n    - ignore : a number designating the offset to apply to the returned results. Useful for pagination.\n  - Réponse : a paginated list of siren resources (legal unit).\n\n- `GET /siren/code-insee:{siren}` => Consult a siren (legal unit) identified by a siren passed as a parameter.\n  - Permissions : _according to your permissions_\n  - Mandatory parameter: a SIREN number.\n  - Response : the details of a siren resource (legal unit).\n\n### Scenarios\n\nExample scenarios :\n\n1. `POST /siren/search` => Search for companies (legal units) meeting all the criteria passed as parameters, potentially returning multiple results.\n\n2. `GET /siren/code-insee:{siren}` => Get company details.\n\n---\n## Siret\n\nFacility by SIRET number\n\n- `POST /siret/search` =>  Search for establishments meeting all of the criteria passed as parameters, potentially returning multiple results.\n  - Permissions : _according to your permissions_\n  - **Request body** : `{ <search criteria in JSON format> }`\n    - filters: the list of filters to apply to the search.\n    - sorting: sort criteria by field with ascending or descending value.\n    - fields: the list of fields expected in the response.\n    - include: the list of relationships (siren) to include in the returned results.\n    - limit: the maximum number of results to return.\n    - ignore: A number designating the offset to apply to the returned results. Useful for pagination.\n  - Response : a paginated list of SIRET (facility) resources.\n\n- `GET /siret/code-insee:{siret}` => Get a SIRET (facility) identified by SIRET.\n  - Permissions : _according to your permissions_\n  - Mandatory parameter: a SIRET number.\n  - Response : the details of a SIRET resource (facility).\n\n### Scenarios\n\nExample scenarios :\n\n1. `POST /siret/search` => Search for establishments meeting all of the criteria passed as parameters, potentially returning multiple results.\n\n2. `GET /siret/code-insee:{siret}` => Get the facility details.\n\n---\n## Routing Code\n\n- `POST /routing-code/search` => Search for routing codes that meet all the criteria passed as parameters, potentially returning multiple results.\n  - Permissions : _according to your permissions_\n  - **Request body** : `{ <search criteria in JSON format> }`\n    - filters: the list of filters to apply to the search.\n    - sorting: sort criteria by field with ascending or descending value.\n    - fields: the list of fields expected in the response.\n    - limit: the maximum number of results to return\n    - ignore: A number designating the offset to apply to the returned results. Useful for pagination.\n  - Response : a paginated list of routing code resources.\n\n- `GET /routing-code/siret:{siret}/code:{routing-identifier}` => Consult the routing code identified by the SIRET and a routing identifier.\n  - Permissions : _according to your permissions_\n  - Mandatory parameter: the SIRET number of the routing code for which you wish to obtain details. \n  - Mandatory parameter: the routing identifier for which you want to obtain details.\n  - Response : the detail of a routing code.\n\n### Scenarios\n\nExample scenarios :\n\n1. `POST /routing-code/search` => Search for routing codes that meet all the criteria passed as parameters, potentially returning multiple results.\n\n2. `GET /routing-code/siret:{siret}/code:{routing-identifier}` => Get the details of a routing code by SIRET and a routing identifier.\n---\n## Directory Line\n\nThe directory line is the location at which the recipient wishes to receive his invoices (SIREN or SIREN/SIRET or SIREN/SIRET/routingIdentifier). The routing identifier can be a service code, a GLN 0224 code, an ODETTE 0088 code or an internal management code used by the recipient.\n\n- `POST /directory-line/search` => Search for directory lines that meet all the criteria passed as parameters, potentially returning multiple results.\n  - Permissions : _according to your permissions_\n  - **Request body** : `{ <search criteria in JSON format> }`\n    - filters: the list of filters to apply to the search.\n    - sorting: sort criteria by field with ascending or descending value.\n    - fields: the list of fields expected in the response.\n    - limit: the maximum number of results to return\n    - ignore: A number designating the offset to apply to the returned results. Useful for pagination.\n  - Response : a paginated list of directory-line resources\n\n- `GET /directory-line/code:{addressing-identifier}` => Get a line in the directory identified by an address identifier.\n  - Permissions : _according to your permissions_\n  -Mandatory parameter: un identifiant addressage.\n  - Response : the detail of a directory line.\n\n### Scenarios\n\nExample scenarios :\n\n  1. `POST /directory-line/search` => Search for directory lines that meet all the criteria passed as parameters, potentially returning multiple results.\n\n  2. `GET /directory-line/code:{addressing-identifier}` => Get a directory line.\n\n---\n## Supervisor\n\n- `GET /healthcheck` => Check if the Directory API is online.\n  - Permissions : _according to your permissions_\n\n\nHistory:\n  - `1.0.0` : First release\n  - `1.1.0` : Fixes following SG5 meeting\n    - Remove the concept of history\n    - Remove the platformRegistrationNumber, effectiveEndDate, dateFrom and dateTo from the available filters, the payloads and the responses\n    - Remove PUT /v1/directory-line/id-instance:{id-instance}\n    - Add the major version number in the path \n    - Remove the PPF-affiliations from the headers\n    - Standardize the language so that no French remains in the SWAGGER\n    - Standardize the responses from GET /v1/siret/id-instance:{id-instance} and GET /v1/siret/code-insee:{siren}\n    - Modify the routingCode regex\n    - Change PDP to PA\n    - Translate PPF and PA into a UNTDID 3035 code\n  - `1.2.0` : Fixes following 2026/01/12 SG5 meeting\n    - __WARNING: Breaking changes occured in this version__\n    - Remove POST /v1/directory-line\n    - Remove DELETE /v1/directory-line/id-instance:{id-instance}\n    - Remove PATCH /v1/directory-line/id-instance:{id-instance}\n    - Remove GET /v1/siren/id-instance:{id-instance}\n    - Remove GET /v1/siret/id-instance:{id-instance}\n    - Remove GET /v1/routing-code/id-instance:{id-instance}\n    - Remove GET /v1/directory-line/id-instance:{id-instance}\n    - Remove id-instance from the ressource fields\n    - Change platformStatus into directoryLineStatus\n    - Add Upcoming as a directoryLineStatus option \n    - Add OAuth2 security scheme\n    - Remove Accept-language and Content-Language from the header\n    - Change diffusible into salesProspectingForbidden\n    - Add 204 response for search routes\n  - `1.3.0` : Fixes following SG5 meeting\n    - Add directoryLineStatus to the GET /v1/directory-line/code:{addressing-identifier} response\n    - Remove 206 response for search route\n    - Add include to the POST /v1/directory-line/search\n    - Add base path in server URL\n    - Add instructions to included legalUnit and facility\n    - Change behavior for nb of returned results (-1 if not managed)\n    - Remove 204 error codes for search routes\n    - Set default ignore to 0\n    - Add startWith operator to businessName, name, addressLines and postalCode\n    - Match exemple and schema for order (sorting)\n",
+    "title": "AFNOR Directory Service",
+    "version": "1.3.0",
+    "x-api-id": "3230c8a1-f7df-4fa1-8506-24ce034670ce",
+    "x-audience": "external-public"
+  },
+  "openapi": "3.0.3",
+  "paths": {
+    "/v1/directory-line/code:{addressing-identifier}": {
+      "get": {
+        "description": "Retrieve the data from the directory line corresponding to the identifier passed in parameters.",
+        "operationId": "getDirectoryLineById",
+        "parameters": [
+          {
+            "description": "Addressing identifier of the directory line",
+            "example": "dcsc456sdcsdcs556",
+            "in": "path",
+            "name": "addressing-identifier",
+            "required": true,
+            "schema": {
+              "maxLength": 125,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Relations to include in the response..",
+            "example": [
+              "siren",
+              "siret",
+              "routingCode"
+            ],
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "schema": {
+              "items": {
+                "enum": [
+                  "siren",
+                  "siret",
+                  "routingCode"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Fields of the Directory Line resource",
+            "example": [
+              "addressingIdentifier",
+              "siren",
+              "siret",
+              "routingIdentifier",
+              "addressingSuffix"
+            ],
+            "explode": false,
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "items": {
+                "$ref": "#/components/schemas/directoryLineField"
+              },
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/directoryLinePayloadLegalUnitFacilityRoutingCode"
+                }
+              }
+            },
+            "description": "Retourns a directory line."
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401Response"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403Response"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404Response"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408Response"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422Response"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429Response"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500Response"
+          },
+          "501": {
+            "$ref": "#/components/responses/Error501Response"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error has occurred - See the status code and json response for more information."
+          }
+        },
+        "summary": "Get a directory line.",
+        "tags": [
+          "Directory Line"
+        ]
+      }
+    },
+    "/v1/directory-line/search": {
+      "post": {
+        "description": "Search for directory lines that meet all the criteria passed as parameters and return the results in the desired format.",
+        "operationId": "searchDirectoryLine",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/searchDirectoryLine"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/directoryLineSearchPost200Response"
+                }
+              }
+            },
+            "description": "returns the directory line(s) matching the search criteria."
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401Response"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403Response"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404Response"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408Response"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422Response"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429Response"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500Response"
+          },
+          "501": {
+            "$ref": "#/components/responses/Error501Response"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error has occurred - See the status code and json response for more information."
+          }
+        },
+        "summary": "Search for a directory line",
+        "tags": [
+          "Directory Line"
+        ]
+      }
+    },
+    "/v1/healthcheck": {
+      "get": {
+        "description": "Checks if the API connection is operational.",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "The connection to the API is functional."
+          },
+          "500": {
+            "description": "Internal Server Error."
+          },
+          "503": {
+            "description": "Service unavailable."
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": [
+              "health.read"
+            ]
+          }
+        ],
+        "summary": "Checks if the API connection is operational.",
+        "tags": [
+          "Supervisor"
+        ]
+      }
+    },
+    "/v1/routing-code/search": {
+      "post": {
+        "description": "Search for routing codes that meet all the criteria passed as parameters and return the routing codes in the desired format.",
+        "operationId": "searchRoutingCode",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/routingCodeSearch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/routingCodeSearchPost200Response"
+                }
+              }
+            },
+            "description": "Returns the routing code(s) matching the search criteria."
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401Response"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403Response"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404Response"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408Response"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422Response"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429Response"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500Response"
+          },
+          "501": {
+            "$ref": "#/components/responses/Error501Response"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error has occurred - See the status code and json response for more information."
+          }
+        },
+        "summary": "Search for a routing code",
+        "tags": [
+          "Routing Code"
+        ]
+      }
+    },
+    "/v1/routing-code/siret:{siret}/code:{routing-identifier}": {
+      "get": {
+        "description": "Retrieve the Routing Code data corresponding to the identifier passed in parameters.",
+        "operationId": "getRoutingCodeBySiretAndId",
+        "parameters": [
+          {
+            "description": "SIRET number of a facility.",
+            "example": "70204275500240",
+            "in": "path",
+            "name": "siret",
+            "required": true,
+            "schema": {
+              "maxLength": 14,
+              "pattern": "^([0-9]{14})$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Routing Identifier of a routing code",
+            "example": "702042755",
+            "in": "path",
+            "name": "routing-identifier",
+            "required": true,
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Relations to include in the response.",
+            "example": [
+              "siren",
+              "siret"
+            ],
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "schema": {
+              "items": {
+                "enum": [
+                  "siren",
+                  "siret"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Fields of the Routing Code resource",
+            "example": [
+              "siret",
+              "routingIdentifierType",
+              "routingCodeName",
+              "routingIdentifier",
+              "managesLegalCommitment",
+              "administrativeStatus",
+              "address"
+            ],
+            "explode": false,
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "items": {
+                "$ref": "#/components/schemas/routingCodeField"
+              },
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/routingCodePayloadHistoryLegalUnitFacility"
+                }
+              }
+            },
+            "description": "Returns a routing code."
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401Response"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403Response"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404Response"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408Response"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422Response"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429Response"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500Response"
+          },
+          "501": {
+            "$ref": "#/components/responses/Error501Response"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error has occurred - See the status code and json response for more information."
+          }
+        },
+        "summary": "Get a routing code by SIRET and routing identifier",
+        "tags": [
+          "Routing Code"
+        ]
+      }
+    },
+    "/v1/siren/code-insee:{siren}": {
+      "get": {
+        "description": "Returns the details of a company (legal unit) identified by the SIREN number passed as a parameter.",
+        "operationId": "getCompanyBySiren",
+        "parameters": [
+          {
+            "description": "Corresponds to the SIREN number of a legal unit.",
+            "example": "702042755",
+            "in": "path",
+            "name": "siren",
+            "required": true,
+            "schema": {
+              "maxLength": 9,
+              "pattern": "^([0-9]{9})$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Fields of the SIREN resource.",
+            "example": [
+              "siren",
+              "businessName",
+              "entityType",
+              "administrativeStatus",
+              "instructions"
+            ],
+            "explode": false,
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "items": {
+                "$ref": "#/components/schemas/sirenField"
+              },
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/legalUnitPayloadHistory"
+                }
+              }
+            },
+            "description": "Returns a company."
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401Response"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403Response"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404Response"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408Response"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422Response"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429Response"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500Response"
+          },
+          "501": {
+            "$ref": "#/components/responses/Error501Response"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error has occurred - See the status code and json response for more information."
+          }
+        },
+        "summary": "Consult a siren (legal unit) by SIREN number",
+        "tags": [
+          "Siren"
+        ]
+      }
+    },
+    "/v1/siren/search": {
+      "post": {
+        "description": "Multi-criteria company search.",
+        "operationId": "searchCompanyBySiren",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/searchSiren"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/sirenSearchPost200Response"
+                }
+              }
+            },
+            "description": "Returns one or more companies."
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401Response"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403Response"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404Response"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408Response"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422Response"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429Response"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500Response"
+          },
+          "501": {
+            "$ref": "#/components/responses/Error501Response"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error has occurred - See the status code and json response for more information."
+          }
+        },
+        "summary": "SIREN search (or legal unit)",
+        "tags": [
+          "Siren"
+        ]
+      }
+    },
+    "/v1/siret/code-insee:{siret}": {
+      "get": {
+        "description": "Returns the details of a facility associated to a SIRET.",
+        "operationId": "getFacilityBySiret",
+        "parameters": [
+          {
+            "description": "SIRET number of a facility.",
+            "example": "70204275500240",
+            "in": "path",
+            "name": "siret",
+            "required": true,
+            "schema": {
+              "maxLength": 14,
+              "pattern": "^([0-9]{14})$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Fields of the SIRET resource.",
+            "example": [
+              "siret",
+              "siren",
+              "businessName",
+              "facilityType",
+              "siretInstructions",
+              "address",
+              "administrativeStatus",
+              "pmStatus",
+              "pmOnly",
+              "managesPaymentStatus",
+              "managesLegalCommitment",
+              "managesLegalCommitmentOrService",
+              "serviceCodeStatus"
+            ],
+            "explode": false,
+            "in": "query",
+            "name": "fields",
+            "schema": {
+              "items": {
+                "$ref": "#/components/schemas/siretField"
+              },
+              "type": "array"
+            }
+          },
+          {
+            "description": "Relations to include in the response.",
+            "example": [
+              "siren"
+            ],
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "schema": {
+              "items": {
+                "enum": [
+                  "siren"
+                ],
+                "type": "string"
+              },
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/facilityPayloadHistory"
+                }
+              }
+            },
+            "description": "Returns a facility."
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401Response"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403Response"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404Response"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408Response"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422Response"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429Response"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500Response"
+          },
+          "501": {
+            "$ref": "#/components/responses/Error501Response"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error has occurred - See the status code and json response for more information."
+          }
+        },
+        "summary": "Gets a siret (facility) by SIRET number",
+        "tags": [
+          "Siret"
+        ]
+      }
+    },
+    "/v1/siret/search": {
+      "post": {
+        "description": "Multi-criteria search for facilities.",
+        "operationId": "searchFacilityBySiret",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/searchSiret"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/siretSearchPost200Response"
+                }
+              }
+            },
+            "description": "Returns an establishment as defined on a given observation date or as defined on the current date if the observation date is not specified."
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400Response"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401Response"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403Response"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404Response"
+          },
+          "408": {
+            "$ref": "#/components/responses/Error408Response"
+          },
+          "422": {
+            "$ref": "#/components/responses/Error422Response"
+          },
+          "429": {
+            "$ref": "#/components/responses/Error429Response"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500Response"
+          },
+          "501": {
+            "$ref": "#/components/responses/Error501Response"
+          },
+          "503": {
+            "$ref": "#/components/responses/Error503Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error has occurred - See the status code and json response for more information."
+          }
+        },
+        "summary": "Search for a SIRET (facility)",
+        "tags": [
+          "Siret"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "servers": [
+    {
+      "url": "https://api.superpdp.tech/afnor-directory"
+    }
+  ],
+  "tags": [
+    {
+      "description": "Company by Siren number",
+      "name": "Siren"
+    },
+    {
+      "description": "Facility by Siret number",
+      "name": "Siret"
+    },
+    {
+      "description": "Routing Code",
+      "name": "Routing Code"
+    },
+    {
+      "description": "Directory Line",
+      "name": "Directory Line"
+    },
+    {
+      "description": "Reserved for the supervisor",
+      "name": "Supervisor"
+    }
+  ]
+}

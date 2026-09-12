@@ -7,13 +7,18 @@ import { formatDateTimeFr } from './utils/date'
 const route = useRoute()
 
 const navItems = [
-  { to: '/invoices', label: 'Factures', icon: 'invoice' },
-  { to: '/companies', label: 'Entreprises', icon: 'building' },
-  { to: '/target-applications', label: 'Applications cibles', icon: 'target' },
-  { to: '/routing-rules', label: 'Règles de routage', icon: 'route' },
-  { to: '/failed-routings', label: 'Échecs de routage', icon: 'alert' },
-  { to: '/settings', label: 'Configuration', icon: 'gear' },
-  { to: '/users', label: 'Gestion des accès', icon: 'users' },
+  { to: '/invoices', label: 'Factures', icon: 'invoice', adminOnly: false },
+  { to: '/routing-rules', label: 'Règles de routage', icon: 'route', adminOnly: false },
+  { to: '/failed-routings', label: 'Échecs de routage', icon: 'alert', adminOnly: false },
+] as const
+
+// Regroupées sous "Paramétrage" (toutes admin-only, § 5.1) plutôt qu'au premier
+// niveau du menu.
+const settingsSubItems = [
+  { to: '/companies', label: 'Entreprises' },
+  { to: '/target-applications', label: 'Applications cibles' },
+  { to: '/settings', label: 'Configuration' },
+  { to: '/users', label: 'Gestion des accès' },
 ] as const
 
 const tracesSubItems = [
@@ -22,11 +27,25 @@ const tracesSubItems = [
   { to: '/traces/audit-logs', label: "Journal d'audit" },
 ] as const
 
+// § 5.1 : les pages Entreprises, Applications cibles, Configuration, Gestion des
+// accès et Traces & journaux (3 sous-pages) sont réservées aux admins — masquées
+// pour un utilisateur restreint plutôt que visibles avec un 403 au clic. Hors
+// authentification (`oidc_mode === 'disabled'`) : aucune notion de rôle, tout reste
+// visible (comportement des lots 0-6 inchangé, cf. `require_admin`).
+const isAdmin = computed(
+  () => !authStatus.value || authStatus.value.oidc_mode === 'disabled' || authStatus.value.user?.role === 'admin',
+)
+const visibleNavItems = computed(() => navItems.filter((item) => !item.adminOnly || isAdmin.value))
+
+const isInSettingsGroup = (path: string) => settingsSubItems.some((item) => path.startsWith(item.to))
+
 const tracesOpen = ref(route.path.startsWith('/traces'))
+const settingsOpen = ref(isInSettingsGroup(route.path))
 watch(
   () => route.path,
   (path) => {
     if (path.startsWith('/traces')) tracesOpen.value = true
+    if (isInSettingsGroup(path)) settingsOpen.value = true
   },
 )
 
@@ -49,57 +68,75 @@ onMounted(ensureAuthStatus)
       </div>
 
       <nav class="sidebar-nav">
-        <RouterLink v-for="item in navItems" :key="item.to" :to="item.to" class="nav-link">
+        <RouterLink v-for="item in visibleNavItems" :key="item.to" :to="item.to" class="nav-link">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path v-if="item.icon === 'invoice'" d="M7 3h8l4 4v14H7z" />
             <path v-if="item.icon === 'invoice'" d="M10 9h6M10 13h6M10 17h4" />
-            <path v-if="item.icon === 'building'" d="M4 21V6l8-3 8 3v15" />
-            <path v-if="item.icon === 'building'" d="M9 21v-6h6v6M9 10h.01M15 10h.01M9 14h.01M15 14h.01" />
-            <circle v-if="item.icon === 'target'" cx="12" cy="12" r="8" />
-            <circle v-if="item.icon === 'target'" cx="12" cy="12" r="3" />
             <path v-if="item.icon === 'route'" d="M5 19c3 0 3-14 6-14s3 14 6 14" />
             <circle v-if="item.icon === 'route'" cx="5" cy="19" r="1.5" />
             <circle v-if="item.icon === 'route'" cx="17" cy="19" r="1.5" />
             <path v-if="item.icon === 'alert'" d="M12 3 2 20h20z" />
             <path v-if="item.icon === 'alert'" d="M12 10v4M12 17h.01" />
-            <circle v-if="item.icon === 'gear'" cx="12" cy="12" r="3" />
-            <path
-              v-if="item.icon === 'gear'"
-              d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 2h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 22h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z"
-            />
-            <circle v-if="item.icon === 'users'" cx="9" cy="8" r="3.2" />
-            <path v-if="item.icon === 'users'" d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
-            <circle v-if="item.icon === 'users'" cx="17.5" cy="9" r="2.6" />
-            <path v-if="item.icon === 'users'" d="M15.5 20c.2-2.6 1.6-4.6 3.6-5.4 1.8.6 3 2.1 3 5.4" />
           </svg>
           {{ item.label }}
         </RouterLink>
 
-        <button
-          type="button"
-          class="nav-link nav-group-toggle"
-          :class="{ 'router-link-active': route.path.startsWith('/traces') }"
-          data-testid="nav-traces-toggle"
-          @click="tracesOpen = !tracesOpen"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 5h16M4 12h16M4 19h10" />
-          </svg>
-          Traces &amp; journaux
-          <svg class="nav-group-chevron" :class="{ 'nav-group-chevron-open': tracesOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 6l6 6-6 6" />
-          </svg>
-        </button>
-        <div v-if="tracesOpen" class="nav-subgroup">
-          <RouterLink
-            v-for="item in tracesSubItems"
-            :key="item.to"
-            :to="item.to"
-            class="nav-link nav-sublink"
+        <template v-if="isAdmin">
+          <button
+            type="button"
+            class="nav-link nav-group-toggle"
+            :class="{ 'router-link-active': isInSettingsGroup(route.path) }"
+            data-testid="nav-settings-toggle"
+            @click="settingsOpen = !settingsOpen"
           >
-            {{ item.label }}
-          </RouterLink>
-        </div>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 2h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 22h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z"
+              />
+            </svg>
+            Paramétrage
+            <svg class="nav-group-chevron" :class="{ 'nav-group-chevron-open': settingsOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+          </button>
+          <div v-if="settingsOpen" class="nav-subgroup">
+            <RouterLink
+              v-for="item in settingsSubItems"
+              :key="item.to"
+              :to="item.to"
+              class="nav-link nav-sublink"
+            >
+              {{ item.label }}
+            </RouterLink>
+          </div>
+
+          <button
+            type="button"
+            class="nav-link nav-group-toggle"
+            :class="{ 'router-link-active': route.path.startsWith('/traces') }"
+            data-testid="nav-traces-toggle"
+            @click="tracesOpen = !tracesOpen"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 5h16M4 12h16M4 19h10" />
+            </svg>
+            Traces &amp; journaux
+            <svg class="nav-group-chevron" :class="{ 'nav-group-chevron-open': tracesOpen }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+          </button>
+          <div v-if="tracesOpen" class="nav-subgroup">
+            <RouterLink
+              v-for="item in tracesSubItems"
+              :key="item.to"
+              :to="item.to"
+              class="nav-link nav-sublink"
+            >
+              {{ item.label }}
+            </RouterLink>
+          </div>
+        </template>
       </nav>
 
       <div v-if="authStatus && authStatus.oidc_mode !== 'disabled'" class="sidebar-footer" data-testid="auth-status">

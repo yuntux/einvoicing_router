@@ -11,6 +11,7 @@ import contextlib
 import json
 from typing import Callable
 
+from fastapi import HTTPException
 from pyfrctc import pyfrctc as core
 from sqlalchemy.orm import Session
 
@@ -198,6 +199,91 @@ class AfnorClientAdapter:
                 response_headers=headers["response"],
             )
         return result
+
+    def lookup_directory_siret(
+        self, db: Session, *, company: Company, siret: str, afnor_api_version: str = "v1"
+    ) -> dict:
+        session = self._get_or_build_session(db, company)
+        with _capture_last_exchange_headers(session) as headers:
+            result = core.get_directory_siret_parsed(session, siret)
+            audit_trace_service.record_flow_trace(
+                db,
+                direction="router_to_superpdp",
+                afnor_api_version=afnor_api_version,
+                request={"siret": siret},
+                response=result,
+                http_status=200,
+                request_headers=headers["request"],
+                response_headers=headers["response"],
+            )
+        return result
+
+    def raw_passthrough(
+        self,
+        db: Session,
+        *,
+        company: Company,
+        method: str,
+        service: str,
+        path: str,
+        json_body: dict | None = None,
+        params: dict | None = None,
+        afnor_api_version: str = "v1",
+        correlation_id: str | None = None,
+    ) -> tuple[int, dict]:
+        """Proxy HTTP générique et transparent vers un endpoint AFNOR
+        (`service="afnor-flow"` ou `"afnor-directory"`) que ni pyfrctc ni ce module
+        n'interprètent (§ 4.4) — le routeur ne fait que transmettre tel quel, sans
+        filtrage ni stockage, contrairement à `POST /flows/search`/`GET /flows/{id}`
+        (restreints aux factures routées vers le consommateur, NF2).
+
+        Retourne `(status_code, body)` en préservant le statut HTTP réel renvoyé par
+        SuperPDP (jamais aplati sur un 502 générique comme `call_superpdp`, sauf
+        échec réseau où aucun statut réel n'existe)."""
+        session = self._get_or_build_session(db, company)
+        platform = core._get_plateform(session)
+        base_url = core.PLATFORMS[platform]["afnor_base_url"]
+        url = f"{base_url}/{service}/{core.AFNOR_API_VERSION}/{path}"
+        request_payload = {"method": method, "url": url, "body": json_body, "params": params}
+
+        with _capture_last_exchange_headers(session) as headers:
+            try:
+                response = session.request(
+                    method, url, json=json_body, params=params, timeout=core.TIMEOUT
+                )
+            except Exception as exc:
+                audit_trace_service.record_flow_trace(
+                    db,
+                    direction="router_to_superpdp",
+                    afnor_api_version=afnor_api_version,
+                    request=request_payload,
+                    response={"error": str(exc)},
+                    http_status=502,
+                    correlation_id=correlation_id,
+                    request_headers=headers["request"],
+                    response_headers=headers["response"],
+                )
+                raise HTTPException(
+                    status_code=502, detail=f"SuperPDP unreachable: {exc}"
+                ) from exc
+
+            try:
+                body = response.json() if response.content else {}
+            except ValueError:
+                body = {"raw": response.text}
+
+            audit_trace_service.record_flow_trace(
+                db,
+                direction="router_to_superpdp",
+                afnor_api_version=afnor_api_version,
+                request=request_payload,
+                response=body,
+                http_status=response.status_code,
+                correlation_id=correlation_id,
+                request_headers=headers["request"],
+                response_headers=headers["response"],
+            )
+        return response.status_code, body
 
 
 # Instance partagée par le process (cache de session), à l'image du pattern

@@ -193,7 +193,15 @@ onMounted(async () => {
 
         <div v-else class="subsection">
           <div class="subsection-title">Application OAuth</div>
-          <input v-model="redirectUrls" placeholder="URLs de redirection" />
+          <div class="field">
+            <label for="ta-redirect-urls-input">URLs de redirection</label>
+            <input
+              id="ta-redirect-urls-input"
+              v-model="redirectUrls"
+              placeholder="URLs de redirection (séparées par des virgules)"
+              data-testid="ta-redirect-urls-input"
+            />
+          </div>
           <div class="field">
             <label for="ta-conversion-format-select">Format préféré de conversion</label>
             <select id="ta-conversion-format-select" v-model="preferredConversionFormat" data-testid="ta-conversion-format-select">
@@ -203,11 +211,22 @@ onMounted(async () => {
               <option value="CII">CII</option>
             </select>
           </div>
-          <select v-model="appType">
-            <option value="confidential">Confidentielle</option>
-            <option value="public">Publique</option>
-          </select>
-          <input v-model="webhookUrl" placeholder="URL de webhook" />
+          <div class="field">
+            <label for="ta-app-type-select">Type d'application</label>
+            <select id="ta-app-type-select" v-model="appType" data-testid="ta-app-type-select">
+              <option value="confidential">Confidentielle</option>
+              <option value="public">Publique</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="ta-webhook-url-input">URL de webhook</label>
+            <input
+              id="ta-webhook-url-input"
+              v-model="webhookUrl"
+              placeholder="URL de webhook"
+              data-testid="ta-webhook-url-input"
+            />
+          </div>
         </div>
 
         <button type="submit" data-testid="ta-submit-button">Ajouter</button>
@@ -236,6 +255,7 @@ onMounted(async () => {
             <th>Nom</th>
             <th>Méthode de routage</th>
             <th>Entreprise</th>
+            <th>Client ID</th>
             <th>Statut</th>
             <th></th>
           </tr>
@@ -246,6 +266,12 @@ onMounted(async () => {
               <td>{{ ta.name }}</td>
               <td><span class="badge badge-info">{{ ta.routing_method }}</span></td>
               <td>{{ companyLabel(ta.company_id) }}</td>
+              <td>
+                <code v-if="ta.oauth_application" :data-testid="`target-application-client-id-${ta.id}`">
+                  {{ ta.oauth_application.client_id }}
+                </code>
+                <span v-else>—</span>
+              </td>
               <td>
                 <span class="badge" :class="ta.is_active ? 'badge-success' : 'badge-danger'">
                   {{ ta.is_active ? 'Actif' : 'Inactif' }}
@@ -271,7 +297,7 @@ onMounted(async () => {
               </td>
             </tr>
             <tr v-if="editingId === ta.id">
-              <td colspan="5">
+              <td colspan="6">
                 <form
                   class="stack"
                   :data-testid="`target-application-edit-form-${ta.id}`"
@@ -300,22 +326,54 @@ onMounted(async () => {
 
                   <div v-else class="subsection">
                     <div class="subsection-title">Application OAuth</div>
-                    <textarea
-                      v-model="edits[ta.id].redirectUrls"
-                      placeholder="URLs de redirection (une par ligne)"
-                      :data-testid="`target-application-edit-redirect-urls-${ta.id}`"
-                    />
-                    <select v-model="edits[ta.id].preferredConversionFormat">
-                      <option value="">Aucun format préféré (facultatif)</option>
-                      <option value="Factur-X">Factur-X</option>
-                      <option value="UBL">UBL</option>
-                      <option value="CII">CII</option>
-                    </select>
-                    <select v-model="edits[ta.id].appType">
-                      <option value="confidential">Confidentielle</option>
-                      <option value="public">Publique</option>
-                    </select>
-                    <input v-model="edits[ta.id].webhookUrl" placeholder="URL de webhook" />
+                    <div v-if="ta.oauth_application" class="field">
+                      <label>Client ID</label>
+                      <code :data-testid="`target-application-edit-client-id-${ta.id}`">
+                        {{ ta.oauth_application.client_id }}
+                      </code>
+                    </div>
+                    <div class="field">
+                      <label :for="`ta-edit-redirect-urls-${ta.id}`">URLs de redirection</label>
+                      <textarea
+                        :id="`ta-edit-redirect-urls-${ta.id}`"
+                        v-model="edits[ta.id].redirectUrls"
+                        placeholder="URLs de redirection (une par ligne)"
+                        :data-testid="`target-application-edit-redirect-urls-${ta.id}`"
+                      />
+                    </div>
+                    <div class="field">
+                      <label :for="`ta-edit-conversion-format-${ta.id}`">Format préféré de conversion</label>
+                      <select
+                        :id="`ta-edit-conversion-format-${ta.id}`"
+                        v-model="edits[ta.id].preferredConversionFormat"
+                        :data-testid="`target-application-edit-conversion-format-${ta.id}`"
+                      >
+                        <option value="">Aucun format préféré (facultatif)</option>
+                        <option value="Factur-X">Factur-X</option>
+                        <option value="UBL">UBL</option>
+                        <option value="CII">CII</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label :for="`ta-edit-app-type-${ta.id}`">Type d'application</label>
+                      <select
+                        :id="`ta-edit-app-type-${ta.id}`"
+                        v-model="edits[ta.id].appType"
+                        :data-testid="`target-application-edit-app-type-${ta.id}`"
+                      >
+                        <option value="confidential">Confidentielle</option>
+                        <option value="public">Publique</option>
+                      </select>
+                    </div>
+                    <div class="field">
+                      <label :for="`ta-edit-webhook-url-${ta.id}`">URL de webhook</label>
+                      <input
+                        :id="`ta-edit-webhook-url-${ta.id}`"
+                        v-model="edits[ta.id].webhookUrl"
+                        placeholder="URL de webhook"
+                        :data-testid="`target-application-edit-webhook-url-${ta.id}`"
+                      />
+                    </div>
                   </div>
 
                   <div class="cluster">
@@ -329,7 +387,7 @@ onMounted(async () => {
             </tr>
           </template>
           <tr v-if="targetApplications.length === 0">
-            <td colspan="5" class="entity-list-empty">Aucune application cible configurée.</td>
+            <td colspan="6" class="entity-list-empty">Aucune application cible configurée.</td>
           </tr>
         </tbody>
       </table>
