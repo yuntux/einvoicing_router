@@ -59,7 +59,10 @@ def _make_routed_invoice(db, *, company, target, emitter_siren="222222222", flow
     db.commit()
     db.refresh(partner)
     routing_rule_service.create_rule(
-        db, partner_directory_id=partner.id, target_application_id=target.id
+        db,
+        partner_directory_id=partner.id,
+        target_application_id=target.id,
+        start_date=date(2026, 1, 1),
     )
 
     raw = RawInvoice(

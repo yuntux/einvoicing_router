@@ -27,6 +27,7 @@ test('forces a send cycle, sees a failed routing, and replays it manually', asyn
     .locator('[data-testid^="routing-rule-row-"]', { hasText: `Fournisseur ${unique}` })
     .filter({ hasText: `Comptable ${unique}` })
   await expect(rrow).toBeVisible()
+  await rrow.locator('input[type="date"]').first().fill('2026-01-01')
   await rrow.getByRole('button', { name: 'Enregistrer' }).click()
   await expect(page.getByTestId('routing-rules-list')).toContainText(`Fournisseur ${unique}`)
 

@@ -88,14 +88,19 @@ class TargetApplication(Base):
 
 
 class RoutingRule(Base):
-    """Classe d'association PartnerDirectory <-> TargetApplication (spec.md § 6.1)."""
+    """Classe d'association PartnerDirectory <-> TargetApplication (spec.md § 6.1).
+
+    `start_date` est obligatoire : une règle sans borne inférieure serait active
+    immédiatement et indéfiniment dès sa création sans qu'on puisse tracer depuis
+    quand elle s'applique réellement. `end_date` reste optionnelle (routage sans
+    échéance connue)."""
 
     __tablename__ = "routing_rules"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     partner_directory_id: Mapped[int] = mapped_column(ForeignKey("partner_directories.id"))
     target_application_id: Mapped[int] = mapped_column(ForeignKey("target_applications.id"))
-    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    start_date: Mapped[date] = mapped_column(Date)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 

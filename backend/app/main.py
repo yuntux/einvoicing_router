@@ -9,18 +9,20 @@ import app.api.afnor.v2  # noqa: F401  (idem — cf. app/afnor/versioning/regist
 from app.afnor.versioning.registry import get_router
 from app.api.ihm.audit import router as audit_router
 from app.api.ihm.auth import router as auth_router
+from app.api.ihm.companies import admin_router as companies_admin_router
 from app.api.ihm.companies import router as companies_router
 from app.api.ihm.invoice_routings import router as invoice_routings_router
 from app.api.ihm.invoices import router as invoices_router
 from app.api.ihm.lifecycle import router as lifecycle_router
 from app.api.ihm.partners import router as partners_router
 from app.api.ihm.routing_rules import router as routing_rules_router
+from app.api.ihm.settings import admin_router as settings_admin_router
 from app.api.ihm.settings import router as settings_router
 from app.api.ihm.target_applications import router as target_applications_router
 from app.api.ihm.users import router as users_router
 from app.api.testing.invoices import router as testing_invoices_router
 from app.auth.ip_allowlist import IPAllowlistMiddleware
-from app.auth.session import require_current_user
+from app.auth.session import require_admin, require_current_user
 from app.config import settings
 from app.scheduler.scheduler import start_scheduler, stop_scheduler
 
@@ -56,10 +58,41 @@ def create_app() -> FastAPI:
     # défaut). `/auth/*` reste hors de cette dépendance : il faut pouvoir s'y
     # connecter avant d'avoir une session.
     ihm_auth = [Depends(require_current_user)]
+    # `require_admin` inclut déjà `require_current_user` (cf. app/auth/session.py) :
+    # `ihm_admin_only` suffit seul, pas besoin de le combiner à `ihm_auth`.
+    ihm_admin_only = [Depends(require_admin)]
+
+    # --- Matrice des permissions IHM (§ NF3/NF4) ------------------------------
+    # Le contrôle d'accès se lit ici, à l'endroit où chaque router est câblé — pas
+    # dispersé sur des décorateurs individuels dans les fichiers de routes.
+    #
+    #   Préfixe                              Accès
+    #   ------------------------------------ ----------------------------------
+    #   /api/ihm/auth/*                      public (flux de connexion)
+    #   /api/ihm/companies (GET)             authentifié, filtré par périmètre
+    #   /api/ihm/companies (POST)            admin uniquement
+    #   /api/ihm/companies/*/superpdp-*      authentifié, filtré par périmètre
+    #   /api/ihm/partners                    authentifié
+    #   /api/ihm/target-applications         authentifié
+    #   /api/ihm/routing-rules               authentifié
+    #   /api/ihm/invoices                    authentifié, filtré par périmètre
+    #   /api/ihm/invoice-routings            authentifié, filtré par périmètre
+    #   /api/ihm/lifecycle-catalog           authentifié
+    #   /api/ihm/settings (GET)              authentifié
+    #   /api/ihm/settings (PUT/POST/DELETE)  admin uniquement (réglages globaux)
+    #   /api/ihm/users/*                     admin uniquement (gestion des accès)
+    #   /api/ihm/audit/*                     authentifié
+    # ---------------------------------------------------------------------------
 
     app.include_router(auth_router, prefix="/api/ihm/auth", tags=["auth"])
     app.include_router(
         companies_router, prefix="/api/ihm/companies", tags=["companies"], dependencies=ihm_auth
+    )
+    app.include_router(
+        companies_admin_router,
+        prefix="/api/ihm/companies",
+        tags=["companies"],
+        dependencies=ihm_admin_only,
     )
     app.include_router(
         partners_router, prefix="/api/ihm/partners", tags=["partners"], dependencies=ihm_auth
@@ -104,7 +137,15 @@ def create_app() -> FastAPI:
     app.include_router(
         settings_router, prefix="/api/ihm/settings", tags=["settings"], dependencies=ihm_auth
     )
-    app.include_router(users_router, prefix="/api/ihm/users", tags=["users"])
+    app.include_router(
+        settings_admin_router,
+        prefix="/api/ihm/settings",
+        tags=["settings"],
+        dependencies=ihm_admin_only,
+    )
+    app.include_router(
+        users_router, prefix="/api/ihm/users", tags=["users"], dependencies=ihm_admin_only
+    )
     app.include_router(audit_router, prefix="/api/ihm/audit", tags=["audit"], dependencies=ihm_auth)
 
     # Points d'entrée réservés aux tests (pytest/Playwright), hors de l'API produit

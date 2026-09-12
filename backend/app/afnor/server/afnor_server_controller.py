@@ -5,6 +5,7 @@ un module interne du routeur plutôt qu'une bibliothèque séparée (cf. § 4.8,
 d'architecture déjà actée)."""
 
 from dataclasses import dataclass
+from datetime import date
 
 from sqlalchemy.orm import Session
 
@@ -71,7 +72,10 @@ def lookup_or_create_directory_entry(
     if created:
         for target in _target_applications_for(db, oauth_app):
             routing_rule_service.create_rule(
-                db, partner_directory_id=partner.id, target_application_id=target.id
+                db,
+                partner_directory_id=partner.id,
+                target_application_id=target.id,
+                start_date=date.today(),
             )
     return DirectoryLookupResult(
         partner_id=partner.id, siren=partner.siren, name=partner.name, created=created

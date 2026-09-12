@@ -65,6 +65,30 @@ def test_polling_cycle_records_error_technical_log_on_client_failure(db_session,
     assert "SuperPDP unreachable" in logs[0].details
 
 
+def test_polling_cycle_survives_client_resolution_failure_for_one_company(db_session, monkeypatch):
+    """`resolve_client_for_company` peut lever (ex. aucun identifiant SuperPDP
+    configuré, § 4.10) tout comme `fetch_received_invoices` — les deux doivent être
+    couverts par le même filet, sans quoi une seule entreprise mal configurée
+    empêche le polling de toutes les autres (et ne laisse même pas de trace dans
+    `TechnicalLog` pour elle-même)."""
+    unconfigured = _make_company(db_session, siren="111111112")
+    configured = _make_company(db_session, siren="222222223")
+
+    def fake_resolve(db, company):
+        if company.id == unconfigured.id:
+            raise ValueError("Aucun identifiant SuperPDP configuré")
+        return FakeSuperPDPClient([])
+
+    monkeypatch.setattr("app.scheduler.polling_job.resolve_client_for_company", fake_resolve)
+
+    run_polling_cycle(db_session)
+
+    logs = {log.company_id: log for log in db_session.query(TechnicalLog).all()}
+    assert logs[unconfigured.id].status == "error"
+    assert "SuperPDP" in logs[unconfigured.id].details
+    assert logs[configured.id].status == "success"
+
+
 def test_purge_technical_logs_respects_retention(db_session):
     router_settings_service.update_settings(db_session, technical_log_retention_days=30)
 

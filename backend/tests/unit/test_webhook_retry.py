@@ -69,7 +69,10 @@ def _make_afnor_api_routing(db, *, webhook_url="https://odoo.example.com/webhook
     db.commit()
     db.refresh(partner)
     routing_rule_service.create_rule(
-        db, partner_directory_id=partner.id, target_application_id=target.id
+        db,
+        partner_directory_id=partner.id,
+        target_application_id=target.id,
+        start_date=date(2026, 1, 1),
     )
 
     raw = RawInvoice(

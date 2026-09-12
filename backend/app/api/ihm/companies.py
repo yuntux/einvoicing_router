@@ -13,7 +13,14 @@ from app.schemas.superpdp_credentials import (
 )
 from app.services import superpdp_credentials_service
 
+# `admin_router` : réservé aux administrateurs (§ NF4), monté au même préfixe dans
+# `app/main.py` avec `dependencies=ihm_auth + [Depends(require_admin)]` — créer une
+# entreprise gérée n'est pas une action qu'un utilisateur restreint à son propre
+# périmètre doit pouvoir déclencher. Le reste de ce router reste ouvert à tout
+# utilisateur authentifié, filtré par périmètre entreprise au cas par cas
+# (`ensure_company_in_scope`/`apply_company_scope`).
 router = APIRouter()
+admin_router = APIRouter()
 
 
 @router.get("", response_model=list[CompanyRead])
@@ -33,7 +40,7 @@ def list_afnor_platforms() -> list[dict[str, str]]:
     return superpdp_credentials_service.list_platforms()
 
 
-@router.post("", response_model=CompanyRead, status_code=201)
+@admin_router.post("", response_model=CompanyRead, status_code=201)
 def create_company(payload: CompanyCreate, db: Session = Depends(get_db)) -> Company:
     company = Company(siren=payload.siren, name=payload.name)
     db.add(company)

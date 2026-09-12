@@ -19,7 +19,7 @@ def create_rule(
     *,
     partner_directory_id: int,
     target_application_id: int,
-    start_date: date | None = None,
+    start_date: date,
     end_date: date | None = None,
     active: bool = True,
 ) -> RoutingRule:
@@ -41,7 +41,7 @@ def upsert_rule(
     *,
     partner_directory_id: int,
     target_application_id: int,
-    start_date: date | None = None,
+    start_date: date,
     end_date: date | None = None,
 ) -> RoutingRule:
     """Crée ou met à jour la règle du couple (fournisseur, application cible) — chaque
@@ -102,7 +102,7 @@ def resolve(
     matching = [
         rule
         for rule in rules
-        if (rule.start_date is None or rule.start_date <= reference_date)
+        if rule.start_date <= reference_date
         and (rule.end_date is None or rule.end_date >= reference_date)
     ]
 

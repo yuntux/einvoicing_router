@@ -20,8 +20,8 @@ LOG_ORIGIN = "scheduler"
 
 def run_polling_cycle(db: Session) -> None:
     for company in db.query(Company).order_by(Company.id).all():
-        client = resolve_client_for_company(db, company)
         try:
+            client = resolve_client_for_company(db, company)
             result = ingest_from_client(db, company=company, client=client)
         except Exception as exc:
             audit_trace_service.record_technical_log(

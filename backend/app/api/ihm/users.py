@@ -1,9 +1,11 @@
-"""Gestion des accès (spec.md § 6.1/NF4, lot 7) — réservée aux administrateurs."""
+"""Gestion des accès (spec.md § 6.1/NF4, lot 7) — réservée aux administrateurs.
+
+Toutes les routes de ce router sont admin-only : le contrôle est posé une seule fois,
+sur `include_router()` (cf. `app/main.py`), plutôt que répété sur chaque décorateur."""
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth.session import require_admin
 from app.db.session import get_db
 from app.models.referential import User
 from app.schemas.user import UserAccessUpdate, UserCreate, UserRead
@@ -25,12 +27,12 @@ def _to_read(user: User) -> UserRead:
     )
 
 
-@router.get("", response_model=list[UserRead], dependencies=[Depends(require_admin)])
+@router.get("", response_model=list[UserRead])
 def list_users(db: Session = Depends(get_db)):
     return [_to_read(user) for user in user_access_service.list_users(db)]
 
 
-@router.post("", response_model=UserRead, status_code=201, dependencies=[Depends(require_admin)])
+@router.post("", response_model=UserRead, status_code=201)
 def create_user(payload: UserCreate, db: Session = Depends(get_db)):
     """Pré-provisionne un compte par email (§ NF4) : sa première connexion OIDC
     rattachera automatiquement `oidc_subject` à cette ligne (cf.
@@ -42,7 +44,7 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db)):
     return _to_read(user)
 
 
-@router.put("/{user_id}/access", response_model=UserRead, dependencies=[Depends(require_admin)])
+@router.put("/{user_id}/access", response_model=UserRead)
 def update_user_access(user_id: int, payload: UserAccessUpdate, db: Session = Depends(get_db)):
     user = user_access_service.update_access(
         db,

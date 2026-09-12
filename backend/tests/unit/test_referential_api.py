@@ -45,6 +45,7 @@ def test_create_partner_and_target_application_and_routing_rule(client):
         json={
             "partner_directory_id": partner["id"],
             "target_application_id": target["id"],
+            "start_date": "2026-01-01",
         },
     )
     assert rule_resp.status_code == 201
@@ -91,7 +92,11 @@ def test_deactivate_target_application_excludes_it_from_resolve(client):
     assert target["is_active"] is True
     client.post(
         "/api/ihm/routing-rules",
-        json={"partner_directory_id": partner["id"], "target_application_id": target["id"]},
+        json={
+            "partner_directory_id": partner["id"],
+            "target_application_id": target["id"],
+            "start_date": "2026-01-01",
+        },
     )
 
     deactivate_resp = client.put(

@@ -278,7 +278,7 @@ def test_directory_lookup_creates_entry_and_implicit_rule(client, db_session):
         .one()
     )
     resolved = routing_rule_service.resolve(
-        db_session, siren=partner.siren, reference_date=date(2026, 1, 1)
+        db_session, siren=partner.siren, reference_date=date.today()
     )
     assert [t.id for t in resolved] == [target.id]
 

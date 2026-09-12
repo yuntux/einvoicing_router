@@ -45,6 +45,11 @@ interface EditState {
 }
 const edits = reactive<Record<number, EditState>>({})
 
+function companyLabel(companyId: number): string {
+  const company = companies.value.find((c) => c.id === companyId)
+  return company ? company.name : `#${companyId}`
+}
+
 function splitList(value: string): string[] {
   return value
     .split(/[,\n]/)
@@ -187,15 +192,15 @@ onMounted(async () => {
           </select>
         </div>
 
-        <fieldset v-if="routingMethod === 'mail'">
-          <legend>Destinataires</legend>
+        <div v-if="routingMethod === 'mail'" class="subsection">
+          <div class="subsection-title">Destinataires</div>
           <input v-model="to" placeholder="À (séparés par des virgules)" data-testid="ta-to-input" />
           <input v-model="cc" placeholder="CC" data-testid="ta-cc-input" />
           <input v-model="bcc" placeholder="CCI" data-testid="ta-bcc-input" />
-        </fieldset>
+        </div>
 
-        <fieldset v-else>
-          <legend>Application OAuth</legend>
+        <div v-else class="subsection">
+          <div class="subsection-title">Application OAuth</div>
           <input v-model="redirectUrls" placeholder="URLs de redirection" />
           <div class="field">
             <label for="ta-conversion-format-select">Format préféré de conversion</label>
@@ -211,7 +216,7 @@ onMounted(async () => {
             <option value="public">Publique</option>
           </select>
           <input v-model="webhookUrl" placeholder="URL de webhook" />
-        </fieldset>
+        </div>
 
         <button type="submit" data-testid="ta-submit-button">Ajouter</button>
       </form>
@@ -238,6 +243,7 @@ onMounted(async () => {
           <tr>
             <th>Nom</th>
             <th>Méthode de routage</th>
+            <th>Entreprise</th>
             <th>Statut</th>
             <th></th>
           </tr>
@@ -247,6 +253,7 @@ onMounted(async () => {
             <tr :data-testid="`target-application-row-${ta.id}`">
               <td>{{ ta.name }}</td>
               <td><span class="badge badge-info">{{ ta.routing_method }}</span></td>
+              <td>{{ companyLabel(ta.company_id) }}</td>
               <td>
                 <span class="badge" :class="ta.is_active ? 'badge-success' : 'badge-danger'">
                   {{ ta.is_active ? 'Actif' : 'Inactif' }}
@@ -272,7 +279,7 @@ onMounted(async () => {
               </td>
             </tr>
             <tr v-if="editingId === ta.id">
-              <td colspan="4">
+              <td colspan="5">
                 <form
                   class="stack"
                   :data-testid="`target-application-edit-form-${ta.id}`"
@@ -288,8 +295,8 @@ onMounted(async () => {
                     />
                   </div>
 
-                  <fieldset v-if="ta.routing_method === 'mail'">
-                    <legend>Destinataires</legend>
+                  <div v-if="ta.routing_method === 'mail'" class="subsection">
+                    <div class="subsection-title">Destinataires</div>
                     <input
                       v-model="edits[ta.id].to"
                       placeholder="À (séparés par des virgules)"
@@ -297,10 +304,10 @@ onMounted(async () => {
                     />
                     <input v-model="edits[ta.id].cc" placeholder="CC" />
                     <input v-model="edits[ta.id].bcc" placeholder="CCI" />
-                  </fieldset>
+                  </div>
 
-                  <fieldset v-else>
-                    <legend>Application OAuth</legend>
+                  <div v-else class="subsection">
+                    <div class="subsection-title">Application OAuth</div>
                     <textarea
                       v-model="edits[ta.id].redirectUrls"
                       placeholder="URLs de redirection (une par ligne)"
@@ -317,7 +324,7 @@ onMounted(async () => {
                       <option value="public">Publique</option>
                     </select>
                     <input v-model="edits[ta.id].webhookUrl" placeholder="URL de webhook" />
-                  </fieldset>
+                  </div>
 
                   <div class="cluster">
                     <button type="submit" class="btn-sm" :data-testid="`target-application-edit-save-${ta.id}`">
@@ -330,7 +337,7 @@ onMounted(async () => {
             </tr>
           </template>
           <tr v-if="targetApplications.length === 0">
-            <td colspan="4" class="entity-list-empty">Aucune application cible configurée.</td>
+            <td colspan="5" class="entity-list-empty">Aucune application cible configurée.</td>
           </tr>
         </tbody>
       </table>
