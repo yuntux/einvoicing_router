@@ -63,6 +63,9 @@ class Invoice(Base):
 
     amount_total: Mapped[float | None] = mapped_column(Float, nullable=True)
     amount_excl_tax: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Déclaré dans le fichier — jamais recalculé par soustraction
+    # (amount_total - amount_excl_tax), cf. app.afnor.invoice_parsing.
+    amount_tax: Mapped[float | None] = mapped_column(Float, nullable=True)
     currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
     syntax: Mapped[str | None] = mapped_column(String(30), nullable=True)
     processing_rule: Mapped[str | None] = mapped_column(String(30), nullable=True)

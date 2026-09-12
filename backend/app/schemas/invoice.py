@@ -35,6 +35,9 @@ class InvoiceRead(BaseModel):
     certified_platform_updated_at: datetime | None
     amount_total: float | None
     amount_excl_tax: float | None
+    # Déclaré dans le fichier (pas recalculé par soustraction, cf.
+    # app.afnor.invoice_parsing).
+    amount_tax: float | None
     currency: str | None
     syntax: str | None
     processing_rule: str | None
@@ -86,6 +89,7 @@ class SimulateInvoiceReception(BaseModel):
     invoice_type: str = "invoice"
     amount_total: float | None = None
     amount_excl_tax: float | None = None
+    amount_tax: float | None = None
     currency: str = "EUR"
     syntax: str = "Factur-X"
     processing_rule: str = "B2B"

@@ -23,6 +23,11 @@ export interface Invoice {
   certified_platform_flow_id: string
   amount_total: number | null
   amount_excl_tax: number | null
+  // Déclaré dans le fichier — jamais recalculé par soustraction (amount_total -
+  // amount_excl_tax), qui accumule des erreurs de représentation flottante
+  // (ex. 303.3299999999999) et peut être fausse dès qu'un arrondi ou un acompte
+  // intervient dans le fichier d'origine.
+  amount_tax: number | null
   currency: string | null
   syntax: string | null
   processing_rule: string | null
@@ -100,4 +105,17 @@ export function invoiceDownloadUrl(id: number): string {
 
 export function afnorFlowDownloadUrl(invoiceId: number, flowId: number): string {
   return `${API_BASE}/api/ihm/invoices/${invoiceId}/afnor-flows/${flowId}/download`
+}
+
+/** Contenu brut (XML) d'un flux AFNOR pour affichage inline (§ page de détail CDAR)
+ * — même endpoint que `afnorFlowDownloadUrl`, mais lu en texte via `fetch` plutôt
+ * que suivi comme un lien de téléchargement : `apiFetch` ne convient pas ici, il
+ * décode systématiquement la réponse en JSON (`application/octet-stream` sinon
+ * en échec). */
+export async function getAfnorFlowContent(invoiceId: number, flowId: number): Promise<string> {
+  const response = await fetch(afnorFlowDownloadUrl(invoiceId, flowId), { credentials: 'include' })
+  if (!response.ok) {
+    throw new Error(`Failed to load AFNOR flow content: ${response.status}`)
+  }
+  return response.text()
 }

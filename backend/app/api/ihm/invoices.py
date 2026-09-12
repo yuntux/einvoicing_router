@@ -199,9 +199,9 @@ def list_invoices(
     if amount_excl_tax_max is not None:
         query = query.filter(Invoice.amount_excl_tax <= amount_excl_tax_max)
     if vat_amount_min is not None:
-        query = query.filter((Invoice.amount_total - Invoice.amount_excl_tax) >= vat_amount_min)
+        query = query.filter(Invoice.amount_tax >= vat_amount_min)
     if vat_amount_max is not None:
-        query = query.filter((Invoice.amount_total - Invoice.amount_excl_tax) <= vat_amount_max)
+        query = query.filter(Invoice.amount_tax <= vat_amount_max)
     if amount_total_min is not None:
         query = query.filter(Invoice.amount_total >= amount_total_min)
     if amount_total_max is not None:

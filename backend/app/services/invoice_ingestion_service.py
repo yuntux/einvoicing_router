@@ -55,6 +55,7 @@ def _upsert_invoice(db: Session, company: Company, raw: RawInvoice) -> tuple[Inv
         certified_platform_updated_at=raw.certified_platform_updated_at,
         amount_total=raw.amount_total,
         amount_excl_tax=raw.amount_excl_tax,
+        amount_tax=raw.amount_tax,
         currency=raw.currency,
         syntax=raw.syntax,
         processing_rule=raw.processing_rule,

@@ -38,6 +38,12 @@ class ParsedInvoiceFields:
     invoice_date: date | None = None
     amount_total: float | None = None
     amount_excl_tax: float | None = None
+    # Montant de TVA déclaré dans le fichier (ram:TaxTotalAmount / cac:TaxTotal ⁄
+    # cbc:TaxAmount) — jamais recalculé par soustraction (amount_total - amount_excl_tax),
+    # qui accumule les erreurs de représentation flottante (ex. 303.3299999999999) et
+    # ignore les cas où la facture porte un arrondi ou un acompte qui invalident cette
+    # égalité (cf. `ram:RoundingAmount`/`ram:TotalPrepaidAmount` en CII).
+    amount_tax: float | None = None
     currency: str | None = None
     # Code UNTDID 1001 (ex. "380" facture, "381" avoir) — cf. `_invoice_type_from_code`.
     type_code: str | None = None
@@ -74,6 +80,28 @@ def _decimal_or_none(currency_element) -> float | None:
     return float(amount)
 
 
+def _tax_total_amount(summation) -> float | None:
+    """`drafthorse` fait cohabiter deux champs sur le même tag XML `TaxTotalAmount` :
+    `tax_total` (`CurrencyField`, profil BASIC) et `tax_total_other_currency`
+    (`MultiCurrencyField`, profil EXTENDED, pour le cas rare d'un second montant de
+    TVA dans une autre devise). Les deux étant enregistrés sur le même tag, le
+    parseur route la valeur vers le conteneur multi-devise plutôt que vers le champ
+    simple — `summation.tax_total` reste vide alors que la valeur est bien présente
+    dans `summation.tax_total_other_currency.children`. Contournement : lire l'un
+    puis l'autre plutôt que de supposer que le champ "normal" est fiable."""
+    direct = _decimal_or_none(summation.tax_total)
+    if direct is not None:
+        return direct
+    children = getattr(summation.tax_total_other_currency, "children", None)
+    if not children:
+        return None
+    amount, _currency = children[0]
+    try:
+        return float(amount)
+    except (TypeError, ValueError):
+        return None
+
+
 def _cii_xml_from_facturx_pdf(file_content: bytes) -> bytes:
     """Un flux `flowSyntax=Factur-X` est un PDF/A-3 avec l'XML CII embarqué comme
     pièce jointe — `drafthorse` sait en écrire (attach_xml) mais pas en extraire ;
@@ -105,6 +133,7 @@ def parse_cii(file_content: bytes) -> ParsedInvoiceFields:
         invoice_date=invoice_date.date() if hasattr(invoice_date, "date") else invoice_date,
         amount_total=_decimal_or_none(summation.grand_total),
         amount_excl_tax=_decimal_or_none(summation.tax_basis_total),
+        amount_tax=_tax_total_amount(summation),
         currency=str(doc.trade.settlement.currency_code) or None,
         type_code=str(doc.header.type_code) or None,
     )
@@ -161,6 +190,7 @@ def parse_ubl(file_content: bytes) -> ParsedInvoiceFields:
         invoice_date=date.fromisoformat(invoice_date_text) if invoice_date_text else None,
         amount_total=amount("cac:LegalMonetaryTotal/cbc:PayableAmount"),
         amount_excl_tax=amount("cac:LegalMonetaryTotal/cbc:TaxExclusiveAmount"),
+        amount_tax=amount("cac:TaxTotal/cbc:TaxAmount"),
         currency=text("cbc:DocumentCurrencyCode"),
         type_code=text("cbc:InvoiceTypeCode"),
     )

@@ -100,6 +100,7 @@ class PyfrctcCertifiedPlatformClient:
                     invoice_type=invoice_type_from_code(parsed.type_code),
                     amount_total=parsed.amount_total,
                     amount_excl_tax=parsed.amount_excl_tax,
+                    amount_tax=parsed.amount_tax,
                     currency=parsed.currency or "EUR",
                     syntax=flow_syntax or "Factur-X",
                     processing_rule=metadata.get("processingRule", "B2B"),

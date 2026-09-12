@@ -64,6 +64,9 @@ _UBL_SAMPLE = b"""<?xml version="1.0" encoding="UTF-8"?>
       </cac:PartyLegalEntity>
     </cac:Party>
   </cac:AccountingSupplierParty>
+  <cac:TaxTotal>
+    <cbc:TaxAmount>100.00</cbc:TaxAmount>
+  </cac:TaxTotal>
   <cac:LegalMonetaryTotal>
     <cbc:TaxExclusiveAmount>500.00</cbc:TaxExclusiveAmount>
     <cbc:PayableAmount>600.00</cbc:PayableAmount>
@@ -81,6 +84,10 @@ def test_parse_cii_extracts_business_fields():
     assert fields.invoice_date == date(2026, 1, 2)
     assert fields.amount_total == 1200.0
     assert fields.amount_excl_tax == 1000.0
+    # Déclaré tel quel (ram:TaxTotalAmount), jamais recalculé par soustraction — sur
+    # cet échantillon ça coïnciderait de toute façon, la vraie garantie est vérifiée
+    # par le test dédié `test_amount_tax_is_not_recomputed_by_subtraction`.
+    assert fields.amount_tax == 200.0
     assert fields.currency == "EUR"
     assert fields.type_code == "381"
 
@@ -129,8 +136,22 @@ def test_parse_ubl_extracts_business_fields():
     assert fields.invoice_date == date(2026, 1, 2)
     assert fields.amount_total == 600.0
     assert fields.amount_excl_tax == 500.0
+    assert fields.amount_tax == 100.0
     assert fields.currency == "EUR"
     assert fields.type_code == "380"
+
+
+def test_amount_tax_is_not_recomputed_by_subtraction():
+    """Régression : `amount_tax` doit provenir du champ déclaré dans le fichier, pas
+    d'une soustraction `amount_total - amount_excl_tax` — celle-ci accumule des
+    erreurs de représentation flottante (ex. 303.3299999999999) et peut être fausse
+    dès qu'un arrondi ou un acompte intervient dans le fichier d'origine. Ce fixture
+    déclare volontairement un `TaxAmount` qui NE correspond PAS à la soustraction
+    (600 - 500 = 100, mais le fichier déclare 99.99) pour prouver que la valeur
+    utilisée est bien celle du fichier."""
+    xml = _UBL_SAMPLE.replace(b"<cbc:TaxAmount>100.00</cbc:TaxAmount>", b"<cbc:TaxAmount>99.99</cbc:TaxAmount>")
+    fields = parse_invoice_fields(xml, "UBL")
+    assert fields.amount_tax == 99.99
 
 
 def test_parse_invoice_fields_returns_empty_on_unknown_syntax():

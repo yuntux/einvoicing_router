@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { ensureAuthStatus, loginUrl } from './api/auth'
+import AfnorFlowDetailView from './views/AfnorFlowDetailView.vue'
 import AuditLogsView from './views/AuditLogsView.vue'
 import CompaniesView from './views/CompaniesView.vue'
 import FailedRoutingsView from './views/FailedRoutingsView.vue'
@@ -22,6 +23,12 @@ export const router = createRouter({
     { path: '/routing-rules', name: 'routing-rules', component: RoutingRulesView },
     { path: '/invoices', name: 'invoices', component: InvoicesView },
     { path: '/invoices/:id', name: 'invoice-detail', component: InvoicesView, props: true },
+    {
+      path: '/invoices/:id/afnor-flows/:flowId',
+      name: 'invoice-afnor-flow',
+      component: AfnorFlowDetailView,
+      props: true,
+    },
     { path: '/failed-routings', name: 'failed-routings', component: FailedRoutingsView },
     { path: '/settings', name: 'settings', component: SettingsView },
     { path: '/users', name: 'users', component: UsersView },
