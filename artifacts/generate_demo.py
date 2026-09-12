@@ -85,6 +85,13 @@ import moviepy as mp
 from playwright.async_api import async_playwright
 from PIL import Image, ImageDraw, ImageFont
 
+# Seed de données de démonstration (entreprises, factures, traces AFNOR...) — extrait
+# dans son propre module pour pouvoir aussi tourner seul, sans lancer tout le
+# pipeline vidéo (§ artifacts/seed_demo_data.py, importable tel quel : ce script et
+# le seed vivent dans le même répertoire, sur le sys.path ajouté par Python lui-même
+# à l'exécution directe de generate_demo.py).
+import seed_demo_data as demo_seed
+
 # --- CONFIGURATION GÉNÉRALE ---
 BASE_DIR = Path(__file__).parent.absolute()
 ROOT_DIR = BASE_DIR.parent
@@ -1027,11 +1034,16 @@ async def main():
     meta_path = BASE_DIR / "last_meta.json"
 
     if not assemble_only:
+        demo_seed.reset_demo_database(db_path=DEMO_DB_PATH, invoice_storage_root=DEMO_INVOICE_STORAGE_ROOT)
         write_vite_proxy_config()
         for svc in APP_SETTINGS["services"]:
             if not wait_for_service(svc):
                 print(f"❌ {svc['name']} n'a pas démarré à temps.")
                 return
+        demo_seed.seed_demo_data(backend_url=BACKEND_URL)
+        demo_seed.seed_technical_logs(
+            backend_dir=BACKEND_DIR, db_path=DEMO_DB_PATH, invoice_storage_root=DEMO_INVOICE_STORAGE_ROOT
+        )
 
     durations, audio_paths = await generate_audio()
 
