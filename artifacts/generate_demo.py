@@ -232,7 +232,7 @@ script_segments = [
     {
         "id": "00_value_prop",
         "text": (
-            "Toutes vos factures ne sont pas traités dans la même application de gestion ? Vous n'avez pas envie de multiplier les adresses de facturation électroniques déclarées dans l'annuaire public ?  einvoicing Router masque cette complexité une fois pour toutes : vis-à-vis de vos "
+            "Toutes vos factures ne sont pas traitées dans la même application de gestion ? Vous n'avez pas envie de multiplier les adresses de facturation électroniques déclarées dans l'annuaire public ?  einvoicing Router masque cette complexité une fois pour toutes : vis-à-vis de vos "
             "fournisseurs, une seule adresse de facturation électronique par entreprise suffit, quel que "
             "soit le nombre d'applications branchées derrière."
         ),
