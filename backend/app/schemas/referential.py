@@ -1,8 +1,7 @@
-from datetime import date
-
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.referential import OAuthAppType, RoutingMethod
+from app.schemas.mixins import AuditColumnsRead
 from app.schemas.validators import validate_siren, validate_siret
 
 
@@ -21,7 +20,7 @@ class PartnerDirectoryCreate(BaseModel):
         return validate_siret(value)
 
 
-class PartnerDirectoryRead(BaseModel):
+class PartnerDirectoryRead(AuditColumnsRead):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -50,7 +49,7 @@ class TargetApplicationOAuthRead(BaseModel):
     webhook_url: str | None
 
 
-class TargetApplicationRead(BaseModel):
+class TargetApplicationRead(AuditColumnsRead):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -84,35 +83,16 @@ class TargetApplicationCreated(TargetApplicationRead):
     oauth_client_secret: str | None = None
 
 
-class RoutingRuleDatesMixin(BaseModel):
-    start_date: date
-    end_date: date | None = None
+class RoutingRuleSetActive(BaseModel):
+    """Coche/décoche la case (fournisseur, application cible) de la matrice IHM
+    (§ 4.3) — `active=True` crée la règle si absente, `active=False` la supprime."""
 
-    @model_validator(mode="after")
-    def _validate_dates(self):
-        if self.end_date is not None and self.end_date < self.start_date:
-            raise ValueError("end_date ne peut pas être antérieure à start_date")
-        return self
+    active: bool
 
 
-class RoutingRuleCreate(RoutingRuleDatesMixin):
-    partner_directory_id: int
-    target_application_id: int
-    active: bool = True
-
-
-class RoutingRuleUpsert(RoutingRuleDatesMixin):
-    """Crée ou met à jour la règle d'un couple (fournisseur, application cible) —
-    matrice de la page Règles de routage : chaque paire, même sans règle existante,
-    y est éditable directement."""
-
-
-class RoutingRuleRead(BaseModel):
+class RoutingRuleRead(AuditColumnsRead):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     partner_directory_id: int
     target_application_id: int
-    start_date: date
-    end_date: date | None
-    active: bool

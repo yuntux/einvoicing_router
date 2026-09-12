@@ -1,5 +1,3 @@
-from datetime import date
-
 from app.models.referential import Company, PartnerDirectory, RoutingMethod, TargetApplication
 from app.services import routing_rule_service
 
@@ -34,78 +32,56 @@ def _make_target(db, company, name="Spendesk", routing_method=RoutingMethod.MAIL
 
 
 def test_resolve_unknown_siren_returns_empty(db_session):
-    result = routing_rule_service.resolve(
-        db_session, siren="000000000", reference_date=date(2026, 1, 1)
-    )
+    result = routing_rule_service.resolve(db_session, siren="000000000")
     assert result == []
 
 
 def test_resolve_no_rule_returns_empty(db_session):
     _make_partner(db_session)
-    result = routing_rule_service.resolve(
-        db_session, siren="123456789", reference_date=date(2026, 1, 1)
-    )
+    result = routing_rule_service.resolve(db_session, siren="123456789")
     assert result == []
 
 
-def test_resolve_active_rule_no_end_date_matches_any_future_date(db_session):
+def test_set_rule_active_true_creates_rule_and_resolve_finds_it(db_session):
     partner = _make_partner(db_session)
     company = _make_company(db_session)
     target = _make_target(db_session, company)
-    routing_rule_service.create_rule(
+    routing_rule_service.set_rule_active(
         db_session,
         partner_directory_id=partner.id,
         target_application_id=target.id,
-        start_date=date(2026, 1, 1),
+        active=True,
     )
-    result = routing_rule_service.resolve(
-        db_session, siren=partner.siren, reference_date=date(2099, 1, 1)
-    )
+    result = routing_rule_service.resolve(db_session, siren=partner.siren)
     assert [t.id for t in result] == [target.id]
 
 
-def test_resolve_respects_date_range(db_session):
+def test_set_rule_active_false_removes_existing_rule(db_session):
     partner = _make_partner(db_session)
     company = _make_company(db_session)
     target = _make_target(db_session, company)
-    routing_rule_service.create_rule(
-        db_session,
-        partner_directory_id=partner.id,
-        target_application_id=target.id,
-        start_date=date(2026, 1, 1),
-        end_date=date(2026, 12, 31),
+    routing_rule_service.set_rule_active(
+        db_session, partner_directory_id=partner.id, target_application_id=target.id, active=True
     )
-
-    before = routing_rule_service.resolve(
-        db_session, siren=partner.siren, reference_date=date(2025, 12, 31)
+    routing_rule_service.set_rule_active(
+        db_session, partner_directory_id=partner.id, target_application_id=target.id, active=False
     )
-    within = routing_rule_service.resolve(
-        db_session, siren=partner.siren, reference_date=date(2026, 6, 1)
-    )
-    after = routing_rule_service.resolve(
-        db_session, siren=partner.siren, reference_date=date(2027, 1, 1)
-    )
-
-    assert before == []
-    assert [t.id for t in within] == [target.id]
-    assert after == []
-
-
-def test_resolve_ignores_inactive_rule(db_session):
-    partner = _make_partner(db_session)
-    company = _make_company(db_session)
-    target = _make_target(db_session, company)
-    routing_rule_service.create_rule(
-        db_session,
-        partner_directory_id=partner.id,
-        target_application_id=target.id,
-        start_date=date(2020, 1, 1),
-        active=False,
-    )
-    result = routing_rule_service.resolve(
-        db_session, siren=partner.siren, reference_date=date(2026, 1, 1)
-    )
+    result = routing_rule_service.resolve(db_session, siren=partner.siren)
     assert result == []
+
+
+def test_set_rule_active_true_twice_is_idempotent(db_session):
+    partner = _make_partner(db_session)
+    company = _make_company(db_session)
+    target = _make_target(db_session, company)
+    routing_rule_service.set_rule_active(
+        db_session, partner_directory_id=partner.id, target_application_id=target.id, active=True
+    )
+    routing_rule_service.set_rule_active(
+        db_session, partner_directory_id=partner.id, target_application_id=target.id, active=True
+    )
+    rules = routing_rule_service.list_rules(db_session, partner_id=partner.id)
+    assert len(rules) == 1
 
 
 def test_resolve_multiple_targets(db_session):
@@ -113,45 +89,14 @@ def test_resolve_multiple_targets(db_session):
     company = _make_company(db_session)
     target_a = _make_target(db_session, company, name="Spendesk")
     target_b = _make_target(db_session, company, name="Comptable")
-    routing_rule_service.create_rule(
-        db_session,
-        partner_directory_id=partner.id,
-        target_application_id=target_a.id,
-        start_date=date(2020, 1, 1),
+    routing_rule_service.set_rule_active(
+        db_session, partner_directory_id=partner.id, target_application_id=target_a.id, active=True
     )
-    routing_rule_service.create_rule(
-        db_session,
-        partner_directory_id=partner.id,
-        target_application_id=target_b.id,
-        start_date=date(2020, 1, 1),
+    routing_rule_service.set_rule_active(
+        db_session, partner_directory_id=partner.id, target_application_id=target_b.id, active=True
     )
-    result = routing_rule_service.resolve(
-        db_session, siren=partner.siren, reference_date=date(2026, 1, 1)
-    )
+    result = routing_rule_service.resolve(db_session, siren=partner.siren)
     assert {t.id for t in result} == {target_a.id, target_b.id}
-
-
-def test_resolve_deduplicates_overlapping_rules_for_same_target(db_session):
-    partner = _make_partner(db_session)
-    company = _make_company(db_session)
-    target = _make_target(db_session, company)
-    routing_rule_service.create_rule(
-        db_session,
-        partner_directory_id=partner.id,
-        target_application_id=target.id,
-        start_date=date(2020, 1, 1),
-        end_date=date(2026, 6, 30),
-    )
-    routing_rule_service.create_rule(
-        db_session,
-        partner_directory_id=partner.id,
-        target_application_id=target.id,
-        start_date=date(2026, 6, 1),
-    )
-    result = routing_rule_service.resolve(
-        db_session, siren=partner.siren, reference_date=date(2026, 6, 15)
-    )
-    assert [t.id for t in result] == [target.id]
 
 
 def test_resolve_excludes_afnor_api_target_of_another_company(db_session):
@@ -163,20 +108,20 @@ def test_resolve_excludes_afnor_api_target_of_another_company(db_session):
     target_for_a = _make_target(
         db_session, company_a, name="Odoo A", routing_method=RoutingMethod.AFNOR_API
     )
-    routing_rule_service.create_rule(
+    routing_rule_service.set_rule_active(
         db_session,
         partner_directory_id=partner.id,
         target_application_id=target_for_a.id,
-        start_date=date(2020, 1, 1),
+        active=True,
     )
 
     result_for_b = routing_rule_service.resolve(
-        db_session, siren=partner.siren, reference_date=date(2026, 1, 1), company_id=company_b.id
+        db_session, siren=partner.siren, company_id=company_b.id
     )
     assert result_for_b == []
 
     result_for_a = routing_rule_service.resolve(
-        db_session, siren=partner.siren, reference_date=date(2026, 1, 1), company_id=company_a.id
+        db_session, siren=partner.siren, company_id=company_a.id
     )
     assert [t.id for t in result_for_a] == [target_for_a.id]
 
@@ -189,20 +134,17 @@ def test_resolve_excludes_mail_target_of_another_company(db_session):
     company_b = _make_company(db_session, siren="222222222", name="Entreprise B")
     partner = _make_partner(db_session)
     mail_target = _make_target(db_session, company_a, name="Spendesk")
-    routing_rule_service.create_rule(
-        db_session,
-        partner_directory_id=partner.id,
-        target_application_id=mail_target.id,
-        start_date=date(2020, 1, 1),
+    routing_rule_service.set_rule_active(
+        db_session, partner_directory_id=partner.id, target_application_id=mail_target.id, active=True
     )
 
     result_for_b = routing_rule_service.resolve(
-        db_session, siren=partner.siren, reference_date=date(2026, 1, 1), company_id=company_b.id
+        db_session, siren=partner.siren, company_id=company_b.id
     )
     assert result_for_b == []
 
     result_for_a = routing_rule_service.resolve(
-        db_session, siren=partner.siren, reference_date=date(2026, 1, 1), company_id=company_a.id
+        db_session, siren=partner.siren, company_id=company_a.id
     )
     assert [t.id for t in result_for_a] == [mail_target.id]
 
@@ -214,14 +156,12 @@ def test_resolve_without_company_id_returns_all_targets(db_session):
     target_for_a = _make_target(
         db_session, company_a, name="Odoo A", routing_method=RoutingMethod.AFNOR_API
     )
-    routing_rule_service.create_rule(
+    routing_rule_service.set_rule_active(
         db_session,
         partner_directory_id=partner.id,
         target_application_id=target_for_a.id,
-        start_date=date(2020, 1, 1),
+        active=True,
     )
 
-    result = routing_rule_service.resolve(
-        db_session, siren=partner.siren, reference_date=date(2026, 1, 1)
-    )
+    result = routing_rule_service.resolve(db_session, siren=partner.siren)
     assert [t.id for t in result] == [target_for_a.id]

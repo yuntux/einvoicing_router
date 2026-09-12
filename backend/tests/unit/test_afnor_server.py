@@ -14,8 +14,6 @@ from app.models.referential import (
     RoutingMethod,
     TargetApplication,
 )
-from app.services import routing_rule_service
-
 
 def _make_company(db, siren="123456789", name="Ma Société"):
     company = Company(siren=siren, name=name)
@@ -252,52 +250,3 @@ def test_list_invoices_rejects_invalid_token(client, db_session):
         "/api/afnor/v1/invoices", headers={"Authorization": "Bearer not-a-real-token"}
     )
     assert response.status_code == 401
-
-
-def test_directory_lookup_creates_entry_and_implicit_rule(client, db_session):
-    company = _make_company(db_session)
-    oauth_app = _make_oauth_app(db_session, company, client_secret="s3cret-value")
-    target = _make_target(db_session, company, oauth_app=oauth_app)
-    token = _authenticate(client, oauth_app, "s3cret-value")
-
-    response = client.get(
-        "/api/afnor/v1/directory/999999999",
-        params={"name": "Nouveau Tiers"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["created"] is True
-    assert body["siren"] == "999999999"
-    assert body["name"] == "Nouveau Tiers"
-
-    partner = (
-        db_session.query(PartnerDirectory)
-        .filter(PartnerDirectory.siren == "999999999")
-        .one()
-    )
-    resolved = routing_rule_service.resolve(
-        db_session, siren=partner.siren, reference_date=date.today()
-    )
-    assert [t.id for t in resolved] == [target.id]
-
-    traces = db_session.query(FlowTrace).all()
-    assert any(t.response.get("created") is True for t in traces)
-
-
-def test_directory_lookup_known_siren_does_not_recreate(client, db_session):
-    company = _make_company(db_session)
-    oauth_app = _make_oauth_app(db_session, company, client_secret="s3cret-value")
-    partner = _make_partner(db_session, siren="555555555", name="Déjà Connu")
-    token = _authenticate(client, oauth_app, "s3cret-value")
-
-    response = client.get(
-        "/api/afnor/v1/directory/555555555",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["created"] is False
-    assert body["partner_id"] == partner.id

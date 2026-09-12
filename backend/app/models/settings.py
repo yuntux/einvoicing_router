@@ -4,9 +4,10 @@ from sqlalchemy import Boolean, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+from app.models.mixins import AuditColumnsMixin
 
 
-class RouterSettings(Base):
+class RouterSettings(AuditColumnsMixin, Base):
     """Configuration générale, instance unique (id=1 par convention applicative).
 
     Porte le serveur d'envoi SMTP mutualisé pour toutes les applications cibles de
@@ -32,7 +33,7 @@ class RouterSettings(Base):
     afnor_api_ip_allowlist: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-class BillingManagerContact(Base):
+class BillingManagerContact(AuditColumnsMixin, Base):
     """Adresse email d'un "Gestionnaire de facturation" (spec.md § 4.7) — destinataire
     des alertes de routage sans cible et d'échec définitif. Paramétré globalement,
     jamais par entreprise (les Gestionnaires de facturation ont une vue transverse)."""

@@ -14,12 +14,21 @@ def list_users(db: Session) -> list[User]:
     return list(db.query(User).order_by(User.id).all())
 
 
-def create_user(db: Session, *, email: str, name: str | None) -> User:
+def create_user(
+    db: Session, *, email: str, name: str | None, actor_user_id: int | None = None
+) -> User:
     """Pré-provisionne un compte (§ NF4) : seul l'email est garanti — `oidc_subject`
     reste nul jusqu'à la première connexion de son titulaire (cf.
     `user_service.resolve_login_user`), qui le rattachera à cette ligne plutôt que
     d'en créer une nouvelle."""
-    user = User(email=email, name=name, role="user", is_active=True)
+    user = User(
+        email=email,
+        name=name,
+        role="user",
+        is_active=True,
+        create_user_id=actor_user_id,
+        write_user_id=actor_user_id,
+    )
     db.add(user)
     try:
         db.commit()
@@ -31,13 +40,20 @@ def create_user(db: Session, *, email: str, name: str | None) -> User:
 
 
 def update_access(
-    db: Session, *, user_id: int, role: str, company_ids: list[int], is_active: bool
+    db: Session,
+    *,
+    user_id: int,
+    role: str,
+    company_ids: list[int],
+    is_active: bool,
+    actor_user_id: int | None = None,
 ) -> User | None:
     user = db.get(User, user_id)
     if user is None:
         return None
     user.role = role
     user.is_active = is_active
+    user.write_user_id = actor_user_id
     user.companies = (
         db.query(Company).filter(Company.id.in_(company_ids)).all() if company_ids else []
     )

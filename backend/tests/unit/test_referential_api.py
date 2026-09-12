@@ -40,17 +40,12 @@ def test_create_partner_and_target_application_and_routing_rule(client):
     target = target_resp.json()
     assert target["routing_method"] == "mail"
 
-    rule_resp = client.post(
-        "/api/ihm/routing-rules",
-        json={
-            "partner_directory_id": partner["id"],
-            "target_application_id": target["id"],
-            "start_date": "2026-01-01",
-        },
+    rule_resp = client.put(
+        f"/api/ihm/routing-rules/{partner['id']}/{target['id']}",
+        json={"active": True},
     )
-    assert rule_resp.status_code == 201
-    rule = rule_resp.json()
-    assert rule["active"] is True
+    assert rule_resp.status_code == 200
+    assert rule_resp.json()["partner_directory_id"] == partner["id"]
 
     list_resp = client.get("/api/ihm/routing-rules", params={"partner_id": partner["id"]})
     assert list_resp.status_code == 200
@@ -58,7 +53,7 @@ def test_create_partner_and_target_application_and_routing_rule(client):
 
     resolve_resp = client.get(
         "/api/ihm/routing-rules/resolve",
-        params={"siren": partner["siren"], "reference_date": "2026-01-01"},
+        params={"siren": partner["siren"]},
     )
     assert resolve_resp.status_code == 200
     resolved = resolve_resp.json()
@@ -69,7 +64,7 @@ def test_create_partner_and_target_application_and_routing_rule(client):
 def test_resolve_unknown_siren_returns_empty_list(client):
     resolve_resp = client.get(
         "/api/ihm/routing-rules/resolve",
-        params={"siren": "000000000", "reference_date": "2026-01-01"},
+        params={"siren": "000000000"},
     )
     assert resolve_resp.status_code == 200
     assert resolve_resp.json() == []
@@ -90,13 +85,9 @@ def test_deactivate_target_application_excludes_it_from_resolve(client):
         },
     ).json()
     assert target["is_active"] is True
-    client.post(
-        "/api/ihm/routing-rules",
-        json={
-            "partner_directory_id": partner["id"],
-            "target_application_id": target["id"],
-            "start_date": "2026-01-01",
-        },
+    client.put(
+        f"/api/ihm/routing-rules/{partner['id']}/{target['id']}",
+        json={"active": True},
     )
 
     deactivate_resp = client.put(
@@ -107,7 +98,7 @@ def test_deactivate_target_application_excludes_it_from_resolve(client):
 
     resolve_resp = client.get(
         "/api/ihm/routing-rules/resolve",
-        params={"siren": partner["siren"], "reference_date": "2026-01-01"},
+        params={"siren": partner["siren"]},
     )
     assert resolve_resp.json() == []
 
@@ -118,7 +109,7 @@ def test_deactivate_target_application_excludes_it_from_resolve(client):
 
     resolve_resp = client.get(
         "/api/ihm/routing-rules/resolve",
-        params={"siren": partner["siren"], "reference_date": "2026-01-01"},
+        params={"siren": partner["siren"]},
     )
     assert len(resolve_resp.json()) == 1
 
@@ -145,76 +136,51 @@ def _make_partner_and_target(client, suffix: str):
     return partner, target
 
 
-def test_end_date_before_start_date_is_rejected(client):
-    partner, target = _make_partner_and_target(client, "3301")
-    response = client.post(
-        "/api/ihm/routing-rules",
-        json={
-            "partner_directory_id": partner["id"],
-            "target_application_id": target["id"],
-            "start_date": "2026-06-01",
-            "end_date": "2026-01-01",
-        },
-    )
-    assert response.status_code == 422
-
-
-def test_end_date_without_start_date_is_rejected(client):
-    partner, target = _make_partner_and_target(client, "3302")
-    response = client.post(
-        "/api/ihm/routing-rules",
-        json={
-            "partner_directory_id": partner["id"],
-            "target_application_id": target["id"],
-            "end_date": "2026-01-01",
-        },
-    )
-    assert response.status_code == 422
-
-
-def test_upsert_routing_rule_creates_then_updates(client):
+def test_set_routing_rule_active_creates_then_is_idempotent(client):
     partner, target = _make_partner_and_target(client, "3303")
 
     create_resp = client.put(
         f"/api/ihm/routing-rules/{partner['id']}/{target['id']}",
-        json={"start_date": "2026-01-01"},
+        json={"active": True},
     )
     assert create_resp.status_code == 200
     rule = create_resp.json()
-    assert rule["start_date"] == "2026-01-01"
-    assert rule["end_date"] is None
+    assert rule["partner_directory_id"] == partner["id"]
+    assert rule["target_application_id"] == target["id"]
 
     list_resp = client.get("/api/ihm/routing-rules", params={"partner_id": partner["id"]})
     assert len(list_resp.json()) == 1
 
-    update_resp = client.put(
+    # Cocher une case déjà cochée ne crée pas de doublon.
+    again_resp = client.put(
         f"/api/ihm/routing-rules/{partner['id']}/{target['id']}",
-        json={"start_date": "2026-01-01", "end_date": "2026-12-31"},
+        json={"active": True},
     )
-    assert update_resp.status_code == 200
-    updated = update_resp.json()
-    assert updated["id"] == rule["id"]
-    assert updated["end_date"] == "2026-12-31"
-
-    # Toujours une seule règle pour ce couple (mise à jour, pas doublon).
+    assert again_resp.status_code == 200
+    assert again_resp.json()["id"] == rule["id"]
     list_resp = client.get("/api/ihm/routing-rules", params={"partner_id": partner["id"]})
     assert len(list_resp.json()) == 1
 
 
-def test_upsert_routing_rule_invalid_dates_returns_422(client):
+def test_set_routing_rule_active_false_deletes_rule(client):
     partner, target = _make_partner_and_target(client, "3304")
+    client.put(f"/api/ihm/routing-rules/{partner['id']}/{target['id']}", json={"active": True})
+
     response = client.put(
-        f"/api/ihm/routing-rules/{partner['id']}/{target['id']}",
-        json={"end_date": "2026-01-01"},
+        f"/api/ihm/routing-rules/{partner['id']}/{target['id']}", json={"active": False}
     )
-    assert response.status_code == 422
+    assert response.status_code == 200
+    assert response.json() is None
+
+    list_resp = client.get("/api/ihm/routing-rules", params={"partner_id": partner["id"]})
+    assert list_resp.json() == []
 
 
-def test_upsert_routing_rule_unknown_partner_returns_404(client):
+def test_set_routing_rule_active_unknown_partner_returns_404(client):
     _, target = _make_partner_and_target(client, "3305")
     response = client.put(
         f"/api/ihm/routing-rules/999999/{target['id']}",
-        json={"start_date": "2026-01-01"},
+        json={"active": True},
     )
     assert response.status_code == 404
 

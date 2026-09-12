@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.auth.perimeter import apply_company_scope, ensure_company_in_scope
@@ -11,7 +11,7 @@ from app.schemas.superpdp_credentials import (
     SuperPDPCredentialsCreate,
     SuperPDPCredentialsStatus,
 )
-from app.services import superpdp_credentials_service
+from app.services import audit_trace_service, superpdp_credentials_service
 
 # `admin_router` : réservé aux administrateurs (§ NF4), monté au même préfixe dans
 # `app/main.py` avec `dependencies=ihm_auth + [Depends(require_admin)]` — créer une
@@ -41,11 +41,28 @@ def list_afnor_platforms() -> list[dict[str, str]]:
 
 
 @admin_router.post("", response_model=CompanyRead, status_code=201)
-def create_company(payload: CompanyCreate, db: Session = Depends(get_db)) -> Company:
-    company = Company(siren=payload.siren, name=payload.name)
+def create_company(
+    payload: CompanyCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+) -> Company:
+    company = Company(
+        siren=payload.siren,
+        name=payload.name,
+        create_user_id=user.id if user else None,
+        write_user_id=user.id if user else None,
+    )
     db.add(company)
     db.commit()
     db.refresh(company)
+    audit_trace_service.record_audit_log(
+        db,
+        action="company_create",
+        target=str(company.id),
+        user_id=user.id if user else None,
+        ip_address=request.client.host if request.client else None,
+    )
     return company
 
 
@@ -75,6 +92,7 @@ def get_superpdp_credentials_status(
 def set_superpdp_credentials(
     company_id: int,
     payload: SuperPDPCredentialsCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user),
 ):
@@ -100,6 +118,14 @@ def set_superpdp_credentials(
         client_id=payload.client_id,
         client_secret=payload.client_secret,
         platform=payload.platform,
+        actor_user_id=user.id if user else None,
+    )
+    audit_trace_service.record_audit_log(
+        db,
+        action="superpdp_credentials_update",
+        target=str(company_id),
+        user_id=user.id if user else None,
+        ip_address=request.client.host if request.client else None,
     )
     return SuperPDPCredentialsStatus(
         configured=True, client_id=application.client_id, platform=application.platform

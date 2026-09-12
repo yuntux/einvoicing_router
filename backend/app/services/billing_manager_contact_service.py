@@ -10,8 +10,12 @@ def list_contacts(db: Session) -> list[BillingManagerContact]:
     return list(db.query(BillingManagerContact).order_by(BillingManagerContact.id).all())
 
 
-def create_contact(db: Session, *, email: str) -> BillingManagerContact:
-    contact = BillingManagerContact(email=email)
+def create_contact(
+    db: Session, *, email: str, actor_user_id: int | None = None
+) -> BillingManagerContact:
+    contact = BillingManagerContact(
+        email=email, create_user_id=actor_user_id, write_user_id=actor_user_id
+    )
     db.add(contact)
     db.commit()
     db.refresh(contact)

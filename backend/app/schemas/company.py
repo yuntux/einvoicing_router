@@ -1,5 +1,6 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.mixins import AuditColumnsRead
 from app.schemas.validators import validate_siren
 
 
@@ -10,7 +11,7 @@ class CompanyCreate(BaseModel):
     _validate_siren = field_validator("siren")(validate_siren)
 
 
-class CompanyRead(BaseModel):
+class CompanyRead(AuditColumnsRead):
     model_config = ConfigDict(from_attributes=True)
 
     id: int

@@ -1,6 +1,7 @@
-"""RoutingRuleService — gestion et résolution des règles de routage (spec.md § 4.3, § 6.1)."""
+"""RoutingRuleService — gestion et résolution des règles de routage (spec.md § 4.3, § 6.1).
 
-from datetime import date
+Une `RoutingRule` n'a ni période de validité ni drapeau `active` : son existence même
+signifie que le routage est actif pour ce couple (fournisseur, application cible)."""
 
 from sqlalchemy.orm import Session
 
@@ -14,40 +15,10 @@ def list_rules(db: Session, *, partner_id: int | None = None) -> list[RoutingRul
     return list(query.order_by(RoutingRule.id).all())
 
 
-def create_rule(
-    db: Session,
-    *,
-    partner_directory_id: int,
-    target_application_id: int,
-    start_date: date,
-    end_date: date | None = None,
-    active: bool = True,
-) -> RoutingRule:
-    rule = RoutingRule(
-        partner_directory_id=partner_directory_id,
-        target_application_id=target_application_id,
-        start_date=start_date,
-        end_date=end_date,
-        active=active,
-    )
-    db.add(rule)
-    db.commit()
-    db.refresh(rule)
-    return rule
-
-
-def upsert_rule(
-    db: Session,
-    *,
-    partner_directory_id: int,
-    target_application_id: int,
-    start_date: date,
-    end_date: date | None = None,
-) -> RoutingRule:
-    """Crée ou met à jour la règle du couple (fournisseur, application cible) — chaque
-    cellule de la matrice de la page Règles de routage est éditable directement,
-    qu'une règle existe déjà ou non pour ce couple (§ 4.3)."""
-    rule = (
+def get_rule(
+    db: Session, *, partner_directory_id: int, target_application_id: int
+) -> RoutingRule | None:
+    return (
         db.query(RoutingRule)
         .filter(
             RoutingRule.partner_directory_id == partner_directory_id,
@@ -55,27 +26,48 @@ def upsert_rule(
         )
         .first()
     )
-    if rule is None:
-        rule = RoutingRule(
-            partner_directory_id=partner_directory_id,
-            target_application_id=target_application_id,
-        )
-        db.add(rule)
-    rule.start_date = start_date
-    rule.end_date = end_date
-    db.commit()
-    db.refresh(rule)
-    return rule
+
+
+def set_rule_active(
+    db: Session,
+    *,
+    partner_directory_id: int,
+    target_application_id: int,
+    active: bool,
+    actor_user_id: int | None = None,
+) -> RoutingRule | None:
+    """Coche/décoche la case (fournisseur, application cible) de la matrice IHM
+    (§ 4.3) : `active=True` crée la ligne si absente, `active=False` la supprime si
+    présente. Renvoie la règle (créée ou déjà existante), ou `None` après suppression."""
+    rule = get_rule(
+        db, partner_directory_id=partner_directory_id, target_application_id=target_application_id
+    )
+    if active:
+        if rule is None:
+            rule = RoutingRule(
+                partner_directory_id=partner_directory_id,
+                target_application_id=target_application_id,
+                create_user_id=actor_user_id,
+                write_user_id=actor_user_id,
+            )
+            db.add(rule)
+            db.commit()
+            db.refresh(rule)
+        return rule
+
+    if rule is not None:
+        db.delete(rule)
+        db.commit()
+    return None
 
 
 def resolve(
-    db: Session, *, siren: str, reference_date: date, company_id: int | None = None
+    db: Session, *, siren: str, company_id: int | None = None
 ) -> list[TargetApplication]:
-    """Résout les applications cibles pour un émetteur (SIREN) et une date de référence
-    donnés (typiquement la date de réception d'une facture, § 4.3).
+    """Résout les applications cibles pour un émetteur (SIREN) donné (§ 4.3).
 
-    Retourne 0, 1 ou N `TargetApplication` — celles dont une `RoutingRule` active couvre
-    `reference_date` pour cet émetteur. Si l'émetteur n'a pas d'entrée `PartnerDirectory`,
+    Retourne 0, 1 ou N `TargetApplication` — celles pour lesquelles une `RoutingRule`
+    existe pour cet émetteur. Si l'émetteur n'a pas d'entrée `PartnerDirectory`,
     retourne une liste vide (cf. spec.md § 6.1, note sur l'alerte "facture non routée").
 
     `company_id` (l'entreprise réceptrice de la facture, § 4.10/NF2) exclut les
@@ -90,27 +82,14 @@ def resolve(
     if partner is None:
         return []
 
-    rules = (
-        db.query(RoutingRule)
-        .filter(
-            RoutingRule.partner_directory_id == partner.id,
-            RoutingRule.active.is_(True),
-        )
-        .all()
-    )
+    rules = db.query(RoutingRule).filter(RoutingRule.partner_directory_id == partner.id).all()
 
-    matching = [
-        rule
-        for rule in rules
-        if rule.start_date <= reference_date
-        and (rule.end_date is None or rule.end_date >= reference_date)
-    ]
-
-    # Une même application cible ne doit apparaître qu'une fois même si plusieurs règles
-    # actives la couvrent (ex. chevauchement volontaire lors d'une transition de règles).
+    # Une même application cible ne doit apparaître qu'une fois même si plusieurs
+    # règles la couvrent (ne devrait plus arriver avec la contrainte d'unicité du
+    # couple, gardé par prudence).
     seen: set[int] = set()
     targets: list[TargetApplication] = []
-    for rule in matching:
+    for rule in rules:
         target = rule.target_application
         if target.id in seen or not target.is_active:
             continue

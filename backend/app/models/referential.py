@@ -1,12 +1,23 @@
 """Référentiel, applications cibles et accès (spec.md § 6.1 / § 7.1.1)."""
 
 import enum
-from datetime import date, datetime
+from datetime import datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, JSON, String, Table, Column, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    JSON,
+    String,
+    Table,
+    Column,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.models.mixins import AuditColumnsMixin
 
 
 class RoutingMethod(str, enum.Enum):
@@ -24,7 +35,7 @@ class OAuthAppType(str, enum.Enum):
     PUBLIC = "public"
 
 
-class Company(Base):
+class Company(AuditColumnsMixin, Base):
     """Entreprise gérée (spec.md § 6.1)."""
 
     __tablename__ = "companies"
@@ -34,7 +45,7 @@ class Company(Base):
     name: Mapped[str] = mapped_column(String(255))
 
 
-class PartnerDirectory(Base):
+class PartnerDirectory(AuditColumnsMixin, Base):
     """Annuaire des émetteurs/tiers connus du routeur (spec.md § 6.1)."""
 
     __tablename__ = "partner_directories"
@@ -48,7 +59,7 @@ class PartnerDirectory(Base):
     routing_rules: Mapped[list["RoutingRule"]] = relationship(back_populates="partner")
 
 
-class TargetApplication(Base):
+class TargetApplication(AuditColumnsMixin, Base):
     """Application cible (spec.md § 6.1 / § 4.9).
 
     Pour la méthode `afnor_api`, les paramètres décrits au § 4.9.2 (URLs de
@@ -87,28 +98,30 @@ class TargetApplication(Base):
     routing_rules: Mapped[list["RoutingRule"]] = relationship(back_populates="target_application")
 
 
-class RoutingRule(Base):
+class RoutingRule(AuditColumnsMixin, Base):
     """Classe d'association PartnerDirectory <-> TargetApplication (spec.md § 6.1).
 
-    `start_date` est obligatoire : une règle sans borne inférieure serait active
-    immédiatement et indéfiniment dès sa création sans qu'on puisse tracer depuis
-    quand elle s'applique réellement. `end_date` reste optionnelle (routage sans
-    échéance connue)."""
+    Pas de période de validité ni de drapeau `active` séparé : l'existence même de la
+    ligne signifie que le routage est actif pour ce couple (fournisseur, application
+    cible) — cocher/décocher la case dans la matrice IHM crée ou supprime directement
+    la ligne (§ 4.3)."""
 
     __tablename__ = "routing_rules"
+    __table_args__ = (
+        UniqueConstraint(
+            "partner_directory_id", "target_application_id", name="uq_routing_rule_partner_target"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     partner_directory_id: Mapped[int] = mapped_column(ForeignKey("partner_directories.id"))
     target_application_id: Mapped[int] = mapped_column(ForeignKey("target_applications.id"))
-    start_date: Mapped[date] = mapped_column(Date)
-    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     partner: Mapped[PartnerDirectory] = relationship(back_populates="routing_rules")
     target_application: Mapped[TargetApplication] = relationship(back_populates="routing_rules")
 
 
-class OAuthApplication(Base):
+class OAuthApplication(AuditColumnsMixin, Base):
     """Jeton d'accès par entreprise (spec.md § 6.1 / § 4.10) — deux usages distincts
     selon `scope` :
 
@@ -153,7 +166,7 @@ company_users = Table(
 )
 
 
-class User(Base):
+class User(AuditColumnsMixin, Base):
     """Utilisateur OIDC (spec.md § 6.1/NF3/NF4). `role` ("admin" voit toutes les
     entreprises, "user" est restreint à son périmètre) et `companies` (via
     `company_users`) forment ensemble l'"AccessScope" du § 6.1 — pas de table dédiée,
