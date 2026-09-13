@@ -29,8 +29,9 @@ export function listCompanies(): Promise<Company[]> {
   return apiFetch('/api/ihm/companies', {}, 'Failed to list companies')
 }
 
-export function listCompanyLookups(): Promise<CompanyLookup[]> {
-  return apiFetch('/api/ihm/companies/lookup', {}, 'Failed to list companies')
+export function listCompanyLookups(options: { certifiedPlatformConfigured?: boolean } = {}): Promise<CompanyLookup[]> {
+  const params = options.certifiedPlatformConfigured ? '?certified_platform_configured=true' : ''
+  return apiFetch(`/api/ihm/companies/lookup${params}`, {}, 'Failed to list companies')
 }
 
 export function createCompany(payload: CompanyCreate): Promise<Company> {

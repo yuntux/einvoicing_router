@@ -205,6 +205,22 @@ Cette méthode couvre le cas Odoo (§ 4.4) et tout futur consommateur de l'API A
   - **Routeur → SuperPDP** : de la même façon, le routeur détient une clé API/un jeton SuperPDP distinct par entreprise gérée (cf. NF2).
 - Ce choix garantit qu'aucune entreprise ne peut, via un jeton compromis ou mal utilisé, accéder aux données de l'autre entreprise — le périmètre d'un jeton est strictement borné à l'entreprise pour laquelle il a été émis, à chaque niveau de la chaîne (SuperPDP ↔ Routeur ↔ Odoo).
 
+### 4.11 IHM de recherche dans l'annuaire (DGFIP et Peppol)
+
+- Écran de recherche annuaire pour les utilisateurs du routeur (distinct de la consultation d'annuaire par Odoo, § 4.4) : recherche par SIREN, SIRET ou code de routage contre **l'annuaire DGFIP** (exposé par SuperPDP, § 4.10 — une entreprise gérée est choisie explicitement pour porter les identifiants de l'appel), avec bascule vers le détail d'une entité (cartouches de synthèse + lignes d'annuaire) sur le même principe que le détail d'une facture (§ 4.2).
+- **Deux annuaires distincts, deux boutons de recherche distincts** : "Rechercher sur l'annuaire DGFIP" (recherche multi-critères ci-dessus) et "Rechercher sur l'annuaire Peppol" (vérification directe d'un identifiant — SIREN, SIRET ou identifiant de routage selon le mode actif — contre le réseau Peppol par résolution DNS, indépendante de SuperPDP et d'un résultat DGFIP préalable). Les deux annuaires n'ont pas le même périmètre :
+  - **Annuaire DGFIP** : périmètre de la réforme de facturation électronique française — les assujettis à la TVA en France, y compris ceux en franchise en base.
+  - **Annuaire Peppol** : annuaire international, indépendant de la réforme française.
+
+  | Population | Présence annuaire DGFIP | Présence annuaire Peppol |
+  |---|---|---|
+  | Entreprises de la réforme FR | ✓ | ✓ |
+  | Services publics de la réforme FR | ✓ | ✗ (la PA Chorus Pro n'est pas connectée au réseau Peppol) |
+  | Entités hors réforme FR, joignables via Peppol | ✗ | ✓ |
+
+  Pour cette dernière catégorie, un **e-reporting à la DGFIP reste dû** à l'émission comme à la réception d'une facture, même transmise via Peppol — la présence dans l'annuaire Peppol ne dispense jamais de cette obligation.
+- Chaque ligne d'annuaire DGFIP affichée en détail est complétée d'une colonne "Annuaire Peppol" (statut actif/inactif + Access Point le cas échéant), calculée côté routeur par résolution DNS contre le réseau Peppol — jamais fournie par SuperPDP lui-même, donc jamais tracée en `FlowTrace` (NF1, qui ne couvre que les échanges avec SuperPDP).
+
 ## 5. Exigences non fonctionnelles
 
 | # | Exigence |
@@ -826,16 +842,18 @@ Détail endpoint par endpoint des deux contrats officiels consommés par le rout
 | `afnor-flow` | `GET /v1/flows/{flowId}` | ✅ | Télécharger le fichier d'un flux | ✅ `Metadata`/`Original` servis depuis nos données persistées ; `Converted`/`ReadableView` relayés en direct | ❌ (l'IHM utilise son propre endpoint `/api/ihm/invoices/{id}/download-readable`, pas ce contrat) | ✅ `Metadata`+`Original` à chaque relevé ; `ReadableView` via le bouton "Vue lisible (PDF)" |
 | `afnor-flow` | `GET /v1/healthcheck` | ✅ | Vérifier que l'API est disponible | ✅ Passe-plat brut (`raw_passthrough`) | ❌ | ❌ Jamais appelé par le routeur lui-même |
 | `afnor-directory` | `GET /v1/siren/code-insee:{siren}` | ✅ | Consulter une entreprise par SIREN | ✅ Passe-plat via `pyfrctc.get_directory_siren` **brut** | ❌ | ❌ (création d'entreprise = validation Luhn locale, aucune consultation live) |
-| `afnor-directory` | `POST /v1/siren/search` | ✅ | Recherche multi-critères d'entreprises | ✅ Passe-plat brut | ❌ | ❌ |
+| `afnor-directory` | `POST /v1/siren/search` | ✅ | Recherche multi-critères d'entreprises | ✅ Passe-plat brut | ❌ | ✅ Bouton "Rechercher sur l'annuaire DGFIP" (mode SIREN), § 4.11 |
 | `afnor-directory` | `GET /v1/siret/code-insee:{siret}` | ✅ | Consulter un établissement par SIRET | ✅ Passe-plat via `pyfrctc.get_directory_siret` **brut** | ❌ | ❌ |
-| `afnor-directory` | `POST /v1/siret/search` | ✅ | Recherche multi-critères d'établissements | ✅ Passe-plat brut | ❌ | ❌ |
+| `afnor-directory` | `POST /v1/siret/search` | ✅ | Recherche multi-critères d'établissements | ✅ Passe-plat brut | ❌ | ✅ Bouton "Rechercher sur l'annuaire DGFIP" (mode SIRET), § 4.11 |
 | `afnor-directory` | `GET /v1/routing-code/siret:{siret}/code:{routing-identifier}` | ✅ | Consulter un code de routage | ✅ Passe-plat brut | ❌ | ❌ |
-| `afnor-directory` | `POST /v1/routing-code/search` | ✅ | Rechercher des codes de routage | ✅ Passe-plat brut | ❌ | ❌ |
+| `afnor-directory` | `POST /v1/routing-code/search` | ✅ | Rechercher des codes de routage | ✅ Passe-plat brut | ❌ | ✅ Bouton "Rechercher sur l'annuaire DGFIP" (mode code de routage), § 4.11 |
 | `afnor-directory` | `GET /v1/directory-line/code:{addressing-identifier}` | ✅ | Consulter une ligne d'annuaire | ✅ Passe-plat brut | ❌ | ❌ |
-| `afnor-directory` | `POST /v1/directory-line/search` | ✅ | Rechercher des lignes d'annuaire | ✅ Passe-plat brut | ❌ | ❌ |
+| `afnor-directory` | `POST /v1/directory-line/search` | ✅ | Rechercher des lignes d'annuaire | ✅ Passe-plat brut | ❌ | ✅ Tableau "Lignes d'annuaire" de la page de détail, § 4.11 |
 | `afnor-directory` | `GET /v1/healthcheck` | ✅ | Vérifier que la connexion API est opérationnelle | ✅ Passe-plat brut | ❌ | ❌ |
 
-**Constat** : l'annuaire (`afnor-directory`, 9 endpoints) n'est utile qu'à Odoo — jamais appelé par le routeur pour ses propres besoins. Les 3 endpoints utiles à `afnor-flow` sont, eux, sollicités des deux côtés (Odoo *et* nos propres actions IHM), mais l'IHM ne passe jamais par notre contrat exposé — elle déclenche les mêmes appels `pyfrctc` directement, via ses propres endpoints `/api/ihm/*`.
+**Constat** : 4 des 9 endpoints `afnor-directory` sont désormais aussi consommés par l'IHM pour ses propres besoins (§ 4.11, écran "Annuaire") — via `AfnorClientAdapter.raw_passthrough`, réutilisé tel quel plutôt que dupliqué, avec les identifiants d'une entreprise gérée choisie explicitement (le routeur agit alors en CLIENT vis-à-vis de SuperPDP, comme pour Odoo, mais à l'initiative d'un utilisateur du routeur). Les 5 endpoints restants (consultation unitaire par identifiant, healthcheck) ne sont, eux, toujours utiles qu'à Odoo. Les 3 endpoints utiles à `afnor-flow` restent sollicités des deux côtés (Odoo *et* nos propres actions IHM), mais l'IHM ne passe jamais par notre contrat exposé pour ceux-ci — elle déclenche les mêmes appels `pyfrctc` directement, via ses propres endpoints `/api/ihm/*`.
+
+Par ailleurs, le statut Peppol affiché à côté de chaque ligne d'annuaire (§ 4.11) et le bouton "Rechercher sur l'annuaire Peppol" ne passent par **aucun** de ces endpoints AFNOR : ils interrogent directement le réseau Peppol par résolution DNS (`pyfrctc.peppol.check_directory_line_peppol_status`), indépendamment de SuperPDP.
 
 ## 14. Cartographie des types de flux (`flowType`, contrat `afnor-flow` v1.3.0)
 

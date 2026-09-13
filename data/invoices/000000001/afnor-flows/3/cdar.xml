@@ -1,0 +1,66 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<rsm:CrossDomainAcknowledgementAndResponse xmlns:qdt="urn:un:unece:uncefact:data:standard:QualifiedDataType:100" xmlns:udt="urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100" xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100" xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossDomainAcknowledgementAndResponse:100" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <rsm:ExchangedDocumentContext>
+    <ram:BusinessProcessSpecifiedDocumentContextParameter>
+      <ram:ID>REGULATED</ram:ID>
+    </ram:BusinessProcessSpecifiedDocumentContextParameter>
+    <ram:GuidelineSpecifiedDocumentContextParameter>
+      <ram:ID>urn.cpro.gouv.fr:1p0:CDV:invoice</ram:ID>
+    </ram:GuidelineSpecifiedDocumentContextParameter>
+  </rsm:ExchangedDocumentContext>
+  <rsm:ExchangedDocument>
+    <ram:ID>F20260416_223513_266_380_2025-06-30#208_20260913040008</ram:ID>
+    <ram:IssueDateTime>
+      <udt:DateTimeString format="204">20260913040008</udt:DateTimeString>
+    </ram:IssueDateTime>
+    <ram:SenderTradeParty>
+      <ram:RoleCode>BY</ram:RoleCode>
+    </ram:SenderTradeParty>
+    <ram:IssuerTradeParty>
+      <ram:GlobalID schemeID="0002">000000001</ram:GlobalID>
+      <ram:Name>Tricatel</ram:Name>
+      <ram:RoleCode>BY</ram:RoleCode>
+    </ram:IssuerTradeParty>
+    <ram:RecipientTradeParty>
+      <ram:GlobalID schemeID="0002">000000002</ram:GlobalID>
+      <ram:Name>Burger Queen</ram:Name>
+      <ram:RoleCode>SE</ram:RoleCode>
+      <ram:URIUniversalCommunication>
+        <ram:URIID schemeID="0002">000000002</ram:URIID>
+      </ram:URIUniversalCommunication>
+    </ram:RecipientTradeParty>
+  </rsm:ExchangedDocument>
+  <rsm:AcknowledgementDocument>
+    <ram:MultipleReferencesIndicator>
+      <udt:Indicator>false</udt:Indicator>
+    </ram:MultipleReferencesIndicator>
+    <ram:TypeCode>23</ram:TypeCode>
+    <ram:IssueDateTime>
+      <udt:DateTimeString format="204">20260913040008</udt:DateTimeString>
+    </ram:IssueDateTime>
+    <ram:ReferenceReferencedDocument>
+      <ram:IssuerAssignedID>F20260416_223513_266</ram:IssuerAssignedID>
+      <ram:StatusCode>39</ram:StatusCode>
+      <ram:TypeCode>380</ram:TypeCode>
+      <ram:ReceiptDateTime>
+        <udt:DateTimeString format="204">20260912192045</udt:DateTimeString>
+      </ram:ReceiptDateTime>
+      <ram:FormattedIssueDateTime>
+        <qdt:DateTimeString format="102">20250630</qdt:DateTimeString>
+      </ram:FormattedIssueDateTime>
+      <ram:ProcessConditionCode>208</ram:ProcessConditionCode>
+      <ram:ProcessCondition>Suspendue</ram:ProcessCondition>
+      <ram:IssuerTradeParty>
+        <ram:GlobalID schemeID="0002">000000002</ram:GlobalID>
+      </ram:IssuerTradeParty>
+      <ram:SpecifiedDocumentStatus>
+        <ram:ReasonCode>REF_CT_ABSENT</ram:ReasonCode>
+        <ram:RequestedActionCode>CNP</ram:RequestedActionCode>
+        <ram:SequenceNumeric>1</ram:SequenceNumeric>
+        <ram:IncludedNote>
+          <ram:Content>YYYxxxxZZPP</ram:Content>
+        </ram:IncludedNote>
+      </ram:SpecifiedDocumentStatus>
+    </ram:ReferenceReferencedDocument>
+  </rsm:AcknowledgementDocument>
+</rsm:CrossDomainAcknowledgementAndResponse>

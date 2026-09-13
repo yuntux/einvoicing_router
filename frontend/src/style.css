@@ -702,21 +702,15 @@ code {
 /* ---------- Détail facture (page routée /invoices/:id, plus une popin) ---------- */
 
 /* Fil d'Ariane (§ InvoicesView.vue/AfnorFlowDetailView.vue) : un seul maillon
-   "Retour à la liste" sur la page facture, deux maillons (liste -> facture)
-   séparés par un chevron sur la page CDAR — chaque maillon reste une vraie action
-   de retour, pas juste un repère de position comme un fil d'Ariane classique. */
+   "Retour à la liste" sur la page facture, deux maillons (liste -> facture) sur la
+   page CDAR — chaque maillon reste une vraie action de retour, pas juste un repère
+   de position comme un fil d'Ariane classique, d'où l'absence de séparateur entre
+   deux maillons qui portent chacun déjà leur propre chevron. */
 .breadcrumb {
   display: flex;
   align-items: center;
   gap: 6px;
   margin-bottom: 4px;
-}
-
-.breadcrumb-sep {
-  width: 12px;
-  height: 12px;
-  color: var(--color-muted);
-  flex-shrink: 0;
 }
 
 .back-link,
@@ -739,7 +733,8 @@ code {
   text-decoration: underline;
 }
 
-.back-link svg {
+.back-link svg,
+.breadcrumb-link svg {
   width: 15px;
   height: 15px;
   flex-shrink: 0;
