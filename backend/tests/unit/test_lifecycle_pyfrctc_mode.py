@@ -90,7 +90,7 @@ def test_retry_cdar_resends_after_a_failure(db_session):
             db_session,
             invoice=invoice,
             side="purchase",
-            data=ManualEventInput(status="suspended", reason="NON_CONFORME"),
+            data=ManualEventInput(status="suspended", reason="SIRET_ERR"),
         )
     flow = db_session.get(AfnorFlow, event.afnor_flow_id)
     assert flow.state == AfnorFlowState.ERROR
@@ -130,7 +130,7 @@ def test_retry_cdar_with_overrides_updates_the_event_detail(db_session):
             db_session,
             invoice=invoice,
             side="purchase",
-            data=ManualEventInput(status="suspended", reason="NON_CONFORME"),
+            data=ManualEventInput(status="suspended", reason="SIRET_ERR"),
         )
     flow = db_session.get(AfnorFlow, event.afnor_flow_id)
 

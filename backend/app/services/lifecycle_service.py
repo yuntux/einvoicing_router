@@ -70,6 +70,10 @@ def create_manual_event(
         )
     if info.requires_detail and not data.reason:
         raise LifecycleValidationError(f"Un motif est requis pour le statut '{data.status}'.")
+    if data.reason and info.allowed_reasons and data.reason not in info.allowed_reasons:
+        raise LifecycleValidationError(
+            f"Le motif '{data.reason}' n'est pas autorisé pour le statut '{data.status}'."
+        )
     if info.requires_confirmation and not data.confirmed:
         raise LifecycleValidationError(
             f"Une confirmation explicite est requise pour le statut '{data.status}'."
@@ -146,6 +150,10 @@ def retry_cdar(
         info = STATUS_CATALOG[event.status]
         if info.requires_detail and not overrides.reason:
             raise LifecycleValidationError(f"Un motif est requis pour le statut '{event.status}'.")
+        if overrides.reason and info.allowed_reasons and overrides.reason not in info.allowed_reasons:
+            raise LifecycleValidationError(
+                f"Le motif '{overrides.reason}' n'est pas autorisé pour le statut '{event.status}'."
+            )
         if detail is None:
             detail = LifecycleEventDetail(event_id=event.id)
             db.add(detail)

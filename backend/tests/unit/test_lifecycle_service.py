@@ -71,6 +71,22 @@ def test_create_manual_event_dispute_with_reason_succeeds(db_session):
     assert event.details[0].reason == "TX_TVA_ERR"
 
 
+def test_create_manual_event_rejects_reason_not_allowed_for_status(db_session):
+    """`NON_CONFORME` est un motif valide pour "dispute"/"refused" mais pas pour
+    "suspended" (§ lifecycle_catalog.StatusInfo.allowed_reasons, dérivé du
+    schématron officiel SuperPDP BR-FR-CDV-CL-09) — accepter n'importe quel motif à
+    la saisie faisait échouer la transmission CDAR plus tard, à la validation
+    business rules du serveur plutôt qu'à la nôtre."""
+    invoice = _make_invoice(db_session)
+    with pytest.raises(LifecycleValidationError, match="n'est pas autorisé"):
+        create_manual_event(
+            db_session,
+            invoice=invoice,
+            side="purchase",
+            data=ManualEventInput(status="suspended", reason="NON_CONFORME"),
+        )
+
+
 def test_create_manual_event_refused_requires_confirmation(db_session):
     invoice = _make_invoice(db_session)
     with pytest.raises(LifecycleValidationError, match="confirmation explicite"):

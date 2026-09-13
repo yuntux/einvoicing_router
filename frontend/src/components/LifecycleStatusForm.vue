@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { createLifecycleEvent, getLifecycleCatalog, type LifecycleCatalog } from '../api/lifecycle'
 import { useErrorMessage } from '../composables/useErrorMessage'
 
@@ -22,6 +22,20 @@ const purchaseStatuses = computed(() =>
 const selectedStatusInfo = computed(() =>
   purchaseStatuses.value.find((s) => s.key === status.value) ?? null,
 )
+
+// SuperPDP n'accepte, par statut, qu'un sous-ensemble de `catalog.reasons` (§
+// lifecycle_catalog.StatusInfo.allowed_reasons) — un motif valide pour un autre
+// statut (ex. "NON_CONFORME" pour "dispute") est rejeté pour "suspended".
+const availableReasons = computed(() => {
+  const allowed = selectedStatusInfo.value?.allowed_reasons ?? []
+  return Object.fromEntries(
+    Object.entries(catalog.value?.reasons ?? {}).filter(([code]) => allowed.includes(code)),
+  )
+})
+
+watch(status, () => {
+  reason.value = ''
+})
 
 async function submit() {
   await guard(async () => {
@@ -62,7 +76,7 @@ onMounted(async () => {
       <template v-if="selectedStatusInfo?.requires_detail">
         <select v-model="reason" data-testid="lifecycle-reason-select" required>
           <option value="" disabled>Motif</option>
-          <option v-for="(label, code) in catalog?.reasons" :key="code" :value="code">{{ label }}</option>
+          <option v-for="(label, code) in availableReasons" :key="code" :value="code">{{ label }}</option>
         </select>
         <select v-model="action" data-testid="lifecycle-action-select">
           <option value="">Action (facultatif)</option>

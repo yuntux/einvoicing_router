@@ -209,7 +209,7 @@ def test_retry_afnor_flow_resends_after_a_failure(client, db_session, monkeypatc
         mock_send.side_effect = RuntimeError("SuperPDP unreachable")
         create_resp = client.post(
             f"/api/ihm/invoices/{invoice['id']}/lifecycle-events",
-            json={"status": "suspended", "reason": "NON_CONFORME"},
+            json={"status": "suspended", "reason": "SIRET_ERR"},
         )
     event = create_resp.json()
     flow_id = event["afnor_flow"]["id"]
@@ -239,7 +239,7 @@ def test_retry_afnor_flow_with_overrides_updates_the_detail(client, monkeypatch)
         mock_send.side_effect = RuntimeError("SuperPDP unreachable")
         create_resp = client.post(
             f"/api/ihm/invoices/{invoice['id']}/lifecycle-events",
-            json={"status": "suspended", "reason": "NON_CONFORME"},
+            json={"status": "suspended", "reason": "SIRET_ERR"},
         )
     event = create_resp.json()
     flow_id = event["afnor_flow"]["id"]

@@ -18,6 +18,12 @@ class StatusInfo(NamedTuple):
     manual_side: ManualSide | None = None
     requires_detail: bool = False
     requires_confirmation: bool = False
+    # Sous-ensemble de `REASONS` accepté pour CE statut par le schématron officiel
+    # SuperPDP (`BR-FR-CDV-CL-09`, cf. pyfrctc `cdar-schematron/BR-FR-CDV-Schematron-
+    # CDAR.xslt`) — un motif valide pour un autre statut (ex. "NON_CONFORME" pour
+    # "dispute"/"refused") est rejeté par la plateforme pour "suspended". Vide tant
+    # que `requires_detail` est faux.
+    allowed_reasons: tuple[str, ...] = ()
 
 
 STATUS_CATALOG: dict[str, StatusInfo] = {
@@ -36,12 +42,26 @@ STATUS_CATALOG: dict[str, StatusInfo] = {
         mdt88_code="49",
         manual_side="purchase",
         requires_detail=True,
+        allowed_reasons=(
+            "AUTRE", "CMD_ERR", "SIRET_ERR", "CODE_ROUTAGE_ERR", "REF_CT_ABSENT", "REF_ERR",
+            "PU_ERR", "REM_ERR", "QTE_ERR", "ART_ERR", "MODPAI_ERR", "QUALITE_ERR", "LIVR_INCOMP",
+        ),
     ),
     "dispute": StatusInfo(
-        "En litige", "207", mdt88_code="46", manual_side="purchase", requires_detail=True
+        "En litige", "207", mdt88_code="46", manual_side="purchase", requires_detail=True,
+        allowed_reasons=(
+            "AUTRE", "COORD_BANC_ERR", "TX_TVA_ERR", "MONTANTTOTAL_ERR", "CALCUL_ERR", "NON_CONFORME",
+            "DOUBLON", "DEST_INC", "DEST_ERR", "TRANSAC_INC", "EMMET_INC", "CONTRAT_TERM", "DOUBLE_FACT",
+            "CMD_ERR", "ADR_ERR", "SIRET_ERR", "CODE_ROUTAGE_ERR", "REF_CT_ABSENT", "REF_ERR", "PU_ERR",
+            "REM_ERR", "QTE_ERR", "ART_ERR", "MODPAI_ERR", "QUALITE_ERR", "LIVR_INCOMP",
+        ),
     ),
     "suspended": StatusInfo(
-        "Suspendue", "208", mdt88_code="39", manual_side="purchase", requires_detail=True
+        "Suspendue", "208", mdt88_code="39", manual_side="purchase", requires_detail=True,
+        allowed_reasons=(
+            "JUSTIF_ABS", "COORD_BANC_ERR", "CMD_ERR", "SIRET_ERR", "CODE_ROUTAGE_ERR",
+            "REF_CT_ABSENT", "REF_ERR",
+        ),
     ),
     "refused": StatusInfo(
         "Refusée",
@@ -50,6 +70,14 @@ STATUS_CATALOG: dict[str, StatusInfo] = {
         manual_side="purchase",
         requires_detail=True,
         requires_confirmation=True,
+        # Liste "hors B2G" du schématron (BR-FR-CDV-CL-09_MDT-113_210) — la variante
+        # B2G (émetteur GlobalID 0238 = "9999") a sa propre liste, non couverte ici
+        # faute d'information B2G/B2B distincte dans notre modèle de données.
+        allowed_reasons=(
+            "TX_TVA_ERR", "MONTANTTOTAL_ERR", "CALCUL_ERR", "NON_CONFORME", "DOUBLON", "DEST_ERR",
+            "TRANSAC_INC", "EMMET_INC", "CONTRAT_TERM", "DOUBLE_FACT", "CMD_ERR", "ADR_ERR",
+            "REF_CT_ABSENT",
+        ),
     ),
     # Statut métier saisissable manuellement (vente) — cf. note d'implémentation dans
     # LifecycleService : aucun point d'entrée IHM ne l'expose encore, faute d'écran de
@@ -91,6 +119,18 @@ REASONS: dict[str, str] = {
     "QUALITE_ERR": "Qualité d'article livré incorrecte",
     "LIVR_INCOMP": "Problème de livraison",
     "AUTRE": "Autre",
+    "JUSTIF_ABS": "Justificatif absent",
+    "CODE_ROUTAGE_ERR": "Code de routage erroné",
+    "REF_CT_ABSENT": "Référence contractuelle absente",
+    "REF_ERR": "Référence erronée",
+    "COORD_BANC_ERR": "Coordonnées bancaires erronées",
+    "DEST_INC": "Destinataire inconnu",
+    "DEST_ERR": "Destinataire erroné",
+    "TRANSAC_INC": "Transaction inconnue",
+    "EMMET_INC": "Émetteur inconnu",
+    "CONTRAT_TERM": "Contrat terminé",
+    "DOUBLE_FACT": "Double facturation",
+    "ADR_ERR": "Adresse erronée",
 }
 
 # Actions attendues (action) — cf. § 4.2.

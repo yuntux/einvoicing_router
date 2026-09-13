@@ -20,6 +20,7 @@ def get_lifecycle_catalog():
                 manual_side=info.manual_side,
                 requires_detail=info.requires_detail,
                 requires_confirmation=info.requires_confirmation,
+                allowed_reasons=list(info.allowed_reasons),
             )
             for key, info in STATUS_CATALOG.items()
         ],
