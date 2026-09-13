@@ -8,9 +8,17 @@ class Settings(BaseSettings):
     invoice_storage_root: str = "./data/invoices"
 
     # Signature des jetons d'accès émis pour l'API AFNOR exposée aux consommateurs
-    # (§ 4.4/§ 4.10, applications OAuth Odoo). À surcharger via ROUTER_JWT_SECRET en
-    # dehors du développement local.
-    jwt_secret: str = "dev-insecure-secret-change-me"
+    # (§ 4.4/§ 4.10, applications OAuth Odoo).
+    #
+    # Volontairement SANS valeur par défaut (§ audit sécurité — même rationale que
+    # `oidc_mode` ci-dessous) : un défaut public/codé en dur (même qualifié
+    # "insecure-change-me") permettrait à quiconque connaît ce dépôt de forger des
+    # jetons d'accès valides pour n'importe quel consommateur si un déploiement
+    # oubliait de positionner ROUTER_JWT_SECRET — un oubli silencieux, jamais détecté
+    # avant une fuite. ROUTER_JWT_SECRET doit être positionnée explicitement dans
+    # tous les environnements (dev, CI, migrations, production) — cf. conftest.py
+    # pour la valeur de test.
+    jwt_secret: str
     jwt_expiry_seconds: int = 3600
 
     # Signature des jetons de session IHM (utilisateur humain, § NF3) — volontairement
@@ -18,9 +26,13 @@ class Settings(BaseSettings):
     # rejoué comme jeton d'application OAuth (ou inversement), même si l'un des deux
     # secrets venait à fuiter. Sert aussi de clé au `SessionMiddleware` Starlette qui
     # transporte l'état OIDC (§ NF3, app/main.py) — même périmètre de confiance
-    # (session du navigateur IHM). À surcharger via ROUTER_SESSION_SECRET en
-    # dehors du développement local.
-    session_secret: str = "dev-insecure-session-secret-change-me"
+    # (session du navigateur IHM).
+    #
+    # Volontairement SANS valeur par défaut (même rationale que `jwt_secret`
+    # ci-dessus) : un secret de session connu à l'avance permettrait de forger un
+    # cookie de session valide pour n'importe quel utilisateur/rôle. ROUTER_SESSION_
+    # SECRET doit être positionnée explicitement dans tous les environnements.
+    session_secret: str
 
     # Scheduler définitif (§ 4.7) : cycle de rejeu automatique des envois en échec.
     # Désactivé dans les tests (cf. conftest.py) pour ne pas démarrer de thread de fond
@@ -44,9 +56,14 @@ class Settings(BaseSettings):
     # toujours distincte de `jwt_secret`/`session_secret`, sans repli automatique sur
     # l'un ou l'autre : la fuite d'un secret de signature JWT ne doit jamais suffire à
     # déchiffrer les identifiants de plateforme certifiée de toutes les entreprises
-    # gérées. À surcharger via ROUTER_SECRETS_ENCRYPTION_KEY en dehors du
-    # développement local.
-    secrets_encryption_key: str = "dev-insecure-encryption-key-change-me"
+    # gérées.
+    #
+    # Volontairement SANS valeur par défaut (même rationale que `jwt_secret`/
+    # `session_secret` ci-dessus) : une clé de chiffrement connue à l'avance
+    # permettrait de déchiffrer les identifiants SuperPDP de toutes les entreprises
+    # gérées si la base venait à fuiter. ROUTER_SECRETS_ENCRYPTION_KEY doit être
+    # positionnée explicitement dans tous les environnements.
+    secrets_encryption_key: str
 
     # Authentification IHM (NF3, lot 7) : "disabled" (aucune authentification requise
     # — dev/tests uniquement, jamais en production), "dev" (connexion locale sans IdP

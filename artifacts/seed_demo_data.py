@@ -342,14 +342,29 @@ def seed_demo_data(*, backend_url: str, admin_email: str, admin_name: str) -> No
     print(f"  ✅ {len(invoices)} factures simulées")
 
     # --- Cycle de vie (statuts saisis manuellement) ---
+    # `reason` doit être un code normalisé de la liste fermée `allowed_reasons` de ce
+    # statut (§ lifecycle_catalog.STATUS_CATALOG), pas du texte libre — c'est
+    # `comment` qui porte l'explication en langage naturel.
     lifecycle_specs = [
         {"status": "approved"},
-        {"status": "dispute", "reason": "Montant facturé supérieur au bon de commande"},
-        {"status": "partially_approved", "reason": "Une ligne de la facture reste à valider"},
+        {
+            "status": "dispute",
+            "reason": "MONTANTTOTAL_ERR",
+            "comment": "Montant facturé supérieur au bon de commande",
+        },
+        {
+            "status": "partially_approved",
+            "reason": "AUTRE",
+            "comment": "Une ligne de la facture reste à valider",
+        },
     ]
     for invoice, spec in zip(invoices, lifecycle_specs):
         try:
-            call("POST", f"/api/ihm/invoices/{invoice['id']}/lifecycle-events", json=spec)
+            # `multipart/form-data` (`Form(...)` côté endpoint, pas un corps JSON —
+            # il accepte aussi des pièces jointes, § create_lifecycle_event) : `data=`
+            # envoie en `application/x-www-form-urlencoded`, que FastAPI accepte tout
+            # aussi bien pour des champs `Form` simples, sans fichier ici.
+            call("POST", f"/api/ihm/invoices/{invoice['id']}/lifecycle-events", data=spec)
         except Exception as e:
             print(f"  ⚠️  Cycle de vie (facture {invoice.get('invoice_number')}) : {e}")
 

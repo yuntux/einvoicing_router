@@ -9,6 +9,18 @@ import os
 # `monkeypatch.setattr(settings, "oidc_mode", ...)`.
 os.environ.setdefault("ROUTER_OIDC_MODE", "disabled")
 
+# Même rationale (§ audit sécurité) pour les trois secrets applicatifs
+# (`jwt_secret`/`session_secret`/`secrets_encryption_key`) : eux non plus n'ont
+# volontairement aucune valeur par défaut dans `app.config.Settings`, pour qu'un
+# déploiement qui oublierait de les positionner échoue au démarrage plutôt que de
+# tourner avec un secret public codé en dur. Un environnement de dev local lit ces
+# valeurs depuis `backend/.env` (non versionné) ; la CI n'en a pas, d'où ces
+# fallbacks de test explicites — jamais utilisés pour signer/chiffrer quoi que ce
+# soit hors de la suite de tests elle-même.
+os.environ.setdefault("ROUTER_JWT_SECRET", "test-only-jwt-secret")
+os.environ.setdefault("ROUTER_SESSION_SECRET", "test-only-session-secret")
+os.environ.setdefault("ROUTER_SECRETS_ENCRYPTION_KEY", "test-only-secrets-encryption-key")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import StaticPool, create_engine
