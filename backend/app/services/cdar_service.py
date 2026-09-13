@@ -20,9 +20,16 @@ from app.models.lifecycle import LifecycleEventPayment
 from app.models.referential import Company
 from app.services.lifecycle_catalog import STATUS_CATALOG
 
-GUIDELINE_ID = "urn:cen.eu:EN16931:2017#compliant#urn:factur-x.eu:1p0:basic"
-BUSINESS_PROCESS_ID = "urn:factur-x.eu:1p0:basic"
-ACKNOWLEDGEMENT_TYPE_CODE = "494"
+GUIDELINE_ID = "urn.cpro.gouv.fr:1p0:CDV:invoice"
+# "REGULATED" : nos flux sont des factures B2B/B2G soumises à la réforme française
+# de facturation électronique obligatoire — pas de destinataire PPF unique en
+# GlobalID 0000/schemeID 0238 (seul cas où une chaîne <3 caractères serait admise,
+# cf. BR-FR-CDV-CL-01) ni de flux hors mandat (B2C, international, etc.).
+BUSINESS_PROCESS_ID = "REGULATED"
+# "23" (Phase Traitement) : le seul des deux codes autorisés (BR-FR-CDV-09,
+# "23"/"305") compatible avec nos rôles fixes MDT-21="BY"/MDT-40="SE" — "305"
+# exige un rôle "WK" (BR-FR-CDV-CL-02/03) qu'on n'utilise jamais.
+ACKNOWLEDGEMENT_TYPE_CODE = "23"
 
 # Index inverse de `STATUS_CATALOG` par `cdar_code` (MDT-105/MDT-106 côté flux entrant,
 # cf. `resolve_status_key`) — construit une fois au chargement du module. Aucun statut
@@ -78,9 +85,14 @@ def build_data_dict(
         "MDT-100": now.date(),
         "MDT-105": status_info.cdar_code,
         "MDT-106": status_info.label,
-        # Émetteur du message d'accusé lui-même : l'entreprise gérée (côté achat) —
-        # même identifiant que MDT-57, cf. ci-dessus.
-        "MDT-129": {"0002": buyer_company.certified_platform_directory_id or buyer_company.siren},
+        # Émetteur de la facture D'ORIGINE référencée (le fournisseur, pas nous) :
+        # `pyfrctc.parse_cdar_from_raw` mappe explicitement MDT-129 sur la clé
+        # "invoice_issuer" (`ram:ReferenceReferencedDocument/ram:IssuerTradeParty`) —
+        # même valeur que MDT-38. Mettre ici l'identifiant de l'acheteur (comme avant
+        # cette correction) empêchait SuperPDP de retrouver la facture référencée
+        # ("no matching invoices found") : il corrèle l'accusé à la facture via
+        # (numéro de facture MDT-87 + émetteur MDT-129), jamais via l'acheteur.
+        "MDT-129": {"0002": invoice.emitter_siren},
     }
     if status_info.mdt88_code:
         data_dict["MDT-88"] = status_info.mdt88_code

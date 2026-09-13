@@ -8,6 +8,7 @@ export interface StatusCatalogEntry {
   manual_side: 'purchase' | 'sale' | null
   requires_detail: boolean
   requires_confirmation: boolean
+  allowed_reasons: string[]
 }
 
 export interface LifecycleCatalog {

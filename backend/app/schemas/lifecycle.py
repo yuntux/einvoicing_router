@@ -90,6 +90,9 @@ class StatusCatalogEntry(BaseModel):
     manual_side: str | None
     requires_detail: bool
     requires_confirmation: bool
+    # Sous-ensemble de `reasons` accepté pour CE statut par SuperPDP (§ lifecycle_catalog
+    # StatusInfo.allowed_reasons) — vide tant que `requires_detail` est faux.
+    allowed_reasons: list[str] = Field(default_factory=list)
 
 
 class LifecycleCatalogRead(BaseModel):

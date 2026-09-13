@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from pyfrctc import pyfrctc as core
 from sqlalchemy.orm import Session
 
-from app.afnor.client.pyfrctc_client import PyfrctcCertifiedPlatformClient
+from app.afnor.client.pyfrctc_client import PyfrctcCertifiedPlatformClient, _json_safe
 from app.config import settings
 from app.models.referential import Company
 from app.services import audit_trace_service, certified_platform_credentials_service
@@ -123,7 +123,10 @@ class AfnorClientAdapter:
                 direction="router_to_superpdp",
                 afnor_api_version=afnor_api_version,
                 request=request_payload,
-                response={k: v for k, v in result.items() if not isinstance(v, bytes)},
+                # `_parse_flow_dict` (appelé par `send_flow_parsed`) enrichit `result` de
+                # `datetime` dérivés en plus des chaînes ISO d'origine — non sérialisables
+                # tels quels dans la colonne JSON `FlowTrace.response` (§ NF1).
+                response=_json_safe({k: v for k, v in result.items() if not isinstance(v, bytes)}),
                 http_status=200,
                 correlation_id=correlation_id,
                 request_headers=headers["request"],

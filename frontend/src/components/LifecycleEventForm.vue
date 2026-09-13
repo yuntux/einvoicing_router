@@ -40,6 +40,26 @@ async function retry(event: LifecycleEvent) {
   retrySubmitting.value = null
 }
 
+// SuperPDP n'accepte, par statut, qu'un sous-ensemble de `catalog.reasons` (§
+// lifecycle_catalog.StatusInfo.allowed_reasons) — filtré sur le statut de
+// l'événement qu'on renvoie, pas sur un statut sélectionné dans un formulaire.
+function reasonsFor(status: string): Record<string, string> {
+  const allowed = catalog.value?.statuses.find((s) => s.key === status)?.allowed_reasons ?? []
+  return Object.fromEntries(
+    Object.entries(catalog.value?.reasons ?? {}).filter(([code]) => allowed.includes(code)),
+  )
+}
+
+// Un statut sans motif (ex. "approved") n'a aucun `allowed_reasons` — le
+// formulaire de correction ne doit alors montrer ni motif ni action/commentaire.
+function requiresDetail(status: string): boolean {
+  return catalog.value?.statuses.find((s) => s.key === status)?.requires_detail ?? false
+}
+
+function labelFor(status: string): string {
+  return catalog.value?.statuses.find((s) => s.key === status)?.label ?? status
+}
+
 function toggleRetryEditForm(event: LifecycleEvent) {
   if (!event.afnor_flow) return
   const detail = event.details[0]
@@ -150,19 +170,24 @@ onMounted(async () => {
                 class="cluster"
                 @submit.prevent="submitRetryWithEdits(ev)"
               >
-                <select v-model="retryReason" :data-testid="`afnor-flow-retry-reason-${ev.afnor_flow.id}`" required>
-                  <option value="" disabled>Motif</option>
-                  <option v-for="(label, code) in catalog?.reasons" :key="code" :value="code">{{ label }}</option>
-                </select>
-                <select v-model="retryAction" :data-testid="`afnor-flow-retry-action-${ev.afnor_flow.id}`">
-                  <option value="">Action (facultatif)</option>
-                  <option v-for="(label, code) in catalog?.actions" :key="code" :value="code">{{ label }}</option>
-                </select>
-                <textarea
-                  v-model="retryComment"
-                  placeholder="Commentaire"
-                  :data-testid="`afnor-flow-retry-comment-${ev.afnor_flow.id}`"
-                />
+                <template v-if="requiresDetail(ev.status)">
+                  <select v-model="retryReason" :data-testid="`afnor-flow-retry-reason-${ev.afnor_flow.id}`" required>
+                    <option value="" disabled>Motif</option>
+                    <option v-for="(label, code) in reasonsFor(ev.status)" :key="code" :value="code">{{ label }}</option>
+                  </select>
+                  <select v-model="retryAction" :data-testid="`afnor-flow-retry-action-${ev.afnor_flow.id}`">
+                    <option value="">Action (facultatif)</option>
+                    <option v-for="(label, code) in catalog?.actions" :key="code" :value="code">{{ label }}</option>
+                  </select>
+                  <textarea
+                    v-model="retryComment"
+                    placeholder="Commentaire"
+                    :data-testid="`afnor-flow-retry-comment-${ev.afnor_flow.id}`"
+                  />
+                </template>
+                <p v-else class="entity-sub">
+                  Le statut "{{ labelFor(ev.status) }}" ne prend pas de motif — le renvoi se fera sans modification de la saisie.
+                </p>
                 <button
                   type="submit"
                   class="btn-sm"

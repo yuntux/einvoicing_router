@@ -142,6 +142,46 @@ def test_send_invoice_captures_headers_on_failure(db_session):
     assert trace.response_headers == {"Content-Type": "application/json"}
 
 
+def test_send_invoice_success_response_with_datetime_is_json_safe(db_session):
+    """`pyfrctc._parse_flow_dict` (appelé par `send_flow_parsed`) enrichit le dict
+    résultat de `datetime` dérivés (`submitted_at`/`updated_at`) en plus des chaînes
+    ISO d'origine — non sérialisables tels quels dans la colonne JSON
+    `FlowTrace.response` : régression, ça faisait échouer la trace (et la commande
+    entière) de tout envoi réussi sur un flux dont pyfrctc parse ces champs."""
+    from datetime import datetime
+
+    company = _make_company(db_session)
+    session = _fake_session_firing(request_headers={}, response_headers={})
+
+    def fake_send_flow_parsed(session, file_bin, filename, flow_syntax, processing_rule):
+        session._fire()
+        return {
+            "id": "flow-1",
+            "submittedAt": "2026-09-13T00:25:12.374308Z",
+            "submitted_at": datetime(2026, 9, 13, 0, 25, 12, 374308),
+        }
+
+    adapter = AfnorClientAdapter()
+    with (
+        patch.object(adapter, "_get_or_build_session", return_value=session),
+        patch(
+            "app.afnor.client.adapter.core.send_flow_parsed", side_effect=fake_send_flow_parsed
+        ),
+    ):
+        result = adapter.send_invoice(
+            db_session,
+            company=company,
+            file_bin=b"<invoice/>",
+            filename="invoice.xml",
+            flow_syntax="Factur-X",
+            processing_rule="B2B",
+        )
+
+    assert result["submitted_at"] == datetime(2026, 9, 13, 0, 25, 12, 374308)
+    trace = db_session.query(FlowTrace).one()
+    assert trace.response["submitted_at"] == "2026-09-13T00:25:12.374308"
+
+
 def test_send_cdar_uses_a_processing_rule_pyfrctc_accepts(db_session):
     """`pyfrctc.send_flow` valide `processing_rule` côté client contre une liste
     fermée avant tout appel réseau — on ne mocke donc pas `core.send_flow_parsed` ici
