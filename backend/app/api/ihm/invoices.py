@@ -22,6 +22,7 @@ from app.schemas.lifecycle import (
     LifecycleEventRead,
     RetryAfnorFlow,
 )
+from app.afnor.client.adapter import afnor_client_adapter
 from app.services import audit_trace_service
 from app.services.lifecycle_service import (
     LifecycleValidationError,
@@ -298,6 +299,36 @@ def download_invoice(
         filename=os.path.basename(invoice.file_path),
         media_type="application/octet-stream",
     )
+
+
+@router.get("/{invoice_id}/download-readable")
+def download_invoice_readable(
+    invoice_id: int,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    """Vue lisible de la facture (`docType=ReadableView`, § 4.4) — utile pour un
+    format non lisible tel quel (CII, UBL) : contrairement au téléchargement
+    "Format d'origine" (fichier déjà persisté au polling, § 4.1), cette vue est
+    relayée en direct vers SuperPDP à chaque appel, comme pour un consommateur Odoo
+    (`AfnorClientAdapter.get_flow_document`, cf. `app/api/afnor/_common.py`) — le
+    routeur ne conserve aucune version convertie."""
+    invoice = db.get(Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    ensure_company_in_scope(user, invoice.company_id)
+
+    company = db.get(Company, invoice.company_id)
+    try:
+        file_bin = afnor_client_adapter.get_flow_document(
+            db, company=company, flow_id=invoice.certified_platform_flow_id, doc_type="ReadableView"
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Échec de la récupération de la vue lisible : {exc}"
+        ) from exc
+
+    return Response(content=file_bin, media_type="application/pdf")
 
 
 @router.get("/{invoice_id}/lifecycle-events", response_model=list[LifecycleEventRead])

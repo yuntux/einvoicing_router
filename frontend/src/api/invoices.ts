@@ -103,6 +103,12 @@ export function invoiceDownloadUrl(id: number): string {
   return `${API_BASE}/api/ihm/invoices/${id}/download`
 }
 
+/** Vue lisible (PDF) — relayée en direct vers SuperPDP à chaque appel (`docType=
+ * ReadableView`), jamais persistée côté routeur (§ 4.4). */
+export function invoiceDownloadReadableUrl(id: number): string {
+  return `${API_BASE}/api/ihm/invoices/${id}/download-readable`
+}
+
 export function afnorFlowDownloadUrl(invoiceId: number, flowId: number): string {
   return `${API_BASE}/api/ihm/invoices/${invoiceId}/afnor-flows/${flowId}/download`
 }
