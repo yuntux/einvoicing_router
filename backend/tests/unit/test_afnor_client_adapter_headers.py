@@ -142,6 +142,64 @@ def test_send_invoice_captures_headers_on_failure(db_session):
     assert trace.response_headers == {"Content-Type": "application/json"}
 
 
+def test_send_cdar_uses_a_processing_rule_pyfrctc_accepts(db_session):
+    """`pyfrctc.send_flow` valide `processing_rule` côté client contre une liste
+    fermée avant tout appel réseau — on ne mocke donc pas `core.send_flow_parsed` ici
+    (contrairement aux autres tests de ce module) pour vérifier réellement contre le
+    code de la lib que la valeur passée est acceptée. Régression : un ancien
+    `"LifeCycle"` n'en faisait pas partie et faisait échouer tout envoi de CDAR,
+    indépendamment de SuperPDP (cf. app/afnor/client/adapter.py:send_cdar)."""
+    company = _make_company(db_session)
+    session = _fake_session_firing(request_headers={}, response_headers={})
+
+    class _FakeHTTPSession:
+        def post(self, *args, **kwargs):
+            raise ConnectionError("no network in this test")
+
+    session.post = _FakeHTTPSession().post
+    session.auto_refresh_url = "https://api.superpdp.tech/oauth2/token"
+
+    adapter = AfnorClientAdapter()
+    with patch.object(adapter, "_get_or_build_session", return_value=session):
+        try:
+            adapter.send_cdar(db_session, company=company, cdar_bytes=b"<cdar/>")
+        except ConnectionError:
+            pass
+        except ValueError as exc:
+            assert False, f"processing_rule rejected by pyfrctc before any network call: {exc}"
+
+
+def test_get_flow_document_captures_headers_and_traces_size_not_bytes(db_session):
+    """`get_flow_document` (docType=Converted/ReadableView, § 4.4) relit un flux déjà
+    connu de SuperPDP — le `FlowTrace` ne doit jamais contenir le binaire lui-même
+    (NF1), seule sa taille, à l'image de `_send_flow_and_trace` pour `send_invoice`/
+    `send_cdar`."""
+    company = _make_company(db_session)
+    session = _fake_session_firing(
+        request_headers={"Authorization": "Bearer secret-token"},
+        response_headers={"Content-Type": "application/pdf"},
+    )
+
+    def fake_get_flow(session, flow_id, doc_type=None):
+        session._fire()
+        return b"%PDF-fake-readable-content"
+
+    adapter = AfnorClientAdapter()
+    with (
+        patch.object(adapter, "_get_or_build_session", return_value=session),
+        patch("app.afnor.client.adapter.core.get_flow", side_effect=fake_get_flow),
+    ):
+        result = adapter.get_flow_document(
+            db_session, company=company, flow_id="flow-y", doc_type="ReadableView"
+        )
+
+    assert result == b"%PDF-fake-readable-content"
+    trace = db_session.query(FlowTrace).one()
+    assert trace.response == {"size": len(b"%PDF-fake-readable-content")}
+    assert trace.request_headers == {"Authorization": "***REDACTED***"}
+    assert trace.response_headers == {"Content-Type": "application/pdf"}
+
+
 def test_no_headers_captured_when_session_never_fires(db_session):
     """Si aucun appel HTTP n'a lieu (ex. réponse déjà en cache), les colonnes headers
     restent `None` plutôt que de fausses valeurs."""

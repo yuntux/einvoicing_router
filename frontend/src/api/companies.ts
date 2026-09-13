@@ -4,11 +4,16 @@ export interface Company {
   id: number
   siren: string
   name: string
+  certified_platform_directory_id: string | null
 }
 
 export interface CompanyCreate {
   siren: string
   name: string
+}
+
+export interface CompanyUpdate {
+  certified_platform_directory_id: string | null
 }
 
 /** Référence minimale (id + nom), sans SIREN — accessible à tout utilisateur
@@ -30,6 +35,14 @@ export function listCompanyLookups(): Promise<CompanyLookup[]> {
 
 export function createCompany(payload: CompanyCreate): Promise<Company> {
   return apiFetch('/api/ihm/companies', { method: 'POST', json: payload }, 'Failed to create company')
+}
+
+export function updateCompany(companyId: number, payload: CompanyUpdate): Promise<Company> {
+  return apiFetch(
+    `/api/ihm/companies/${companyId}`,
+    { method: 'PUT', json: payload },
+    'Failed to update company',
+  )
 }
 
 export function runPollingCycle(): Promise<void> {

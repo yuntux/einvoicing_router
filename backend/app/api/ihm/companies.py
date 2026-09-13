@@ -5,7 +5,7 @@ from app.auth.perimeter import ensure_company_in_scope
 from app.auth.session import get_current_user
 from app.db.session import get_db
 from app.models.referential import Company, User
-from app.schemas.company import CompanyCreate, CompanyLookup, CompanyRead
+from app.schemas.company import CompanyCreate, CompanyLookup, CompanyRead, CompanyUpdate
 from app.schemas.certified_platform_credentials import (
     AfnorPlatform,
     CertifiedPlatformCredentialsCreate,
@@ -72,6 +72,27 @@ def create_company(
     db.refresh(company)
     audit_trace_service.record_user_action(
         db, request, user, action="company_create", target=str(company.id)
+    )
+    return company
+
+
+@admin_router.put("/{company_id}", response_model=CompanyRead)
+def update_company(
+    company_id: int,
+    payload: CompanyUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+) -> Company:
+    company = db.get(Company, company_id)
+    if company is None:
+        raise HTTPException(status_code=404, detail="Company not found")
+    company.certified_platform_directory_id = payload.certified_platform_directory_id
+    company.write_user_id = user.id if user else None
+    db.commit()
+    db.refresh(company)
+    audit_trace_service.record_user_action(
+        db, request, user, action="company_update", target=str(company.id)
     )
     return company
 

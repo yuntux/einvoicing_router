@@ -171,7 +171,11 @@ class AfnorClientAdapter:
     ) -> dict:
         """Transmission d'un message de cycle de vie CDAR (§ 4.2/§ 4.4) — utilisée à la
         fois pour les événements saisis manuellement (lot 3+6) et pour le proxy des
-        messages émis par Odoo."""
+        messages émis par Odoo. `processing_rule="NotApplicable"` : un CDAR n'est pas
+        une facture (pas de règle B2B/B2G à appliquer) — `pyfrctc.send_flow` valide
+        cet argument côté client contre une liste fermée avant tout appel réseau
+        (`"LifeCycle"` n'en fait pas partie et faisait échouer systématiquement
+        l'envoi, indépendamment de SuperPDP)."""
         session = self._get_or_build_session(db, company)
         return self._send_flow_and_trace(
             db,
@@ -179,8 +183,60 @@ class AfnorClientAdapter:
             request_payload={"filename": filename},
             afnor_api_version=afnor_api_version,
             correlation_id=correlation_id,
-            send=lambda: core.send_flow_parsed(session, cdar_bytes, filename, "CDAR", "LifeCycle"),
+            send=lambda: core.send_flow_parsed(session, cdar_bytes, filename, "CDAR", "NotApplicable"),
         )
+
+    def get_flow_document(
+        self,
+        db: Session,
+        *,
+        company: Company,
+        flow_id: str,
+        doc_type: str,
+        afnor_api_version: str = "v1",
+        correlation_id: str | None = None,
+    ) -> bytes:
+        """Relit à la volée un document déjà connu de SuperPDP pour un flux existant
+        (`docType=Converted`/`ReadableView`, § 4.4) — contrairement à `send_invoice`/
+        `send_cdar`, aucune émission n'a lieu : on ne fait que rappeler SuperPDP au
+        moment où Odoo le demande. L'appelant (`GET /flows/{flowId}` dans
+        `_common.py`) a déjà vérifié que le flux est routé vers ce consommateur (NF2,
+        même filtre `InvoiceRouting` que `POST /flows/search`) avant d'invoquer cette
+        méthode — elle ne refait aucun contrôle d'autorisation.
+
+        Le contenu binaire renvoyé n'est jamais consigné dans `FlowTrace` (NF1 ne
+        trace que sa taille), à l'image de ce que fait `_send_flow_and_trace` pour les
+        réponses de `send_invoice`/`send_cdar`."""
+        session = self._get_or_build_session(db, company)
+        request_payload = {"flow_id": flow_id, "doc_type": doc_type}
+        with _capture_last_exchange_headers(session) as headers:
+            try:
+                file_bin = core.get_flow(session, flow_id, doc_type=doc_type)
+            except Exception as exc:
+                audit_trace_service.record_flow_trace(
+                    db,
+                    direction="router_to_superpdp",
+                    afnor_api_version=afnor_api_version,
+                    request=request_payload,
+                    response={"error": str(exc)},
+                    http_status=502,
+                    correlation_id=correlation_id,
+                    request_headers=headers["request"],
+                    response_headers=headers["response"],
+                )
+                raise
+            audit_trace_service.record_flow_trace(
+                db,
+                direction="router_to_superpdp",
+                afnor_api_version=afnor_api_version,
+                request=request_payload,
+                response={"size": len(file_bin)},
+                http_status=200,
+                correlation_id=correlation_id,
+                request_headers=headers["request"],
+                response_headers=headers["response"],
+            )
+        return file_bin
 
     def _lookup_directory_and_trace(
         self,

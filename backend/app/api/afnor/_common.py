@@ -19,8 +19,6 @@ routeur qui ne gère QUE les factures reçues, § 4.3) :
   ces ressources ne concernent jamais les factures reçues par le routeur.
 
 Limites connues (documentées, pas silencieuses) :
-- `docType=Converted`/`ReadableView` sur `GET /flows/{flowId}` : 501 Not Implemented
-  (le routeur ne fait pas de conversion de format) ;
 - `GET /afnor-directory/{siren,siret}/code-insee:...` passent par les wrappers
   `pyfrctc` existants (validation incluse) plutôt que par `raw_passthrough` : les
   paramètres `fields`/`include` du contrat ne sont pas relayés (cf. docstrings) ;
@@ -250,10 +248,19 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
         db: Session = Depends(get_db),
     ):
         """Téléchargement d'un flux par identifiant (§ 4.4) — `docType=Metadata`
-        (défaut) renvoie la ressource `Flow`, `docType=Original` le fichier reçu.
-        `Converted`/`ReadableView` ne sont pas supportés (le routeur ne fait pas de
-        conversion de format) : 501, conformément au contrat. Restreint aux factures
-        routées vers ce consommateur (NF2, comme `POST /flows/search`)."""
+        (défaut) renvoie la ressource `Flow`, `docType=Original` le fichier reçu
+        (l'un et l'autre servis depuis les données déjà persistées lors du polling,
+        § 4.1, sans nouvel appel à SuperPDP). `Converted`/`ReadableView` sont, eux,
+        systématiquement relayés en direct vers SuperPDP (`AfnorClientAdapter.get_flow_document`)
+        au moment de l'appel — le routeur ne conserve aucune version convertie/lisible
+        (§ 4.1, seul `Original` est téléchargé au polling) — puis renvoyés tels quels
+        (passe-plat, comme l'émission `POST /flows`), une fois l'autorisation NF2
+        vérifiée ci-dessous.
+
+        Restreint aux factures routées vers ce consommateur (NF2, comme
+        `POST /flows/search`) : ce contrôle est fait une seule fois, avant de
+        distinguer les `docType`, et s'applique donc identiquement à `Converted`/
+        `ReadableView` qu'à `Metadata`/`Original`."""
         invoice = afnor_server_controller.find_invoice_for_consumer_by_flow_id(
             db, target_application=oauth_app, flow_id=flow_id
         )
@@ -261,7 +268,24 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             raise HTTPException(status_code=404, detail="Flow not found")
 
         if docType in ("Converted", "ReadableView"):
-            raise HTTPException(status_code=501, detail=f"docType={docType} not implemented")
+            company = company_for(db, oauth_app)
+            file_bin = call_certified_platform(
+                lambda: afnor_client_adapter.get_flow_document(
+                    db, company=company, flow_id=flow_id, doc_type=docType
+                )
+            )
+            audit_trace_service.record_odoo_flow_trace(
+                db,
+                request,
+                afnor_api_version=afnor_api_version,
+                endpoint="GET /afnor-flow/flows/{flowId}",
+                flow_id=flow_id,
+                doc_type=docType,
+                client_id=oauth_app.client_id,
+                response={"status": "ok", "size": len(file_bin)},
+                http_status=200,
+            )
+            return Response(content=file_bin, media_type="application/octet-stream")
 
         audit_trace_service.record_odoo_flow_trace(
             db,

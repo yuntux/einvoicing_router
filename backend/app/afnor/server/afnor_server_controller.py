@@ -32,6 +32,28 @@ def call_certified_platform(fn: Callable[[], T]) -> T:
         raise HTTPException(status_code=502, detail=f"SuperPDP unreachable: {exc}") from exc
 
 
+def _routed_invoice_ids(db: Session, target_application: TargetApplication):
+    """Sous-requête des `Invoice.id` réellement routés vers cette application cible
+    (§ 4.4) — factorise le filtre commun à `list_invoices_for_consumer`/
+    `find_invoice_for_consumer_by_flow_id`.
+
+    `InvoiceRouting` est une décision persistée (créée soit à la réception par
+    `InvoiceIngestionService._route_invoice` contre les `RoutingRule` actives à ce
+    moment-là, soit rétroactivement via le rétro-routage explicite du § 4.3), jamais
+    recalculée depuis les `RoutingRule` courantes : une facture reçue avant
+    l'activation d'une règle pour son émetteur ne doit apparaître que si ce
+    rétro-routage a été explicitement demandé, jamais simplement parce que la règle
+    est active aujourd'hui — d'où l'interrogation de `InvoiceRouting` et jamais de
+    `RoutingRule` ici. Retournée sans `.all()` : reste une sous-requête SQL, jamais
+    matérialisée en liste Python, pour que `Invoice.id.in_(...)` s'exécute en une
+    seule requête côté base."""
+    return (
+        db.query(InvoiceRouting.invoice_id)
+        .filter(InvoiceRouting.target_application_id == target_application.id)
+        .distinct()
+    )
+
+
 def list_invoices_for_consumer(
     db: Session, *, target_application: TargetApplication
 ) -> list[Invoice]:
@@ -45,18 +67,12 @@ def list_invoices_for_consumer(
     filtre déjà appliqué en amont par `RoutingRuleService.resolve` au moment du
     routage — en cas de désynchronisation, une facture d'une autre entreprise ne doit
     jamais être exposée à ce consommateur."""
-    invoice_ids = (
-        db.query(InvoiceRouting.invoice_id)
-        .filter(InvoiceRouting.target_application_id == target_application.id)
-        .distinct()
-        .all()
-    )
-    ids = [row[0] for row in invoice_ids]
-    if not ids:
-        return []
     return (
         db.query(Invoice)
-        .filter(Invoice.id.in_(ids), Invoice.company_id == target_application.company_id)
+        .filter(
+            Invoice.id.in_(_routed_invoice_ids(db, target_application)),
+            Invoice.company_id == target_application.company_id,
+        )
         .order_by(Invoice.id)
         .all()
     )
@@ -67,20 +83,11 @@ def find_invoice_for_consumer_by_flow_id(
 ) -> Invoice | None:
     """Comme `list_invoices_for_consumer`, mais pour un seul flux identifié par son
     `flowId` d'origine (`Invoice.certified_platform_flow_id`) — utilisé par `GET /flows/{flowId}`
-    (§ 4.4). Mêmes garde-fous NF2 : jamais de facture hors du périmètre autorisé.
-
-    Filtre directement en SQL (sous-requête sur `InvoiceRouting` + `certified_platform_flow_id`)
-    plutôt que de charger tout l'historique du consommateur via
-    `list_invoices_for_consumer` pour ne garder qu'une facture en Python."""
-    routed_invoice_ids = (
-        db.query(InvoiceRouting.invoice_id)
-        .filter(InvoiceRouting.target_application_id == target_application.id)
-        .distinct()
-    )
+    (§ 4.4). Mêmes garde-fous NF2 : jamais de facture hors du périmètre autorisé."""
     return (
         db.query(Invoice)
         .filter(
-            Invoice.id.in_(routed_invoice_ids),
+            Invoice.id.in_(_routed_invoice_ids(db, target_application)),
             Invoice.company_id == target_application.company_id,
             Invoice.certified_platform_flow_id == flow_id,
         )

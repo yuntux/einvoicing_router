@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { type Company, createCompany, listCompanies, runPollingCycle } from '../api/companies'
+import { type Company, createCompany, listCompanies, runPollingCycle, updateCompany } from '../api/companies'
 import { useErrorMessage } from '../composables/useErrorMessage'
 import {
   type AfnorPlatform,
@@ -17,6 +17,10 @@ const { error, guard } = useErrorMessage()
 const credentialsSuccess = ref('')
 const pollingMessage = ref('')
 const pollingPending = ref(false)
+
+const openDirectoryIdForm = ref<number | null>(null)
+const directoryIdInput = ref('')
+const directoryIdSubmitting = ref(false)
 
 const afnorPlatforms = ref<AfnorPlatform[]>([])
 const credentialsStatus = reactive<Record<number, CertifiedPlatformCredentialsStatus>>({})
@@ -55,6 +59,25 @@ async function forcePolling() {
     pollingMessage.value = 'Relevé effectué.'
   })
   pollingPending.value = false
+}
+
+function toggleDirectoryIdForm(company: Company) {
+  openDirectoryIdForm.value = openDirectoryIdForm.value === company.id ? null : company.id
+  directoryIdInput.value = company.certified_platform_directory_id ?? ''
+  error.value = ''
+}
+
+async function submitDirectoryId(companyId: number) {
+  directoryIdSubmitting.value = true
+  await guard(async () => {
+    const updated = await updateCompany(companyId, {
+      certified_platform_directory_id: directoryIdInput.value || null,
+    })
+    const index = companies.value.findIndex((c) => c.id === companyId)
+    if (index !== -1) companies.value[index] = updated
+    openDirectoryIdForm.value = null
+  })
+  directoryIdSubmitting.value = false
 }
 
 function toggleCredentialsForm(companyId: number) {
@@ -143,6 +166,7 @@ onMounted(async () => {
           <tr>
             <th>SIREN</th>
             <th>Raison sociale</th>
+            <th>Identifiant annuaire plateforme certifiée</th>
             <th>Identifiants API AFNOR</th>
             <th></th>
           </tr>
@@ -151,6 +175,36 @@ onMounted(async () => {
           <tr v-for="company in companies" :key="company.id" :data-testid="`company-row-${company.id}`">
             <td>{{ company.siren }}</td>
             <td>{{ company.name }}</td>
+            <td :data-testid="`certified-platform-directory-id-${company.id}`">
+              <template v-if="openDirectoryIdForm !== company.id">
+                <span v-if="company.certified_platform_directory_id">{{ company.certified_platform_directory_id }}</span>
+                <span v-else class="entity-sub">Non renseigné (SIREN utilisé par défaut)</span>
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  :data-testid="`certified-platform-directory-id-toggle-${company.id}`"
+                  @click="toggleDirectoryIdForm(company)"
+                >
+                  Modifier
+                </button>
+              </template>
+              <form v-else class="cluster" @submit.prevent="submitDirectoryId(company.id)">
+                <input
+                  v-model="directoryIdInput"
+                  placeholder="ex. 000000001"
+                  maxlength="35"
+                  :data-testid="`certified-platform-directory-id-input-${company.id}`"
+                />
+                <button
+                  type="submit"
+                  class="btn-sm"
+                  :disabled="directoryIdSubmitting"
+                  :data-testid="`certified-platform-directory-id-submit-${company.id}`"
+                >
+                  {{ directoryIdSubmitting ? 'Enregistrement…' : 'Enregistrer' }}
+                </button>
+              </form>
+            </td>
             <td :data-testid="`certified-platform-credentials-status-${company.id}`">
               <span class="badge" :class="credentialsStatus[company.id]?.configured ? 'badge-success' : 'badge-warning'">
                 {{
@@ -207,7 +261,7 @@ onMounted(async () => {
             </td>
           </tr>
           <tr v-if="companies.length === 0">
-            <td colspan="4" class="entity-list-empty">Aucune entreprise gérée pour le moment.</td>
+            <td colspan="5" class="entity-list-empty">Aucune entreprise gérée pour le moment.</td>
           </tr>
         </tbody>
       </table>

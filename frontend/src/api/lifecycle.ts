@@ -96,3 +96,23 @@ export function createLifecycleEvent(
     'Failed to create lifecycle event',
   )
 }
+
+export interface RetryAfnorFlowPayload {
+  reason?: string | null
+  action?: string | null
+  comment?: string | null
+}
+
+/** Renvoie un CDAR sortant resté en erreur — `overrides` absent : renvoi tel quel,
+ * fourni : remplace motif/action/commentaire avant renvoi (§ fiche facture). */
+export function retryAfnorFlow(
+  invoiceId: number,
+  flowId: number,
+  overrides?: RetryAfnorFlowPayload,
+): Promise<LifecycleEvent> {
+  return apiFetch(
+    `/api/ihm/invoices/${invoiceId}/afnor-flows/${flowId}/retry`,
+    { method: 'POST', ...(overrides !== undefined && { json: overrides }) },
+    'Failed to retry AFNOR flow',
+  )
+}

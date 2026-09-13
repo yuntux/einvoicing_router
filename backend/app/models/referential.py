@@ -64,6 +64,13 @@ class Company(AuditColumnsMixin, Base):
     # défaut du serveur (`settings.certified_platform`) : permet de pointer une
     # entreprise vers un environnement AFNOR distinct sans redéployer le routeur.
     certified_platform: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Identifiant de cette entreprise tel qu'enregistré dans l'annuaire de la
+    # plateforme certifiée (§ 4.10) — distinct du SIREN légal (`siren`, validé par sa
+    # clé de Luhn) : un bac à sable AFNOR peut immatriculer ses entités fictives sous
+    # des identifiants techniques qui ne sont pas des SIREN valides (ex. "000000001").
+    # Utilisé à la place de `siren` dans les échanges avec l'annuaire/CDAR
+    # (`cdar_service.build_data_dict`) quand renseigné ; `None` = utiliser `siren`.
+    certified_platform_directory_id: Mapped[str | None] = mapped_column(String(35), nullable=True)
 
 
 class PartnerDirectory(AuditColumnsMixin, Base):

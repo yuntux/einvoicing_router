@@ -1,11 +1,28 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { lifecycleEventAttachmentDownloadUrl, listLifecycleEvents, type LifecycleEvent } from '../api/lifecycle'
+import {
+  getLifecycleCatalog,
+  lifecycleEventAttachmentDownloadUrl,
+  listLifecycleEvents,
+  retryAfnorFlow,
+  type LifecycleCatalog,
+  type LifecycleEvent,
+} from '../api/lifecycle'
+import { useErrorMessage } from '../composables/useErrorMessage'
+import { formatDateTimeFr } from '../utils/date'
 import StatusBadge from './StatusBadge.vue'
 
 const props = defineProps<{ invoiceId: number }>()
 
 const events = ref<LifecycleEvent[]>([])
+const catalog = ref<LifecycleCatalog | null>(null)
+const { error, guard } = useErrorMessage()
+
+const openRetryEditForm = ref<number | null>(null)
+const retryReason = ref('')
+const retryAction = ref('')
+const retryComment = ref('')
+const retrySubmitting = ref<number | null>(null)
 
 async function refreshEvents() {
   events.value = await listLifecycleEvents(props.invoiceId)
@@ -13,7 +30,45 @@ async function refreshEvents() {
 
 defineExpose({ refreshEvents })
 
-onMounted(refreshEvents)
+async function retry(event: LifecycleEvent) {
+  if (!event.afnor_flow) return
+  retrySubmitting.value = event.afnor_flow.id
+  await guard(async () => {
+    await retryAfnorFlow(props.invoiceId, event.afnor_flow!.id)
+    await refreshEvents()
+  })
+  retrySubmitting.value = null
+}
+
+function toggleRetryEditForm(event: LifecycleEvent) {
+  if (!event.afnor_flow) return
+  const detail = event.details[0]
+  openRetryEditForm.value = openRetryEditForm.value === event.afnor_flow.id ? null : event.afnor_flow.id
+  retryReason.value = detail?.reason ?? ''
+  retryAction.value = detail?.action ?? ''
+  retryComment.value = detail?.comment ?? ''
+  error.value = ''
+}
+
+async function submitRetryWithEdits(event: LifecycleEvent) {
+  if (!event.afnor_flow) return
+  retrySubmitting.value = event.afnor_flow.id
+  await guard(async () => {
+    await retryAfnorFlow(props.invoiceId, event.afnor_flow!.id, {
+      reason: retryReason.value || null,
+      action: retryAction.value || null,
+      comment: retryComment.value || null,
+    })
+    openRetryEditForm.value = null
+    await refreshEvents()
+  })
+  retrySubmitting.value = null
+}
+
+onMounted(async () => {
+  catalog.value = await getLifecycleCatalog()
+  await refreshEvents()
+})
 </script>
 
 <template>
@@ -44,7 +99,7 @@ onMounted(refreshEvents)
             <p class="entity-sub" style="margin: 4px 0 0">
               <template v-if="ev.details.length && ev.details[0].reason">Motif : {{ ev.details[0].reason }} — </template>
               <template v-if="ev.amount != null">{{ ev.amount }} {{ ev.currency }} — </template>
-              {{ ev.event_datetime }}
+              {{ formatDateTimeFr(ev.event_datetime) }}
             </p>
             <div v-if="ev.payments.length" class="entity-sub">
               Paiements :
@@ -69,9 +124,59 @@ onMounted(refreshEvents)
             >
               Voir le CDAR {{ ev.direction === 'in' ? 'reçu' : 'transmis' }}
             </RouterLink>
+
+            <div v-if="ev.afnor_flow?.direction === 'out' && ev.afnor_flow.state === 'error'" class="stack" style="margin-top: 6px">
+              <div class="cluster">
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  :disabled="retrySubmitting === ev.afnor_flow.id"
+                  :data-testid="`afnor-flow-retry-${ev.afnor_flow.id}`"
+                  @click="retry(ev)"
+                >
+                  {{ retrySubmitting === ev.afnor_flow.id ? 'Renvoi…' : 'Renvoyer' }}
+                </button>
+                <button
+                  type="button"
+                  class="btn-secondary btn-sm"
+                  :data-testid="`afnor-flow-retry-edit-toggle-${ev.afnor_flow.id}`"
+                  @click="toggleRetryEditForm(ev)"
+                >
+                  Modifier et renvoyer
+                </button>
+              </div>
+              <form
+                v-if="openRetryEditForm === ev.afnor_flow.id"
+                class="cluster"
+                @submit.prevent="submitRetryWithEdits(ev)"
+              >
+                <select v-model="retryReason" :data-testid="`afnor-flow-retry-reason-${ev.afnor_flow.id}`" required>
+                  <option value="" disabled>Motif</option>
+                  <option v-for="(label, code) in catalog?.reasons" :key="code" :value="code">{{ label }}</option>
+                </select>
+                <select v-model="retryAction" :data-testid="`afnor-flow-retry-action-${ev.afnor_flow.id}`">
+                  <option value="">Action (facultatif)</option>
+                  <option v-for="(label, code) in catalog?.actions" :key="code" :value="code">{{ label }}</option>
+                </select>
+                <textarea
+                  v-model="retryComment"
+                  placeholder="Commentaire"
+                  :data-testid="`afnor-flow-retry-comment-${ev.afnor_flow.id}`"
+                />
+                <button
+                  type="submit"
+                  class="btn-sm"
+                  :disabled="retrySubmitting === ev.afnor_flow.id"
+                  :data-testid="`afnor-flow-retry-submit-${ev.afnor_flow.id}`"
+                >
+                  {{ retrySubmitting === ev.afnor_flow.id ? 'Renvoi…' : 'Enregistrer et renvoyer' }}
+                </button>
+              </form>
+            </div>
           </div>
         </li>
       </ul>
+      <p v-if="error" role="alert">{{ error }}</p>
     </div>
   </div>
 </template>
