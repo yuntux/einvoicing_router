@@ -1,6 +1,9 @@
 
 
-https://github.com/user-attachments/assets/648b63cc-adb0-445e-8c79-69145a0b7d75
+
+https://github.com/user-attachments/assets/80ee8573-3ce3-44be-bed0-3912a89967cc
+
+
 
 # einvoicing_router
 
