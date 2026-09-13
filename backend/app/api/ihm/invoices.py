@@ -20,9 +20,15 @@ from app.schemas.lifecycle import (
     LifecycleEventAttachmentRead,
     LifecycleEventPaymentRead,
     LifecycleEventRead,
+    RetryAfnorFlow,
 )
 from app.services import audit_trace_service
-from app.services.lifecycle_service import LifecycleValidationError, ManualEventInput, create_manual_event
+from app.services.lifecycle_service import (
+    LifecycleValidationError,
+    ManualEventInput,
+    create_manual_event,
+    retry_cdar,
+)
 
 router = APIRouter()
 
@@ -400,4 +406,49 @@ def create_lifecycle_event(
         )
     except LifecycleValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _lifecycle_event_to_read(event)
+
+
+@router.post(
+    "/{invoice_id}/afnor-flows/{flow_id}/retry",
+    response_model=LifecycleEventRead,
+    dependencies=[Depends(require_write)],
+)
+def retry_afnor_flow(
+    invoice_id: int,
+    flow_id: int,
+    request: Request,
+    payload: RetryAfnorFlow | None = None,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    """Renvoie un CDAR sortant resté en erreur (§ IHM fiche facture, bouton
+    "Renvoyer"/"Modifier et renvoyer") — cf. `lifecycle_service.retry_cdar`."""
+    invoice = db.get(Invoice, invoice_id)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    ensure_company_in_scope(user, invoice.company_id)
+
+    flow = db.get(AfnorFlow, flow_id)
+    if flow is None or flow.invoice_id != invoice_id:
+        raise HTTPException(status_code=404, detail="AFNOR flow not found")
+
+    event = db.query(LifecycleEvent).filter(LifecycleEvent.afnor_flow_id == flow.id).first()
+    if event is None:
+        raise HTTPException(status_code=404, detail="Lifecycle event not found for this flow")
+
+    overrides = (
+        ManualEventInput(status=event.status, reason=payload.reason, action=payload.action, comment=payload.comment)
+        if payload is not None
+        else None
+    )
+    try:
+        retry_cdar(db, invoice=invoice, flow=flow, event=event, overrides=overrides)
+    except LifecycleValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    db.refresh(event)
+    audit_trace_service.record_user_action(
+        db, request, user, action="lifecycle_event_retry", target=str(event.id)
+    )
     return _lifecycle_event_to_read(event)

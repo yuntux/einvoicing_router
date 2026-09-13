@@ -72,6 +72,16 @@ class CreateManualLifecycleEvent(BaseModel):
     confirmed: bool = False
 
 
+class RetryAfnorFlow(BaseModel):
+    """Corps optionnel du renvoi d'un `AfnorFlow` sortant en erreur (§ IHM fiche
+    facture) : absent (`null`/corps vide), le CDAR est renvoyé tel quel ; fourni, ces
+    valeurs remplacent motif/action/commentaire de l'événement avant renvoi."""
+
+    reason: str | None = None
+    action: str | None = None
+    comment: str | None = None
+
+
 class StatusCatalogEntry(BaseModel):
     key: str
     label: str

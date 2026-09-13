@@ -55,8 +55,13 @@ def build_data_dict(
         "MDT-38": {"0002": invoice.emitter_siren},
         "MDT-39": invoice.emitter_siret or invoice.emitter_siren,
         "MDT-40": "SE",
-        # Destinataire de la facture d'origine (l'entreprise gérée, côté achat).
-        "MDT-57": {"0002": buyer_company.siren},
+        # Destinataire de la facture d'origine (l'entreprise gérée, côté achat) —
+        # identifiant annuaire de la plateforme certifiée si renseigné (cf.
+        # `Company.certified_platform_directory_id`), sinon le SIREN légal : un bac à
+        # sable AFNOR peut immatriculer l'entreprise sous un identifiant technique qui
+        # n'est pas un SIREN valide, auquel cas l'annuaire ne reconnaît pas le SIREN
+        # légal et échoue à déterminer la règle de traitement/refuse l'émission.
+        "MDT-57": {"0002": buyer_company.certified_platform_directory_id or buyer_company.siren},
         "MDT-58": buyer_company.name,
         "MDT-59": "BY",
         "MDT-73": "superpdp",
@@ -73,8 +78,9 @@ def build_data_dict(
         "MDT-100": now.date(),
         "MDT-105": status_info.cdar_code,
         "MDT-106": status_info.label,
-        # Émetteur du message d'accusé lui-même : l'entreprise gérée (côté achat).
-        "MDT-129": {"0002": buyer_company.siren},
+        # Émetteur du message d'accusé lui-même : l'entreprise gérée (côté achat) —
+        # même identifiant que MDT-57, cf. ci-dessus.
+        "MDT-129": {"0002": buyer_company.certified_platform_directory_id or buyer_company.siren},
     }
     if status_info.mdt88_code:
         data_dict["MDT-88"] = status_info.mdt88_code

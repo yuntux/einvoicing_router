@@ -43,6 +43,25 @@ def test_generate_dispute_with_reason_is_xsd_valid():
     assert b"207" in xml_bytes  # cdar_code de "dispute"
 
 
+def test_build_data_dict_uses_certified_platform_directory_id_when_set():
+    """`MDT-57`/`MDT-129` (identifiant acheteur) doivent utiliser l'identifiant
+    annuaire de la plateforme certifiée quand il est renseigné — un bac à sable AFNOR
+    peut immatriculer l'entreprise sous un identifiant technique différent du SIREN
+    légal (§ cf. Company.certified_platform_directory_id), auquel cas envoyer le
+    SIREN légal fait échouer la résolution de l'entreprise côté annuaire."""
+    company = _company()
+    company.certified_platform_directory_id = "000000001"
+    data_dict = cdar_service.build_data_dict(invoice=_invoice(), buyer_company=company, status="approved")
+    assert data_dict["MDT-57"] == {"0002": "000000001"}
+    assert data_dict["MDT-129"] == {"0002": "000000001"}
+
+
+def test_build_data_dict_falls_back_to_siren_without_directory_id():
+    data_dict = cdar_service.build_data_dict(invoice=_invoice(), buyer_company=_company(), status="approved")
+    assert data_dict["MDT-57"] == {"0002": "123456789"}
+    assert data_dict["MDT-129"] == {"0002": "123456789"}
+
+
 def test_build_data_dict_mdt87_is_invoice_number_not_flow_id():
     """MDT-87 (IssuerAssignedID) doit porter le numéro de facture métier — c'est ce
     que la contrepartie connaît et peut rapprocher de sa propre facture, jamais notre

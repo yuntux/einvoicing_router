@@ -117,6 +117,53 @@ def create_manual_event(
     return event
 
 
+def retry_cdar(
+    db: Session,
+    *,
+    invoice: Invoice,
+    flow: AfnorFlow,
+    event: LifecycleEvent,
+    overrides: ManualEventInput | None = None,
+) -> None:
+    """Régénère et retransmet le CDAR d'un événement de cycle de vie sortant resté en
+    erreur (§ IHM fiche facture, bouton "Renvoyer"). N'est permis que sur un flux
+    jamais transmis avec succès : tant qu'il est en erreur, rien n'est réellement
+    parti côté plateforme certifiée, donc corriger la saisie (`overrides`) ne casse
+    aucune cohérence externe ; une fois transmis, l'événement redevient immuable
+    comme le reste du cycle de vie (§ lifecycle_service module docstring).
+
+    `overrides` est optionnel : `None` renvoie le CDAR tel quel (ex. après correction
+    d'un bug de code ou d'une configuration d'entreprise, cf. `cdar_service`), fourni
+    il remplace motif/action/commentaire avant renvoi (ex. la saisie elle-même était
+    en cause)."""
+    if flow.direction != EventDirection.OUT:
+        raise LifecycleValidationError("Seul un flux sortant peut être renvoyé.")
+    if flow.state != AfnorFlowState.ERROR:
+        raise LifecycleValidationError("Seul un flux en erreur peut être renvoyé.")
+
+    detail = event.details[0] if event.details else None
+    if overrides is not None:
+        info = STATUS_CATALOG[event.status]
+        if info.requires_detail and not overrides.reason:
+            raise LifecycleValidationError(f"Un motif est requis pour le statut '{event.status}'.")
+        if detail is None:
+            detail = LifecycleEventDetail(event_id=event.id)
+            db.add(detail)
+        detail.reason = overrides.reason
+        detail.action = overrides.action
+        detail.comment = overrides.comment
+        db.commit()
+
+    data = ManualEventInput(
+        status=event.status,
+        reason=detail.reason if detail else None,
+        action=detail.action if detail else None,
+        comment=detail.comment if detail else None,
+        confirmed=True,
+    )
+    _generate_and_send_cdar(db, invoice=invoice, flow=flow, data=data)
+
+
 def _generate_and_send_cdar(db: Session, *, invoice: Invoice, flow: AfnorFlow, data: ManualEventInput) -> None:
     from app.afnor.client.adapter import afnor_client_adapter
 

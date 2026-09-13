@@ -11,12 +11,22 @@ class CompanyCreate(BaseModel):
     _validate_siren = field_validator("siren")(validate_siren)
 
 
+class CompanyUpdate(BaseModel):
+    """Identifiant annuaire de la plateforme certifiée (§ 4.10) — le seul attribut de
+    l'entreprise modifiable après création : contrairement au SIREN légal, il n'est
+    pas garanti d'être un SIREN valide (cf. `Company.certified_platform_directory_id`),
+    donc pas de validation Luhn ici."""
+
+    certified_platform_directory_id: str | None = Field(default=None, max_length=35)
+
+
 class CompanyRead(AuditColumnsRead):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     siren: str
     name: str
+    certified_platform_directory_id: str | None
 
 
 class CompanyLookup(BaseModel):

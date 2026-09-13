@@ -194,3 +194,86 @@ def test_download_lifecycle_event_attachment_missing_file_returns_404(client, db
         f"/api/ihm/invoices/{invoice['id']}/lifecycle-events/{event.id}/attachments/{attachment.id}/download"
     )
     assert response.status_code == 404
+
+
+def test_retry_afnor_flow_resends_after_a_failure(client, db_session, monkeypatch):
+    from unittest.mock import patch
+
+    from app.config import settings
+    from app.models.lifecycle import AfnorFlow, AfnorFlowState
+
+    monkeypatch.setattr(settings, "certified_platform_client_mode", "pyfrctc")
+    invoice = _make_invoice_via_api(client)
+
+    with patch("app.afnor.client.adapter.afnor_client_adapter.send_cdar") as mock_send:
+        mock_send.side_effect = RuntimeError("SuperPDP unreachable")
+        create_resp = client.post(
+            f"/api/ihm/invoices/{invoice['id']}/lifecycle-events",
+            json={"status": "suspended", "reason": "NON_CONFORME"},
+        )
+    event = create_resp.json()
+    flow_id = event["afnor_flow"]["id"]
+    assert event["afnor_flow"]["state"] == AfnorFlowState.ERROR.value
+
+    with patch("app.afnor.client.adapter.afnor_client_adapter.send_cdar") as mock_send:
+        mock_send.return_value = {"id": "superpdp-flow-99"}
+        retry_resp = client.post(f"/api/ihm/invoices/{invoice['id']}/afnor-flows/{flow_id}/retry")
+
+    assert retry_resp.status_code == 200
+    retried = retry_resp.json()
+    assert retried["afnor_flow"]["state"] == AfnorFlowState.SENT.value
+    flow = db_session.get(AfnorFlow, flow_id)
+    assert flow.flow_id == "superpdp-flow-99"
+
+
+def test_retry_afnor_flow_with_overrides_updates_the_detail(client, monkeypatch):
+    from unittest.mock import patch
+
+    from app.config import settings
+    from app.models.lifecycle import AfnorFlowState
+
+    monkeypatch.setattr(settings, "certified_platform_client_mode", "pyfrctc")
+    invoice = _make_invoice_via_api(client)
+
+    with patch("app.afnor.client.adapter.afnor_client_adapter.send_cdar") as mock_send:
+        mock_send.side_effect = RuntimeError("SuperPDP unreachable")
+        create_resp = client.post(
+            f"/api/ihm/invoices/{invoice['id']}/lifecycle-events",
+            json={"status": "suspended", "reason": "NON_CONFORME"},
+        )
+    event = create_resp.json()
+    flow_id = event["afnor_flow"]["id"]
+
+    with patch("app.afnor.client.adapter.afnor_client_adapter.send_cdar") as mock_send:
+        mock_send.return_value = {"id": "superpdp-flow-99"}
+        retry_resp = client.post(
+            f"/api/ihm/invoices/{invoice['id']}/afnor-flows/{flow_id}/retry",
+            json={"reason": "SIRET_ERR", "comment": "corrigé"},
+        )
+
+    assert retry_resp.status_code == 200
+    retried = retry_resp.json()
+    assert retried["afnor_flow"]["state"] == AfnorFlowState.SENT.value
+    assert retried["details"][0]["reason"] == "SIRET_ERR"
+    assert retried["details"][0]["comment"] == "corrigé"
+
+
+def test_retry_afnor_flow_rejects_a_flow_that_was_never_in_error(client, monkeypatch):
+    from unittest.mock import patch
+
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "certified_platform_client_mode", "pyfrctc")
+    invoice = _make_invoice_via_api(client)
+
+    with patch("app.afnor.client.adapter.afnor_client_adapter.send_cdar") as mock_send:
+        mock_send.return_value = {"id": "superpdp-flow-1"}
+        create_resp = client.post(
+            f"/api/ihm/invoices/{invoice['id']}/lifecycle-events",
+            json={"status": "approved"},
+        )
+    event = create_resp.json()
+    flow_id = event["afnor_flow"]["id"]
+
+    retry_resp = client.post(f"/api/ihm/invoices/{invoice['id']}/afnor-flows/{flow_id}/retry")
+    assert retry_resp.status_code == 422

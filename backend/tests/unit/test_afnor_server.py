@@ -268,7 +268,12 @@ def test_get_flow_metadata_unknown_flow_returns_404(client, db_session):
     assert response.status_code == 404
 
 
-def test_get_flow_converted_doctype_returns_501(client, db_session):
+def test_get_flow_converted_doctype_relayed_to_certified_platform(client, db_session, monkeypatch):
+    """`docType=Converted`/`ReadableView` ne sont plus un 501 : ils sont relayés en
+    direct à SuperPDP (`AfnorClientAdapter.get_flow_document`) une fois l'autorisation
+    NF2 vérifiée, et le contenu renvoyé tel quel (passe-plat), § 4.4."""
+    from app.afnor.client import adapter as adapter_module
+
     company = _make_company(db_session)
     target = _make_oauth_app(db_session, company, client_secret="secret-1")
     partner = _make_partner(db_session)
@@ -276,10 +281,40 @@ def test_get_flow_converted_doctype_returns_501(client, db_session):
     _route(db_session, invoice, target)
     token = _authenticate(client, target, "secret-1")
 
+    monkeypatch.setattr(
+        adapter_module.afnor_client_adapter,
+        "get_flow_document",
+        lambda db, *, company, flow_id, doc_type: b"%PDF-fake-readable-content",
+    )
+
     response = client.get(
         "/api/afnor/v1/afnor-flow/flows/flow-y",
         params={"docType": "Converted"},
         headers={"Authorization": f"Bearer {token}"},
     )
 
-    assert response.status_code == 501
+    assert response.status_code == 200
+    assert response.content == b"%PDF-fake-readable-content"
+
+
+def test_get_flow_converted_doctype_still_scoped_to_consumer(client, db_session, monkeypatch):
+    """Même filtre NF2 que `Metadata`/`Original` : un flux non routé vers ce
+    consommateur reste un 404, sans jamais appeler SuperPDP."""
+    from app.afnor.client import adapter as adapter_module
+
+    company = _make_company(db_session)
+    target = _make_oauth_app(db_session, company, client_secret="secret-1")
+    token = _authenticate(client, target, "secret-1")
+
+    def _fail_if_called(db, *, company, flow_id, doc_type):
+        raise AssertionError("SuperPDP must not be called for an unrouted flow")
+
+    monkeypatch.setattr(adapter_module.afnor_client_adapter, "get_flow_document", _fail_if_called)
+
+    response = client.get(
+        "/api/afnor/v1/afnor-flow/flows/does-not-exist",
+        params={"docType": "ReadableView"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 404
