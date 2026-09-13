@@ -11,6 +11,7 @@ from app.api.ihm.audit import router as audit_router
 from app.api.ihm.auth import router as auth_router
 from app.api.ihm.companies import admin_router as companies_admin_router
 from app.api.ihm.companies import router as companies_router
+from app.api.ihm.directory import router as directory_router
 from app.api.ihm.invoice_routings import router as invoice_routings_router
 from app.api.ihm.invoices import router as invoices_router
 from app.api.ihm.lifecycle import router as lifecycle_router
@@ -82,6 +83,7 @@ def create_app() -> FastAPI:
     #   /api/ihm/invoices                    authentifié, filtré par périmètre
     #   /api/ihm/invoice-routings            authentifié, filtré par périmètre
     #   /api/ihm/lifecycle-catalog           authentifié
+    #   /api/ihm/directory/*                 authentifié, filtré par périmètre (company_id)
     #   /api/ihm/settings/*                  admin uniquement — page Configuration (§ 5.1)
     #   /api/ihm/users/*                     admin uniquement (gestion des accès)
     #   /api/ihm/audit/*                     admin uniquement — traces techniques (§ 5.1)
@@ -132,6 +134,12 @@ def create_app() -> FastAPI:
         lifecycle_router,
         prefix="/api/ihm/lifecycle-catalog",
         tags=["lifecycle"],
+        dependencies=ihm_auth,
+    )
+    app.include_router(
+        directory_router,
+        prefix="/api/ihm/directory",
+        tags=["directory"],
         dependencies=ihm_auth,
     )
     # Registre de versions AFNOR (§ 4.8) : chaque version activée dans

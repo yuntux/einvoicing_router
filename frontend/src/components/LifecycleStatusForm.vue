@@ -14,6 +14,12 @@ const reason = ref('')
 const action = ref('')
 const comment = ref('')
 const confirmed = ref(false)
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const selectedFiles = ref<File[]>([])
+
+function onFilesChange(event: Event) {
+  selectedFiles.value = Array.from((event.target as HTMLInputElement).files ?? [])
+}
 
 const purchaseStatuses = computed(() =>
   (catalog.value?.statuses ?? []).filter((s) => s.manual_side === 'purchase'),
@@ -45,12 +51,15 @@ async function submit() {
       action: action.value || null,
       comment: comment.value || null,
       confirmed: confirmed.value,
+      files: selectedFiles.value,
     })
     status.value = ''
     reason.value = ''
     action.value = ''
     comment.value = ''
     confirmed.value = false
+    selectedFiles.value = []
+    if (fileInputRef.value) fileInputRef.value.value = ''
     emit('created')
   })
 }
@@ -89,6 +98,14 @@ onMounted(async () => {
         <input type="checkbox" v-model="confirmed" data-testid="lifecycle-confirm-checkbox" />
         Je confirme le refus de cette facture
       </label>
+
+      <input
+        ref="fileInputRef"
+        type="file"
+        multiple
+        data-testid="lifecycle-attachments-input"
+        @change="onFilesChange"
+      />
 
       <button type="submit" class="btn-secondary" data-testid="lifecycle-submit-button">Enregistrer</button>
     </form>

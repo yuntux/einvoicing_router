@@ -38,7 +38,7 @@ def test_create_and_list_lifecycle_events(client):
 
     create_resp = client.post(
         f"/api/ihm/invoices/{invoice['id']}/lifecycle-events",
-        json={"status": "approved"},
+        data={"status": "approved"},
     )
     assert create_resp.status_code == 201
     event = create_resp.json()
@@ -53,11 +53,36 @@ def test_create_and_list_lifecycle_events(client):
     assert detail_resp.json()["lifecycle_status"] == "approved"
 
 
+def test_create_lifecycle_event_with_attachment_is_downloadable(client):
+    """MDT-96 (§ 4.2) — la norme autorise des pièces jointes sur un message de cycle
+    de vie, nos modules Odoo l'utilisent déjà côté émission : bout-en-bout upload →
+    téléchargement, comme pour le fichier d'une facture."""
+    invoice = _make_invoice_via_api(client)
+
+    create_resp = client.post(
+        f"/api/ihm/invoices/{invoice['id']}/lifecycle-events",
+        data={"status": "approved"},
+        files={"files": ("justificatif.pdf", b"%PDF-1.4 fake", "application/pdf")},
+    )
+    assert create_resp.status_code == 201
+    event = create_resp.json()
+    assert len(event["attachments"]) == 1
+    attachment = event["attachments"][0]
+    assert attachment["filename"] == "justificatif.pdf"
+    assert attachment["has_file"] is True
+
+    download_resp = client.get(
+        f"/api/ihm/invoices/{invoice['id']}/lifecycle-events/{event['id']}/attachments/{attachment['id']}/download"
+    )
+    assert download_resp.status_code == 200
+    assert download_resp.content == b"%PDF-1.4 fake"
+
+
 def test_create_lifecycle_event_missing_reason_returns_422(client):
     invoice = _make_invoice_via_api(client)
     response = client.post(
         f"/api/ihm/invoices/{invoice['id']}/lifecycle-events",
-        json={"status": "dispute"},
+        data={"status": "dispute"},
     )
     assert response.status_code == 422
 
@@ -108,17 +133,19 @@ def test_lifecycle_event_exposes_amount_currency_payments_and_attachments(client
     ]
 
 
-def test_invoice_detail_exposes_afnor_flows(client, db_session):
+def test_invoice_detail_exposes_afnor_flows(client, db_session, tmp_path):
     from app.models.lifecycle import AfnorFlow, AfnorFlowType, EventDirection
 
     invoice = _make_invoice_via_api(client)
+    file_path = tmp_path / "cdar.xml"
+    file_path.write_bytes(b"<xml/>")
     flow = AfnorFlow(
         invoice_id=invoice["id"],
         flow_id="flow-123",
         direction=EventDirection.IN,
         flow_type=AfnorFlowType.SUPPLIER_INVOICE_LC,
         state="done",
-        file_bin=b"<xml/>",
+        file_path=str(file_path),
     )
     db_session.add(flow)
     db_session.commit()
@@ -243,7 +270,7 @@ def test_retry_afnor_flow_resends_after_a_failure(client, db_session, monkeypatc
         mock_send.side_effect = RuntimeError("SuperPDP unreachable")
         create_resp = client.post(
             f"/api/ihm/invoices/{invoice['id']}/lifecycle-events",
-            json={"status": "suspended", "reason": "SIRET_ERR"},
+            data={"status": "suspended", "reason": "SIRET_ERR"},
         )
     event = create_resp.json()
     flow_id = event["afnor_flow"]["id"]
@@ -273,7 +300,7 @@ def test_retry_afnor_flow_with_overrides_updates_the_detail(client, monkeypatch)
         mock_send.side_effect = RuntimeError("SuperPDP unreachable")
         create_resp = client.post(
             f"/api/ihm/invoices/{invoice['id']}/lifecycle-events",
-            json={"status": "suspended", "reason": "SIRET_ERR"},
+            data={"status": "suspended", "reason": "SIRET_ERR"},
         )
     event = create_resp.json()
     flow_id = event["afnor_flow"]["id"]
@@ -304,7 +331,7 @@ def test_retry_afnor_flow_rejects_a_flow_that_was_never_in_error(client, monkeyp
         mock_send.return_value = {"id": "superpdp-flow-1"}
         create_resp = client.post(
             f"/api/ihm/invoices/{invoice['id']}/lifecycle-events",
-            json={"status": "approved"},
+            data={"status": "approved"},
         )
     event = create_resp.json()
     flow_id = event["afnor_flow"]["id"]

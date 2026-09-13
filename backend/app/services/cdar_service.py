@@ -52,6 +52,7 @@ def build_data_dict(
     action: str | None = None,
     comment: str | None = None,
     payments: list[LifecycleEventPayment] | None = None,
+    attachments: list[dict] | None = None,
 ) -> dict:
     status_info = STATUS_CATALOG[status]
     now = datetime.utcnow()
@@ -125,6 +126,15 @@ def build_data_dict(
         # renseigné dans l'exemple de référence `l10n_fr_einvoicing` — date à laquelle
         # NOUS avons reçu la facture d'origine, pas sa date d'émission (MDT-100).
         data_dict["MDT-95"] = invoice.received_at
+    if attachments:
+        # Pièces jointes (§ 4.2, MDT-96) — `l10n_fr_einvoicing` les autorise sur
+        # n'importe quel statut saisissable manuellement, sans restriction
+        # particulière (`fr_einvoicing_event_manual.attachment_ids`, aucune condition
+        # liée au statut dans `_compute_required_fields`) : même comportement ici.
+        # Chaque élément : `{"bin": bytes, "filename": str, "mime_type": str}` (clé
+        # optionnelle), même forme que `pyfrctc.parse_cdar_from_raw`
+        # (`"attachments"`) en lecture.
+        data_dict["MDT-96"] = attachments
 
     if reason or action or comment:
         doc_status: dict = {}
@@ -183,6 +193,12 @@ def resolve_status_key(cdar_code: str) -> str | None:
 def _json_safe(value):
     if isinstance(value, (datetime, date)):
         return value.isoformat()
+    if isinstance(value, bytes):
+        # Le contenu binaire d'une pièce jointe (MDT-96, "bin") est déjà persisté à
+        # part sur disque (`LifecycleEventAttachment.file_path`, § 4.2) — pas de
+        # raison de le dupliquer (et bytes n'est de toute façon pas sérialisable) dans
+        # la colonne JSON `AfnorFlow.data_dict`, qui n'a besoin que des métadonnées.
+        return f"<{len(value)} bytes>"
     if isinstance(value, dict):
         return {k: _json_safe(v) for k, v in value.items()}
     if isinstance(value, list):

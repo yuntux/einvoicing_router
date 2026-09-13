@@ -1,7 +1,7 @@
 import os
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import Integer, cast
 from sqlalchemy.orm import Session
@@ -16,7 +16,6 @@ from app.models.lifecycle import AfnorFlow, LifecycleEvent, LifecycleEventAttach
 from app.schemas.invoice import InvoiceDetailRead, InvoiceRead
 from app.schemas.lifecycle import (
     AfnorFlowRead,
-    CreateManualLifecycleEvent,
     LifecycleEventAttachmentRead,
     LifecycleEventPaymentRead,
     LifecycleEventRead,
@@ -27,6 +26,7 @@ from app.services import audit_trace_service
 from app.services.lifecycle_service import (
     LifecycleValidationError,
     ManualEventInput,
+    UploadedAttachment,
     create_manual_event,
     retry_cdar,
 )
@@ -45,7 +45,7 @@ def _afnor_flow_to_read(flow: AfnorFlow) -> AfnorFlowRead:
         syntax=flow.syntax,
         processing_rule=flow.processing_rule,
         state=flow.state,
-        has_file=flow.file_bin is not None,
+        has_file=flow.file_path is not None,
     )
 
 
@@ -393,13 +393,13 @@ def download_afnor_flow(
     flow = db.get(AfnorFlow, flow_id)
     if flow is None or flow.invoice_id != invoice_id:
         raise HTTPException(status_code=404, detail="AFNOR flow not found")
-    if flow.file_bin is None:
+    if not flow.file_path or not os.path.exists(flow.file_path):
         raise HTTPException(status_code=404, detail="AFNOR flow has no file")
 
-    return Response(
-        content=flow.file_bin,
+    return FileResponse(
+        flow.file_path,
+        filename=f"afnor-flow-{flow.id}.xml",
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="afnor-flow-{flow.id}.xml"'},
     )
 
 
@@ -409,18 +409,33 @@ def download_afnor_flow(
     status_code=201,
     dependencies=[Depends(require_write)],
 )
-def create_lifecycle_event(
+async def create_lifecycle_event(
     invoice_id: int,
-    payload: CreateManualLifecycleEvent,
+    status: str = Form(...),
+    reason: str | None = Form(default=None),
+    action: str | None = Form(default=None),
+    comment: str | None = Form(default=None),
+    confirmed: bool = Form(default=False),
+    files: list[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user),
 ):
     """Saisie manuelle d'un statut de cycle de vie (§ 4.2). Toujours côté achat : seule
-    la fiche d'une facture reçue existe comme point d'entrée IHM (cf. LifecycleService)."""
+    la fiche d'une facture reçue existe comme point d'entrée IHM (cf. LifecycleService).
+
+    `multipart/form-data` (pas JSON) pour accepter des pièces jointes (§ 4.2, MDT-96)
+    — la norme les autorise sur un message de cycle de vie, nos modules Odoo
+    l'utilisent déjà côté émission."""
     invoice = db.get(Invoice, invoice_id)
     if invoice is None:
         raise HTTPException(status_code=404, detail="Invoice not found")
     ensure_company_in_scope(user, invoice.company_id)
+
+    attachments = [
+        UploadedAttachment(filename=f.filename or "attachment.bin", content=await f.read())
+        for f in files
+        if f.filename
+    ]
 
     try:
         event = create_manual_event(
@@ -428,11 +443,12 @@ def create_lifecycle_event(
             invoice=invoice,
             side="purchase",
             data=ManualEventInput(
-                status=payload.status,
-                reason=payload.reason,
-                action=payload.action,
-                comment=payload.comment,
-                confirmed=payload.confirmed,
+                status=status,
+                reason=reason,
+                action=action,
+                comment=comment,
+                confirmed=confirmed,
+                attachments=attachments,
             ),
         )
     except LifecycleValidationError as exc:

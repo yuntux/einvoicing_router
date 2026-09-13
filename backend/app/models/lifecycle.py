@@ -3,7 +3,7 @@
 import enum
 from datetime import date, datetime
 
-from sqlalchemy import DateTime, ForeignKey, JSON, LargeBinary, String, Text
+from sqlalchemy import DateTime, ForeignKey, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -55,7 +55,10 @@ class AfnorFlow(Base):
     syntax: Mapped[str] = mapped_column(String(20), default="CDAR")
     processing_rule: Mapped[str | None] = mapped_column(String(30), nullable=True)
     state: Mapped[AfnorFlowState] = mapped_column(String(20), default=AfnorFlowState.CREATED)
-    file_bin: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    # Fichier CDAR (entrant ou sortant) sur disque, comme `Invoice.file_path` et
+    # `LifecycleEventAttachment.file_path` — uniformisé depuis un stockage en base
+    # (`file_bin`, `LargeBinary`), cf. `app.storage.filesystem.save_afnor_flow_file`.
+    file_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     data_dict: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     invoice: Mapped[Invoice] = relationship()

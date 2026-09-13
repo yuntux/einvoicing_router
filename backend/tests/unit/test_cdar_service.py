@@ -113,6 +113,24 @@ def test_generate_approved_without_detail_is_xsd_valid():
     assert b"205" in xml_bytes
 
 
+def test_generate_with_attachment_is_xsd_valid():
+    """MDT-96 (pièce jointe, § 4.2) — `pyfrctc.generate_cdar` accède
+    inconditionnellement à `attach["mime_type"]` (pas de `.get()` avec repli) : une
+    entrée sans cette clé lèverait un `KeyError` avant même la validation XSD."""
+    attachments = [{"bin": b"%PDF-1.4 fake", "filename": "justificatif.pdf", "mime_type": "application/pdf"}]
+    data_dict = cdar_service.build_data_dict(
+        invoice=_invoice(), buyer_company=_company(), status="approved", attachments=attachments
+    )
+    assert data_dict["MDT-96"] == attachments
+    xml_bytes = cdar_service.generate(data_dict)
+    assert b"AttachmentBinaryObject" in xml_bytes
+
+
+def test_build_data_dict_without_attachments_omits_mdt96():
+    data_dict = cdar_service.build_data_dict(invoice=_invoice(), buyer_company=_company(), status="approved")
+    assert "MDT-96" not in data_dict
+
+
 def test_generate_payment_sent_with_payment_lines_is_xsd_valid():
     payments = [LifecycleEventPayment(amount=123.45, currency="EUR", payment_date=date(2026, 1, 5))]
     data_dict = cdar_service.build_data_dict(

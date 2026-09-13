@@ -73,6 +73,14 @@ function isUnrouted(invoice: Invoice): boolean {
   return invoice.routings.length === 0
 }
 
+// Lien vers la fiche annuaire de l'émetteur (§ nouvel écran "Annuaire") — recherché
+// avec les identifiants SuperPDP de l'entreprise réceptrice de CETTE facture
+// (`invoice.company_id`), la seule dont on est sûr qu'elle a des identifiants
+// SuperPDP valides pour cet émetteur (§ 4.10, jeton par entreprise gérée).
+function directoryLinkFor(siren: string, companyId: number) {
+  return { name: 'directory', query: { company: String(companyId), resource: 'siren', siren } }
+}
+
 const showRoutingLegend = ref(false)
 const ROUTING_LEGEND = [
   { class: 'badge-success', label: 'Routée avec succès vers cette application' },
@@ -398,7 +406,13 @@ onMounted(async () => {
           >
             <td>{{ invoice.invoice_number }}</td>
             <td>
-              {{ invoice.emitter_siren }}
+              <RouterLink
+                :to="directoryLinkFor(invoice.emitter_siren, invoice.company_id)"
+                :data-testid="`invoice-emitter-directory-link-${invoice.invoice_number}`"
+                @click.stop
+              >
+                {{ invoice.emitter_siren }}
+              </RouterLink>
               <div class="entity-sub">{{ invoice.emitter_name ?? 'annuaire inconnu' }}</div>
             </td>
             <td>
@@ -467,7 +481,14 @@ onMounted(async () => {
         <div class="modal-stats">
           <div class="modal-stat-card">
             <span class="modal-stat-label">Émetteur</span>
-            <span class="modal-stat-value">{{ selected.emitter_siren }}</span>
+            <span class="modal-stat-value">
+              <RouterLink
+                :to="directoryLinkFor(selected.emitter_siren, selected.company_id)"
+                data-testid="invoice-emitter-directory-link"
+              >
+                {{ selected.emitter_siren }}
+              </RouterLink>
+            </span>
             <span class="entity-sub">{{ selected.emitter_name ?? 'annuaire inconnu' }}</span>
           </div>
           <div class="modal-stat-card">
