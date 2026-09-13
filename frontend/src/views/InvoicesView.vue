@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   getInvoice,
+  invoiceDownloadReadableUrl,
   invoiceDownloadUrl,
   listInvoices,
   type Invoice,
@@ -540,6 +541,16 @@ onMounted(async () => {
               >
                 {{ selected.syntax ?? 'Format d’origine' }}
                 <span class="entity-sub">(format de réception)</span>
+              </a>
+              <a
+                :href="invoiceDownloadReadableUrl(selected.id)"
+                data-testid="invoice-download-format-readable"
+                target="_blank"
+                rel="noopener"
+                @click="downloadMenuOpen = false"
+              >
+                Vue lisible (PDF)
+                <span class="entity-sub">utile pour un format non lisible tel quel (CII, UBL)</span>
               </a>
             </div>
           </div>

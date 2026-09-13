@@ -196,6 +196,40 @@ def test_download_lifecycle_event_attachment_missing_file_returns_404(client, db
     assert response.status_code == 404
 
 
+def test_download_invoice_readable_relays_superpdp_readable_view(client, monkeypatch):
+    """`docType=ReadableView` (§ 4.4) est relayé en direct vers SuperPDP à chaque
+    appel, comme pour un consommateur Odoo — utile pour un format non lisible tel
+    quel (CII, UBL) : le routeur ne conserve aucune version convertie."""
+    from unittest.mock import patch
+
+    invoice = _make_invoice_via_api(client)
+
+    with patch(
+        "app.api.ihm.invoices.afnor_client_adapter.get_flow_document",
+        return_value=b"%PDF-1.7 fake readable view",
+    ) as mock_get:
+        response = client.get(f"/api/ihm/invoices/{invoice['id']}/download-readable")
+
+    assert response.status_code == 200
+    assert response.content == b"%PDF-1.7 fake readable view"
+    assert response.headers["content-type"] == "application/pdf"
+    mock_get.assert_called_once()
+
+
+def test_download_invoice_readable_returns_502_on_superpdp_failure(client, monkeypatch):
+    from unittest.mock import patch
+
+    invoice = _make_invoice_via_api(client)
+
+    with patch(
+        "app.api.ihm.invoices.afnor_client_adapter.get_flow_document",
+        side_effect=RuntimeError("SuperPDP unreachable"),
+    ):
+        response = client.get(f"/api/ihm/invoices/{invoice['id']}/download-readable")
+
+    assert response.status_code == 502
+
+
 def test_retry_afnor_flow_resends_after_a_failure(client, db_session, monkeypatch):
     from unittest.mock import patch
 
