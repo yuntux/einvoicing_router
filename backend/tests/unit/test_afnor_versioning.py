@@ -59,12 +59,14 @@ def test_a_future_version_reuses_same_service_modules_not_duplicated_logic():
         return next(route.endpoint for route in router.routes if route.path == path)
 
     assert (
-        endpoint_for(v1.router, "/afnor-flow/flows/search").__code__
-        is endpoint_for(future_router, "/afnor-flow/flows/search").__code__
+        endpoint_for(v1.router, "/afnor-flow/v1/flows/search").__code__
+        is endpoint_for(future_router, "/afnor-flow/v2-future/flows/search").__code__
     )
     assert (
-        endpoint_for(v1.router, "/afnor-directory/siren/code-insee:{siren}").__code__
-        is endpoint_for(future_router, "/afnor-directory/siren/code-insee:{siren}").__code__
+        endpoint_for(v1.router, "/afnor-directory/v1/siren/code-insee:{siren}").__code__
+        is endpoint_for(
+            future_router, "/afnor-directory/v2-future/siren/code-insee:{siren}"
+        ).__code__
     )
 
 
@@ -97,7 +99,7 @@ def test_enabling_a_future_version_mounts_it_without_touching_main(db_session):
 
     with TestClient(app, base_url="https://testserver") as client:
         token_response = client.post(
-            "/api/afnor/v1/oauth/token",
+            "/api/afnor/oauth/token",
             data={
                 "grant_type": "client_credentials",
                 "client_id": oauth_app.client_id,
@@ -110,12 +112,12 @@ def test_enabling_a_future_version_mounts_it_without_touching_main(db_session):
 
         search_body = {"where": {}}
         v1_response = client.post(
-            "/api/afnor/v1/afnor-flow/flows/search", json=search_body, headers=headers
+            "/api/afnor/afnor-flow/v1/flows/search", json=search_body, headers=headers
         )
         assert v1_response.status_code == 200
 
         future_response = client.post(
-            "/api/afnor/v2-future/afnor-flow/flows/search", json=search_body, headers=headers
+            "/api/afnor/afnor-flow/v2-future/flows/search", json=search_body, headers=headers
         )
         assert future_response.status_code == 200
 

@@ -135,15 +135,19 @@ def create_app() -> FastAPI:
         dependencies=ihm_auth,
     )
     # Registre de versions AFNOR (§ 4.8) : chaque version activée dans
-    # `settings.afnor_api_enabled_versions` est montée sous son propre préfixe, sans
-    # qu'ajouter/retirer une version ne touche aux autres routers ici.
+    # `settings.afnor_api_enabled_versions` est montée ici, sans qu'ajouter/retirer une
+    # version ne touche aux autres routers. Le préfixe ne porte PAS le numéro de
+    # version : le vrai contrat AFNOR le place après le nom du service
+    # (`.../afnor-flow/v1/...`, `.../afnor-directory/v1/...`, cf. `pyfrctc.PLATFORMS`),
+    # chaque chemin de `_common.py`/`v1.py` l'embarque donc déjà lui-même à la bonne
+    # position — un préfixe `/api/afnor/{version}` dupliquait/déplaçait ce segment et
+    # produisait des URLs qu'un client `pyfrctc` (ou tout consommateur suivant le même
+    # contrat, ex. Odoo `l10n_fr_einvoicing`) ne reconstruit jamais (404 constaté).
     for version in settings.afnor_api_enabled_versions.split(","):
         version = version.strip()
         version_router = get_router(version)
         if version_router is not None:
-            app.include_router(
-                version_router, prefix=f"/api/afnor/{version}", tags=[f"afnor-{version}"]
-            )
+            app.include_router(version_router, prefix="/api/afnor", tags=[f"afnor-{version}"])
     app.include_router(
         invoice_routings_router,
         prefix="/api/ihm/invoice-routings",

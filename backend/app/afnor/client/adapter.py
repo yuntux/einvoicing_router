@@ -42,17 +42,22 @@ def _capture_last_exchange_headers(session):
 
 
 class AfnorClientAdapter:
-    """Une instance vit pour la durée du process (cache de session en mémoire, par
-    entreprise) — le cache de jeton lui-même est persisté en base
-    (`Company.certified_platform_token_cache`) pour survivre à un redémarrage."""
-
-    def __init__(self) -> None:
-        self._sessions: dict[int, object] = {}
+    """Reconstruit une session `pyfrctc` à chaque appel plutôt que de la garder en
+    cache mémoire pour la durée du process : `core.get_session` lit déjà le jeton
+    depuis `Company.certified_platform_token_cache` (persisté en base, survit à un
+    redémarrage) et ne fait un vrai aller-retour réseau que s'il est expiré — pas de
+    coût réel à l'appeler à chaque fois. Un cache en mémoire d'un objet
+    `OAuth2Session` déjà construit, lui, retient un jeton figé au moment de sa
+    création : passé son expiration (~1h), toute requête ultérieure déclenche le
+    rafraîchissement automatique de `requests_oauthlib`, qui n'a — pour le grant
+    `client_credentials` — jamais reçu `client_id`/`client_secret` (`pyfrctc` gère
+    l'expiration lui-même en amont, cf. commentaire dans `_get_session_client_
+    credentials` : "we can't use OAuth2Session() to automate the retreival of a new
+    access_token"), d'où un rafraîchissement sans identifiants envoyé à SuperPDP
+    ("Client credentials missing or malformed") — régression constatée en presque
+    une heure d'inactivité du process sur une même entreprise."""
 
     def _get_or_build_session(self, db: Session, company: Company):
-        if company.id in self._sessions:
-            return self._sessions[company.id]
-
         application = certified_platform_credentials_service.get_credentials_application(
             db, company_id=company.id
         )
@@ -81,7 +86,6 @@ class AfnorClientAdapter:
             client_id=application.certified_platform_client_id,
             client_secret=client_secret,
         )
-        self._sessions[company.id] = session
         return session
 
     def get_client_for_company(self, db: Session, company: Company) -> PyfrctcCertifiedPlatformClient:
@@ -147,7 +151,14 @@ class AfnorClientAdapter:
         correlation_id: str | None = None,
     ) -> dict:
         """Émission d'une facture (proxy Odoo -> SuperPDP, § 4.4) — tracée, jamais
-        stockée en base (les factures émises ne sont pas indexées, § 4.1)."""
+        stockée en base (les factures émises ne sont pas indexées, § 4.1).
+
+        `core.send_flow` (brut), pas `_parsed` : ce dernier ajoute des clés
+        pythonic supplémentaires (`submitted_at`/`updated_at`/`state`...) absentes
+        du schéma `FullFlowInfo` du contrat AFNOR — additives seulement (jamais de
+        clé du contrat perdue ni renommée, contrairement au bug corrigé sur
+        `lookup_directory_siren`/`siret`), mais un consommateur (Odoo) doit recevoir
+        exactement la réponse `POST /afnor-flow/flows` telle que SuperPDP l'a émise."""
         session = self._get_or_build_session(db, company)
         return self._send_flow_and_trace(
             db,
@@ -159,7 +170,7 @@ class AfnorClientAdapter:
             },
             afnor_api_version=afnor_api_version,
             correlation_id=correlation_id,
-            send=lambda: core.send_flow_parsed(session, file_bin, filename, flow_syntax, processing_rule),
+            send=lambda: core.send_flow(session, file_bin, filename, flow_syntax, processing_rule),
         )
 
     def send_cdar(
@@ -186,7 +197,7 @@ class AfnorClientAdapter:
             request_payload={"filename": filename},
             afnor_api_version=afnor_api_version,
             correlation_id=correlation_id,
-            send=lambda: core.send_flow_parsed(session, cdar_bytes, filename, "CDAR", "NotApplicable"),
+            send=lambda: core.send_flow(session, cdar_bytes, filename, "CDAR", "NotApplicable"),
         )
 
     def get_flow_document(
@@ -248,13 +259,16 @@ class AfnorClientAdapter:
         *,
         request_payload: dict,
         afnor_api_version: str,
-        lookup: Callable[[], dict],
-    ) -> dict:
-        """Appelle `lookup` (une consultation d'annuaire pyfrctc) et trace l'échange
-        (`router_to_superpdp`, NF1) — factorise `lookup_directory_siren`/
-        `lookup_directory_siret`, identiques hormis l'appel pyfrctc et le contenu de
-        `request_payload` (à l'image de `_send_flow_and_trace` pour `send_invoice`/
-        `send_cdar`)."""
+        lookup: Callable[[], dict | bool],
+    ) -> dict | bool:
+        """Appelle `lookup` (une consultation d'annuaire pyfrctc, § brut — pas
+        `_parsed`, cf. `lookup_directory_siren`/`lookup_directory_siret`) et trace
+        l'échange (`router_to_superpdp`, NF1) — factorise les deux, identiques hormis
+        l'appel pyfrctc et le contenu de `request_payload` (à l'image de
+        `_send_flow_and_trace` pour `send_invoice`/`send_cdar`). `lookup` renvoie
+        `False` (pas une exception) quand SuperPDP répond 404/NOT_FOUND — reflété ici
+        par `http_status=404` dans la trace, à charge de l'appelant (`_common.py`) de
+        traduire ça en une vraie 404 HTTP plutôt que de renvoyer `false` en JSON."""
         with _capture_last_exchange_headers(session) as headers:
             result = lookup()
             audit_trace_service.record_flow_trace(
@@ -262,8 +276,8 @@ class AfnorClientAdapter:
                 direction="router_to_superpdp",
                 afnor_api_version=afnor_api_version,
                 request=request_payload,
-                response=result,
-                http_status=200,
+                response=result if result is not False else {"found": False},
+                http_status=200 if result is not False else 404,
                 request_headers=headers["request"],
                 response_headers=headers["response"],
             )
@@ -271,26 +285,37 @@ class AfnorClientAdapter:
 
     def lookup_directory_siren(
         self, db: Session, *, company: Company, siren: str, afnor_api_version: str = "v1"
-    ) -> dict:
+    ) -> dict | bool:
+        """Résultat BRUT de SuperPDP (`pyfrctc.get_directory_siren`, pas `_parsed`) :
+        ce proxy doit relayer exactement la forme du contrat AFNOR (clés `siren`/
+        `businessName`/`entityType`/`administrativeStatus`...) — un consommateur
+        (Odoo `l10n_fr_einvoicing`) appelle lui-même `get_directory_siren_parsed`
+        *sur la réponse de ce endpoint*, laquelle réinterprète ces clés brutes ; lui
+        renvoyer une forme déjà "parsée" (`name`/`closed`/`entity_type`) fait
+        disparaître silencieusement `entityType`, que `_parsed` retombe alors sur
+        "no" — d'où un partenaire pourtant bien réel signalé comme absent de
+        l'annuaire côté Odoo, malgré une entreprise trouvée côté SuperPDP."""
         session = self._get_or_build_session(db, company)
         return self._lookup_directory_and_trace(
             db,
             session,
             request_payload={"siren": siren},
             afnor_api_version=afnor_api_version,
-            lookup=lambda: core.get_directory_siren_parsed(session, siren),
+            lookup=lambda: core.get_directory_siren(session, siren),
         )
 
     def lookup_directory_siret(
         self, db: Session, *, company: Company, siret: str, afnor_api_version: str = "v1"
-    ) -> dict:
+    ) -> dict | bool:
+        """Symétrique de `lookup_directory_siren` pour un SIRET — même raison de
+        rester sur le résultat brut (`get_directory_siret`, pas `_parsed`)."""
         session = self._get_or_build_session(db, company)
         return self._lookup_directory_and_trace(
             db,
             session,
             request_payload={"siret": siret},
             afnor_api_version=afnor_api_version,
-            lookup=lambda: core.get_directory_siret_parsed(session, siret),
+            lookup=lambda: core.get_directory_siret(session, siret),
         )
 
     def raw_passthrough(

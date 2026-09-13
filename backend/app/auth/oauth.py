@@ -193,8 +193,13 @@ class _RouterAuthorizationServer(_AuthorizationServer):
 
 
 class _ClientCredentialsGrant(ClientCredentialsGrant):
-    # Odoo transmet client_id/client_secret dans le corps du formulaire (§ 4.10),
-    # pas via l'en-tête Authorization Basic (seule méthode par défaut d'Authlib).
+    # `client_secret_post` seulement ici : un éventuel `Authorization: Basic` entrant
+    # (RFC 6749 § 2.3.1 — c'est en réalité ce qu'envoie par défaut
+    # `requests_oauthlib.OAuth2Session.fetch_token`, utilisé tel quel par
+    # `pyfrctc.get_session`/Odoo `l10n_fr_einvoicing`) est déjà normalisé en
+    # `client_id`/`client_secret` de formulaire par la route FastAPI avant d'appeler
+    # `issue_token_response` (cf. `app/api/afnor/v1.py`) — Authlib ne voit donc jamais
+    # que du `client_secret_post`.
     TOKEN_ENDPOINT_AUTH_METHODS = ["client_secret_post"]
 
 

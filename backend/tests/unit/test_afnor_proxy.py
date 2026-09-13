@@ -40,7 +40,7 @@ def _make_oauth_app(db, company, client_secret="s3cret-value"):
 
 def _token(client, oauth_app, secret):
     response = client.post(
-        "/api/afnor/v1/oauth/token",
+        "/api/afnor/oauth/token",
         data={"grant_type": "client_credentials", "client_id": oauth_app.client_id, "client_secret": secret},
     )
     assert response.status_code == 200
@@ -49,7 +49,7 @@ def _token(client, oauth_app, secret):
 
 def _post_flow(client, token, *, flow_info: dict, content: bytes = b"<invoice/>", filename="invoice.xml"):
     return client.post(
-        "/api/afnor/v1/afnor-flow/flows",
+        "/api/afnor/afnor-flow/v1/flows",
         headers={"Authorization": f"Bearer {token}"},
         data={"flowInfo": json.dumps(flow_info)},
         files={"file": (filename, content, "application/xml")},
@@ -123,7 +123,7 @@ def test_create_flow_cdar_proxies_and_traces(client, db_session):
 
 def test_create_flow_rejects_missing_token(client, db_session):
     response = client.post(
-        "/api/afnor/v1/afnor-flow/flows",
+        "/api/afnor/afnor-flow/v1/flows",
         data={"flowInfo": json.dumps({"flowSyntax": "Factur-X", "name": "invoice.xml"})},
         files={"file": ("invoice.xml", b"<invoice/>", "application/xml")},
     )
@@ -136,7 +136,7 @@ def test_create_flow_rejects_invalid_flow_info(client, db_session):
     token = _token(client, oauth_app, "secret-x")
 
     response = client.post(
-        "/api/afnor/v1/afnor-flow/flows",
+        "/api/afnor/afnor-flow/v1/flows",
         headers={"Authorization": f"Bearer {token}"},
         data={"flowInfo": json.dumps({"flowSyntax": "NotAValidSyntax", "name": "invoice.xml"})},
         files={"file": ("invoice.xml", b"<invoice/>", "application/xml")},
@@ -160,7 +160,7 @@ def test_lookup_directory_proxies_and_traces_without_creating_partner(client, db
             "entity_type": "private",
         }
         response = client.get(
-            "/api/afnor/v1/afnor-directory/siren/code-insee:999999999",
+            "/api/afnor/afnor-directory/v1/siren/code-insee:999999999",
             headers={"Authorization": f"Bearer {token}"},
         )
 
@@ -188,6 +188,25 @@ def test_lookup_directory_proxies_and_traces_without_creating_partner(client, db
     assert len(odoo_traces) == 1
 
 
+def test_lookup_directory_siren_not_found_returns_404_not_a_false_json_body(client, db_session):
+    """`pyfrctc.get_directory_siren` renvoie `False` (jamais une exception) sur un
+    404/NOT_FOUND SuperPDP — le proxy doit refléter un vrai 404 HTTP, pas un corps
+    JSON `false` : le propre `get_directory_siren` du consommateur (Odoo `pyfrctc`)
+    ferait planter son parsing (`siren_dict.get(...)` sur `False`) sinon."""
+    company = _make_company(db_session)
+    oauth_app = _make_oauth_app(db_session, company, client_secret="secret-5")
+    token = _token(client, oauth_app, "secret-5")
+
+    with patch("app.afnor.client.adapter.afnor_client_adapter.lookup_directory_siren") as mock_lookup:
+        mock_lookup.return_value = False
+        response = client.get(
+            "/api/afnor/afnor-directory/v1/siren/code-insee:999999999",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 404
+
+
 def test_lookup_directory_superpdp_failure_returns_502(client, db_session):
     company = _make_company(db_session)
     oauth_app = _make_oauth_app(db_session, company, client_secret="secret-4")
@@ -196,7 +215,7 @@ def test_lookup_directory_superpdp_failure_returns_502(client, db_session):
     with patch("app.afnor.client.adapter.afnor_client_adapter.lookup_directory_siren") as mock_lookup:
         mock_lookup.side_effect = RuntimeError("unreachable")
         response = client.get(
-            "/api/afnor/v1/afnor-directory/siren/code-insee:999999999",
+            "/api/afnor/afnor-directory/v1/siren/code-insee:999999999",
             headers={"Authorization": f"Bearer {token}"},
         )
 
