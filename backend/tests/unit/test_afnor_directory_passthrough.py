@@ -53,7 +53,7 @@ def _make_oauth_app(db, company, client_secret="s3cret-value"):
 
 def _token(client, oauth_app, secret):
     response = client.post(
-        "/api/afnor/v1/oauth/token",
+        "/api/afnor/oauth/token",
         data={"grant_type": "client_credentials", "client_id": oauth_app.client_id, "client_secret": secret},
     )
     assert response.status_code == 200
@@ -75,22 +75,22 @@ def _fake_response(status_code: int, json_body: dict | list | None):
 # passe par le wrapper `pyfrctc` dédié (comme `GET /siren/code-insee:...`) et est
 # donc testé séparément ci-dessous (`test_lookup_siret_*`), avec un mock différent.
 PASSTHROUGH_ENDPOINTS = [
-    ("POST", "/api/afnor/v1/afnor-directory/siren/search", {"where": {"siren": {"op": "strict", "value": "702042755"}}}),
-    ("POST", "/api/afnor/v1/afnor-directory/siret/search", {"where": {}}),
+    ("POST", "/api/afnor/afnor-directory/v1/siren/search", {"where": {"siren": {"op": "strict", "value": "702042755"}}}),
+    ("POST", "/api/afnor/afnor-directory/v1/siret/search", {"where": {}}),
     (
         "GET",
-        "/api/afnor/v1/afnor-directory/routing-code/siret:70204275500240/code:702042755",
+        "/api/afnor/afnor-directory/v1/routing-code/siret:70204275500240/code:702042755",
         None,
     ),
-    ("POST", "/api/afnor/v1/afnor-directory/routing-code/search", {"where": {}}),
+    ("POST", "/api/afnor/afnor-directory/v1/routing-code/search", {"where": {}}),
     (
         "GET",
-        "/api/afnor/v1/afnor-directory/directory-line/code:dcsc456sdcsdcs556",
+        "/api/afnor/afnor-directory/v1/directory-line/code:dcsc456sdcsdcs556",
         None,
     ),
-    ("POST", "/api/afnor/v1/afnor-directory/directory-line/search", {"where": {}}),
-    ("GET", "/api/afnor/v1/afnor-flow/healthcheck", None),
-    ("GET", "/api/afnor/v1/afnor-directory/healthcheck", None),
+    ("POST", "/api/afnor/afnor-directory/v1/directory-line/search", {"where": {}}),
+    ("GET", "/api/afnor/afnor-flow/v1/healthcheck", None),
+    ("GET", "/api/afnor/afnor-directory/v1/healthcheck", None),
 ]
 
 
@@ -227,7 +227,7 @@ def test_lookup_siret_uses_pyfrctc_wrapper_without_creating_partner(client, db_s
     with patch("app.afnor.client.adapter.afnor_client_adapter.lookup_directory_siret") as mock_lookup:
         mock_lookup.return_value = {"siret": "70204275500240", "name": "Tiers"}
         response = client.get(
-            "/api/afnor/v1/afnor-directory/siret/code-insee:70204275500240",
+            "/api/afnor/afnor-directory/v1/siret/code-insee:70204275500240",
             headers={"Authorization": f"Bearer {token}"},
         )
 
@@ -249,7 +249,7 @@ def test_lookup_siret_superpdp_failure_returns_502(client, db_session):
     with patch("app.afnor.client.adapter.afnor_client_adapter.lookup_directory_siret") as mock_lookup:
         mock_lookup.side_effect = RuntimeError("unreachable")
         response = client.get(
-            "/api/afnor/v1/afnor-directory/siret/code-insee:70204275500240",
+            "/api/afnor/afnor-directory/v1/siret/code-insee:70204275500240",
             headers={"Authorization": f"Bearer {token}"},
         )
 

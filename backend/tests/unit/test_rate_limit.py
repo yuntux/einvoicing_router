@@ -44,10 +44,10 @@ def test_oauth_token_endpoint_is_rate_limited(client, db_session, monkeypatch):
         "client_secret": "wrong-secret",
     }
     for _ in range(3):
-        response = client.post("/api/afnor/v1/oauth/token", data=data)
+        response = client.post("/api/afnor/oauth/token", data=data)
         assert response.status_code == 400  # invalid_client, requête acceptée
 
-    response = client.post("/api/afnor/v1/oauth/token", data=data)
+    response = client.post("/api/afnor/oauth/token", data=data)
     assert response.status_code == 429
 
 
@@ -86,8 +86,8 @@ def test_rate_limit_is_per_client_ip(client, db_session, monkeypatch):
         "client_secret": "wrong-secret",
     }
     for _ in range(2):
-        assert client.post("/api/afnor/v1/oauth/token", data=data).status_code == 400
-    assert client.post("/api/afnor/v1/oauth/token", data=data).status_code == 429
+        assert client.post("/api/afnor/oauth/token", data=data).status_code == 400
+    assert client.post("/api/afnor/oauth/token", data=data).status_code == 429
 
     # Le budget de `ihm_login` est indépendant de celui de `oauth_token`.
     response = client.get(

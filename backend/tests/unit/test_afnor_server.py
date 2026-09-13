@@ -72,7 +72,7 @@ def test_token_issuance_success(client, db_session):
     oauth_app = _make_oauth_app(db_session, company, client_secret="s3cret-value")
 
     response = client.post(
-        "/api/afnor/v1/oauth/token",
+        "/api/afnor/oauth/token",
         data={
             "grant_type": "client_credentials",
             "client_id": oauth_app.client_id,
@@ -92,12 +92,35 @@ def test_token_issuance_success(client, db_session):
     assert traces[0].direction == "odoo_to_router"
 
 
+def test_token_issuance_accepts_client_secret_basic(client, db_session):
+    """`requests_oauthlib.OAuth2Session.fetch_token(client_id=..., client_secret=...)`
+    envoie les identifiants via `Authorization: Basic` par défaut (RFC 6749 § 2.3.1)
+    — c'est ce que fait réellement `pyfrctc.get_session`/Odoo `l10n_fr_einvoicing`
+    pour s'authentifier auprès de ce routeur, pas `client_secret_post` (§ 4.10) :
+    régression, Odoo recevait "(missing_token) Missing access token parameter" car
+    cette requête échouait silencieusement (422, champs absents du formulaire)."""
+    import base64
+
+    company = _make_company(db_session)
+    oauth_app = _make_oauth_app(db_session, company, client_secret="s3cret-value")
+
+    credentials = base64.b64encode(f"{oauth_app.client_id}:s3cret-value".encode()).decode()
+    response = client.post(
+        "/api/afnor/oauth/token",
+        data={"grant_type": "client_credentials"},
+        headers={"Authorization": f"Basic {credentials}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["access_token"]
+
+
 def test_token_issuance_wrong_secret(client, db_session):
     company = _make_company(db_session)
     oauth_app = _make_oauth_app(db_session, company, client_secret="s3cret-value")
 
     response = client.post(
-        "/api/afnor/v1/oauth/token",
+        "/api/afnor/oauth/token",
         data={
             "grant_type": "client_credentials",
             "client_id": oauth_app.client_id,
@@ -114,7 +137,7 @@ def test_token_issuance_wrong_secret(client, db_session):
 
 def test_token_issuance_unknown_client(client, db_session):
     response = client.post(
-        "/api/afnor/v1/oauth/token",
+        "/api/afnor/oauth/token",
         data={
             "grant_type": "client_credentials",
             "client_id": "unknown-client",
@@ -131,7 +154,7 @@ def test_token_issuance_wrong_grant_type(client, db_session):
     oauth_app = _make_oauth_app(db_session, company, client_secret="s3cret-value")
 
     response = client.post(
-        "/api/afnor/v1/oauth/token",
+        "/api/afnor/oauth/token",
         data={
             "grant_type": "authorization_code",
             "client_id": oauth_app.client_id,
@@ -144,7 +167,7 @@ def test_token_issuance_wrong_grant_type(client, db_session):
 
 def _authenticate(client, oauth_app, secret):
     response = client.post(
-        "/api/afnor/v1/oauth/token",
+        "/api/afnor/oauth/token",
         data={
             "grant_type": "client_credentials",
             "client_id": oauth_app.client_id,
@@ -157,7 +180,7 @@ def _authenticate(client, oauth_app, secret):
 
 def _search_flows(client, token):
     return client.post(
-        "/api/afnor/v1/afnor-flow/flows/search",
+        "/api/afnor/afnor-flow/v1/flows/search",
         json={"where": {}},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -226,13 +249,13 @@ def test_search_flows_no_target_returns_empty(client, db_session):
 
 
 def test_search_flows_rejects_missing_token(client, db_session):
-    response = client.post("/api/afnor/v1/afnor-flow/flows/search", json={"where": {}})
+    response = client.post("/api/afnor/afnor-flow/v1/flows/search", json={"where": {}})
     assert response.status_code == 401
 
 
 def test_search_flows_rejects_invalid_token(client, db_session):
     response = client.post(
-        "/api/afnor/v1/afnor-flow/flows/search",
+        "/api/afnor/afnor-flow/v1/flows/search",
         json={"where": {}},
         headers={"Authorization": "Bearer not-a-real-token"},
     )
@@ -248,7 +271,7 @@ def test_get_flow_metadata_scoped_to_consumer(client, db_session):
     token = _authenticate(client, target, "secret-1")
 
     response = client.get(
-        "/api/afnor/v1/afnor-flow/flows/flow-x", headers={"Authorization": f"Bearer {token}"}
+        "/api/afnor/afnor-flow/v1/flows/flow-x", headers={"Authorization": f"Bearer {token}"}
     )
 
     assert response.status_code == 200
@@ -261,7 +284,7 @@ def test_get_flow_metadata_unknown_flow_returns_404(client, db_session):
     token = _authenticate(client, oauth_app, "secret-1")
 
     response = client.get(
-        "/api/afnor/v1/afnor-flow/flows/does-not-exist",
+        "/api/afnor/afnor-flow/v1/flows/does-not-exist",
         headers={"Authorization": f"Bearer {token}"},
     )
 
@@ -288,7 +311,7 @@ def test_get_flow_converted_doctype_relayed_to_certified_platform(client, db_ses
     )
 
     response = client.get(
-        "/api/afnor/v1/afnor-flow/flows/flow-y",
+        "/api/afnor/afnor-flow/v1/flows/flow-y",
         params={"docType": "Converted"},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -312,7 +335,7 @@ def test_get_flow_converted_doctype_still_scoped_to_consumer(client, db_session,
     monkeypatch.setattr(adapter_module.afnor_client_adapter, "get_flow_document", _fail_if_called)
 
     response = client.get(
-        "/api/afnor/v1/afnor-flow/flows/does-not-exist",
+        "/api/afnor/afnor-flow/v1/flows/does-not-exist",
         params={"docType": "ReadableView"},
         headers={"Authorization": f"Bearer {token}"},
     )

@@ -9,7 +9,10 @@ métier communes à toute future version (`POST /flows`, `POST /flows/search`,
 `_common.py` ; seule `/oauth/token` (infrastructure non versionnée, § 4.10) est
 propre à ce module."""
 
-from fastapi import APIRouter, Depends, Form, Request, Response
+import base64
+import binascii
+
+from fastapi import APIRouter, Depends, Form, Header, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from app.afnor.versioning.registry import register_version
@@ -25,17 +28,47 @@ router = APIRouter()
 register_common_routes(router, AFNOR_API_VERSION)
 
 
+def _client_credentials_from_basic_auth(authorization: str | None) -> tuple[str, str] | None:
+    """RFC 6749 § 2.3.1 recommande `client_secret_basic` (en-tête `Authorization:
+    Basic base64(client_id:client_secret)`) — et c'est en réalité ce qu'envoie
+    `requests_oauthlib.OAuth2Session.fetch_token(client_id=..., client_secret=...)`
+    par défaut (utilisé tel quel par `pyfrctc.get_session`, donc par Odoo
+    `l10n_fr_einvoicing` pour s'authentifier auprès de ce routeur), pas
+    `client_secret_post` comme supposé initialement (§ 4.10) — d'où le
+    "(missing_token) Missing access token parameter" côté Odoo : sa requête de jeton
+    échouait silencieusement (422, `client_id`/`client_secret` absents du corps)."""
+    if not authorization or not authorization.startswith("Basic "):
+        return None
+    try:
+        decoded = base64.b64decode(authorization.removeprefix("Basic ")).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=401, detail="Invalid Basic authorization header") from exc
+    if ":" not in decoded:
+        raise HTTPException(status_code=401, detail="Invalid Basic authorization header")
+    client_id, _, client_secret = decoded.partition(":")
+    return client_id, client_secret
+
+
 @router.post("/oauth/token", dependencies=[Depends(rate_limit(scope="oauth_token"))])
 def issue_token(
     request: Request,
     response: Response,
     grant_type: str = Form(...),
-    client_id: str = Form(...),
-    client_secret: str = Form(...),
+    client_id: str | None = Form(default=None),
+    client_secret: str | None = Form(default=None),
+    authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ):
     """Conformité RFC 6749 (authentification client, validation du grant, erreurs
-    normalisées) déléguée à Authlib — cf. `app.auth.oauth.issue_token_response`."""
+    normalisées) déléguée à Authlib — cf. `app.auth.oauth.issue_token_response`.
+    `client_id`/`client_secret` : `client_secret_basic` (en-tête `Authorization`) si
+    présent, sinon `client_secret_post` (corps du formulaire, § 4.10)."""
+    from_basic_auth = _client_credentials_from_basic_auth(authorization)
+    if from_basic_auth is not None:
+        client_id, client_secret = from_basic_auth
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=400, detail="Missing client_id/client_secret")
+
     status_code, body = issue_token_response(
         db, grant_type=grant_type, client_id=client_id, client_secret=client_secret
     )

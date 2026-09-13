@@ -52,7 +52,7 @@ def test_lookup_directory_siren_captures_and_redacts_headers(db_session):
     with (
         patch.object(adapter, "_get_or_build_session", return_value=session),
         patch(
-            "app.afnor.client.adapter.core.get_directory_siren_parsed",
+            "app.afnor.client.adapter.core.get_directory_siren",
             side_effect=fake_get_directory_siren_parsed,
         ),
     ):
@@ -240,6 +240,37 @@ def test_get_flow_document_captures_headers_and_traces_size_not_bytes(db_session
     assert trace.response_headers == {"Content-Type": "application/pdf"}
 
 
+def test_lookup_directory_siren_relays_the_raw_shape_not_parsed(db_session):
+    """`lookup_directory_siren` doit appeler `pyfrctc.get_directory_siren` (brut :
+    clés `entityType`/`administrativeStatus`/`businessName`), pas `_parsed` : ce
+    proxy sert de "SuperPDP" pour un consommateur (Odoo `l10n_fr_einvoicing`) qui
+    appelle LUI-MÊME `get_directory_siren_parsed` sur la réponse reçue — laquelle
+    attend ces clés brutes du contrat. Relayer une forme déjà "parsée" fait
+    disparaître `entityType`, que `_parsed` réinterprète alors comme "no" (absent de
+    l'annuaire) même pour une entreprise bien réelle et trouvée côté SuperPDP —
+    régression constatée avec un vrai SIREN actif signalé à tort comme absent."""
+    company = _make_company(db_session)
+    session = _fake_session_firing(request_headers={}, response_headers={})
+    adapter = AfnorClientAdapter()
+
+    raw_shape = {
+        "siren": "123456782",
+        "businessName": "ACME",
+        "entityType": "PrivateVatRegistered",
+        "administrativeStatus": "A",
+    }
+    with (
+        patch.object(adapter, "_get_or_build_session", return_value=session),
+        patch("app.afnor.client.adapter.core.get_directory_siren", return_value=raw_shape) as mock_get,
+        patch("app.afnor.client.adapter.core.get_directory_siren_parsed") as mock_get_parsed,
+    ):
+        result = adapter.lookup_directory_siren(db_session, company=company, siren="123456782")
+
+    mock_get.assert_called_once()
+    mock_get_parsed.assert_not_called()
+    assert result == raw_shape
+
+
 def test_no_headers_captured_when_session_never_fires(db_session):
     """Si aucun appel HTTP n'a lieu (ex. réponse déjà en cache), les colonnes headers
     restent `None` plutôt que de fausses valeurs."""
@@ -250,7 +281,7 @@ def test_no_headers_captured_when_session_never_fires(db_session):
     with (
         patch.object(adapter, "_get_or_build_session", return_value=session),
         patch(
-            "app.afnor.client.adapter.core.get_directory_siren_parsed",
+            "app.afnor.client.adapter.core.get_directory_siren",
             return_value={"siren": "123456782"},
         ),
     ):

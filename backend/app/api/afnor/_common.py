@@ -93,6 +93,24 @@ async def read_upload_capped(file: UploadFile, *, max_bytes: int | None = None) 
 
 
 def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
+    # Le vrai contrat AFNOR place le numéro de version APRÈS le nom du service
+    # (`.../afnor-flow/v1/...`, `.../afnor-directory/v1/...` — cf. `pyfrctc.PLATFORMS`
+    # et `send_flow`/`get_directory_siren`, qui construisent l'URL ainsi), jamais
+    # comme préfixe global avant les deux services. `app.main` monte ce router sous
+    # `/api/afnor` (sans version), donc les chemins ci-dessous doivent l'inclure
+    # eux-mêmes à la bonne position pour qu'un client `pyfrctc` inchangé (ou tout
+    # client suivant le même contrat, ex. un consommateur Odoo `l10n_fr_einvoicing`)
+    # pointé sur `afnor_base_url=".../api/afnor"` retrouve exactement les mêmes URLs
+    # que contre le vrai SuperPDP — un ancien préfixe `/api/afnor/{version}` plaçait
+    # la version AVANT le nom du service, incompatible avec ce que `pyfrctc` reconstruit
+    # lui-même (§ incident : 404 sur `.../afnor-directory/v1/siren/...` avec la version
+    # dupliquée/mal placée).
+    flows_path = f"/afnor-flow/{afnor_api_version}/flows"
+    flows_search_path = f"/afnor-flow/{afnor_api_version}/flows/search"
+    flows_healthcheck_path = f"/afnor-flow/{afnor_api_version}/healthcheck"
+    lookup_siren_path = f"/afnor-directory/{afnor_api_version}/siren/code-insee:{{siren}}"
+    lookup_siret_path = f"/afnor-directory/{afnor_api_version}/siret/code-insee:{{siret}}"
+
     def passthrough(
         request: Request,
         oauth_app: TargetApplication,
@@ -142,7 +160,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
 
     # ---------------------------------------------------------------- Flow Service
 
-    @router.post(_FLOWS_PATH, status_code=202)
+    @router.post(flows_path, status_code=202)
     async def create_flow(
         request: Request,
         file: UploadFile,
@@ -208,7 +226,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
         )
 
     @router.post(
-        _FLOWS_SEARCH_PATH,
+        flows_search_path,
         response_model=SearchFlowContentOut,
         response_model_exclude_none=True,
     )
@@ -239,7 +257,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
         )
         return SearchFlowContentOut(results=results, filters=params.where, limit=params.limit)
 
-    @router.get("/afnor-flow/flows/{flow_id}")
+    @router.get(f"/afnor-flow/{afnor_api_version}/flows/{{flow_id}}")
     def get_flow(
         flow_id: str,
         request: Request,
@@ -310,7 +328,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             content=flow.model_dump_json(exclude_none=True), media_type="application/json"
         )
 
-    @router.get("/afnor-flow/healthcheck")
+    @router.get(flows_healthcheck_path)
     def flow_healthcheck(
         request: Request,
         oauth_app: TargetApplication = Depends(get_current_target_application),
@@ -327,7 +345,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
 
     # ----------------------------------------------------------- Directory Service
 
-    @router.get(_LOOKUP_SIREN_PATH)
+    @router.get(lookup_siren_path)
     def lookup_siren(
         siren: str,
         request: Request,
@@ -339,16 +357,36 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
         consulté par Odoo concerne ses propres clients, pas les fournisseurs dont le
         routeur gère le routage (§ 4.3).
 
-        Limite connue : passe par le wrapper `pyfrctc.get_directory_siren_parsed`
-        (validation SIREN incluse), qui ne relaie pas les paramètres `fields`/
+        Limite connue : passe par le wrapper `pyfrctc.get_directory_siren` (brut,
+        validation SIREN incluse), qui ne relaie pas les paramètres `fields`/
         `include` du contrat — contrairement aux autres endpoints de ce module, qui
-        utilisent `raw_passthrough` et les transmettent tels quels."""
+        utilisent `raw_passthrough` et les transmettent tels quels. Brut et non
+        `_parsed` (cf. `AfnorClientAdapter.lookup_directory_siren`) : un consommateur
+        appelle lui-même `get_directory_siren_parsed` sur CE que ce endpoint renvoie,
+        laquelle attend les clés brutes du contrat (`entityType`/
+        `administrativeStatus`/`businessName`), pas une forme déjà réinterprétée."""
         company = company_for(db, oauth_app)
         result = call_certified_platform(
             lambda: afnor_client_adapter.lookup_directory_siren(
                 db, company=company, siren=siren, afnor_api_version=afnor_api_version
             )
         )
+        if result is False:
+            # Reflète la réponse 404/NOT_FOUND réelle de SuperPDP (`pyfrctc.
+            # get_directory_siren` avale déjà ce cas en renvoyant `False` plutôt que
+            # de lever) — un `consommateur` (Odoo) doit voir un vrai 404, jamais un
+            # corps JSON `false` qui ferait planter son propre parsing de la réponse.
+            audit_trace_service.record_odoo_flow_trace(
+                db,
+                request,
+                afnor_api_version=afnor_api_version,
+                endpoint=f"GET {_LOOKUP_SIREN_PATH}",
+                siren=siren,
+                client_id=oauth_app.client_id,
+                response={"errorCode": "NOT_FOUND"},
+                http_status=404,
+            )
+            raise HTTPException(status_code=404, detail={"errorCode": "NOT_FOUND"})
         audit_trace_service.record_odoo_flow_trace(
             db,
             request,
@@ -361,7 +399,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
         )
         return result
 
-    @router.post("/afnor-directory/siren/search")
+    @router.post(f"/afnor-directory/{afnor_api_version}/siren/search")
     def search_siren(
         body: dict,
         request: Request,
@@ -378,7 +416,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             json_body=body,
         )
 
-    @router.get(_LOOKUP_SIRET_PATH)
+    @router.get(lookup_siret_path)
     def lookup_siret(
         siret: str,
         request: Request,
@@ -394,6 +432,18 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
                 db, company=company, siret=siret, afnor_api_version=afnor_api_version
             )
         )
+        if result is False:
+            audit_trace_service.record_odoo_flow_trace(
+                db,
+                request,
+                afnor_api_version=afnor_api_version,
+                endpoint=f"GET {_LOOKUP_SIRET_PATH}",
+                siret=siret,
+                client_id=oauth_app.client_id,
+                response={"errorCode": "NOT_FOUND"},
+                http_status=404,
+            )
+            raise HTTPException(status_code=404, detail={"errorCode": "NOT_FOUND"})
         audit_trace_service.record_odoo_flow_trace(
             db,
             request,
@@ -406,7 +456,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
         )
         return result
 
-    @router.post("/afnor-directory/siret/search")
+    @router.post(f"/afnor-directory/{afnor_api_version}/siret/search")
     def search_siret(
         body: dict,
         request: Request,
@@ -423,7 +473,9 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             json_body=body,
         )
 
-    @router.get("/afnor-directory/routing-code/siret:{siret}/code:{routing_identifier}")
+    @router.get(
+        f"/afnor-directory/{afnor_api_version}/routing-code/siret:{{siret}}/code:{{routing_identifier}}"
+    )
     def lookup_routing_code(
         siret: str,
         routing_identifier: str,
@@ -442,7 +494,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             extra_trace_fields={"siret": siret, "routing_identifier": routing_identifier},
         )
 
-    @router.post("/afnor-directory/routing-code/search")
+    @router.post(f"/afnor-directory/{afnor_api_version}/routing-code/search")
     def search_routing_code(
         body: dict,
         request: Request,
@@ -459,7 +511,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             json_body=body,
         )
 
-    @router.get("/afnor-directory/directory-line/code:{addressing_identifier}")
+    @router.get(f"/afnor-directory/{afnor_api_version}/directory-line/code:{{addressing_identifier}}")
     def lookup_directory_line(
         addressing_identifier: str,
         request: Request,
@@ -478,7 +530,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             extra_trace_fields={"addressing_identifier": addressing_identifier},
         )
 
-    @router.post("/afnor-directory/directory-line/search")
+    @router.post(f"/afnor-directory/{afnor_api_version}/directory-line/search")
     def search_directory_line(
         body: dict,
         request: Request,
@@ -495,7 +547,7 @@ def register_common_routes(router: APIRouter, afnor_api_version: str) -> None:
             json_body=body,
         )
 
-    @router.get("/afnor-directory/healthcheck")
+    @router.get(f"/afnor-directory/{afnor_api_version}/healthcheck")
     def directory_healthcheck(
         request: Request,
         oauth_app: TargetApplication = Depends(get_current_target_application),

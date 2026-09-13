@@ -66,7 +66,7 @@ def _route(db, invoice, target):
 
 def _authenticate(client, oauth_app, secret):
     response = client.post(
-        "/api/afnor/v1/oauth/token",
+        "/api/afnor/oauth/token",
         data={"grant_type": "client_credentials", "client_id": oauth_app.client_id, "client_secret": secret},
     )
     assert response.status_code == 200
@@ -90,7 +90,7 @@ def test_search_flows_response_matches_search_flow_content_schema(client, db_ses
     token = _authenticate(client, oauth_app, "secret-contract")
 
     response = client.post(
-        "/api/afnor/v1/afnor-flow/flows/search",
+        "/api/afnor/afnor-flow/v1/flows/search",
         json={"where": {}},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -123,7 +123,7 @@ def test_search_flows_response_matches_schema_even_with_minimal_invoice_fields(c
     token = _authenticate(client, oauth_app, "secret-contract")
 
     response = client.post(
-        "/api/afnor/v1/afnor-flow/flows/search",
+        "/api/afnor/afnor-flow/v1/flows/search",
         json={"where": {}},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -137,7 +137,7 @@ def test_get_flow_metadata_response_matches_flow_schema(client, db_session):
     token = _authenticate(client, oauth_app, "secret-contract")
 
     response = client.get(
-        f"/api/afnor/v1/afnor-flow/flows/{invoice.certified_platform_flow_id}",
+        f"/api/afnor/afnor-flow/v1/flows/{invoice.certified_platform_flow_id}",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 200
