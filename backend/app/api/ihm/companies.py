@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -26,11 +28,23 @@ admin_router = APIRouter()
 
 
 @router.get("/lookup", response_model=list[CompanyLookup])
-def list_company_lookups(db: Session = Depends(get_db)) -> list[Company]:
-    """Référence minimale (id + nom), toutes entreprises confondues, sans filtrage de
-    périmètre : c'est une donnée non sensible utilisée pour l'affichage croisé sur
-    des pages accessibles à un utilisateur restreint (ex. Règles de routage)."""
-    return list(db.query(Company).order_by(Company.id).all())
+def list_company_lookups(
+    certified_platform_configured: bool = False, db: Session = Depends(get_db)
+) -> list[Company]:
+    """Référence minimale (id + nom), sans filtrage de périmètre : donnée non
+    sensible utilisée pour l'affichage croisé sur des pages accessibles à un
+    utilisateur restreint (ex. Règles de routage).
+
+    `certified_platform_configured=true` (§ écran Annuaire) : ne retourne que les
+    entreprises dont les identifiants SuperPDP ont été validés avec succès au moins
+    une fois (`certified_platform_connection_verified_at` renseigné) — la seule
+    présence de `certified_platform_client_id` ne suffit pas : des identifiants
+    bidon/jamais testés y satisferaient aussi, alors qu'une recherche annuaire avec
+    échouerait systématiquement (§ 4.10)."""
+    query = db.query(Company)
+    if certified_platform_configured:
+        query = query.filter(Company.certified_platform_connection_verified_at.isnot(None))
+    return list(query.order_by(Company.id).all())
 
 
 @admin_router.get("", response_model=list[CompanyRead])
@@ -151,6 +165,13 @@ def set_certified_platform_credentials(
         platform=payload.platform,
         actor_user_id=user.id if user else None,
     )
+    # Horodatage du test de connexion qui vient de réussir ci-dessus (§ modèle,
+    # `Company.certified_platform_connection_verified_at`) — pas dans
+    # `set_credentials` lui-même : cette fonction ne fait que persister des
+    # identifiants, sans jamais tester leur validité (les tests unitaires
+    # l'appellent directement sans test de connexion préalable).
+    application.certified_platform_connection_verified_at = datetime.utcnow()
+    db.commit()
     audit_trace_service.record_user_action(
         db, request, user, action="certified_platform_credentials_update", target=str(company_id)
     )

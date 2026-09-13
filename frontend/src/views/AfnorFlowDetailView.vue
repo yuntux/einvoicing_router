@@ -76,10 +76,10 @@ onMounted(async () => {
           </svg>
           Retour à la liste des factures
         </button>
-        <svg class="breadcrumb-sep" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 6l6 6-6 6" />
-        </svg>
         <button type="button" class="breadcrumb-link" data-testid="afnor-flow-back-to-invoice" @click="goToInvoice">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 6l-6 6 6 6" />
+          </svg>
           Retour à la facture {{ invoiceNumber }}
         </button>
       </nav>

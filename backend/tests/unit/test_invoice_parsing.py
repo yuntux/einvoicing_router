@@ -92,6 +92,62 @@ def test_parse_cii_extracts_business_fields():
     assert fields.type_code == "381"
 
 
+_CII_SAMPLE_LEGAL_ORGANIZATION_ONLY = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rsm:CrossIndustryInvoice xmlns:rsm="urn:un:unece:uncefact:data:standard:CrossIndustryInvoice:100"
+  xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100"
+  xmlns:udt="urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100">
+  <rsm:ExchangedDocumentContext>
+    <ram:GuidelineSpecifiedDocumentContextParameter>
+      <ram:ID>urn:cen.eu:en16931:2017</ram:ID>
+    </ram:GuidelineSpecifiedDocumentContextParameter>
+  </rsm:ExchangedDocumentContext>
+  <rsm:ExchangedDocument>
+    <ram:ID>F-2026-02</ram:ID>
+    <ram:TypeCode>380</ram:TypeCode>
+    <ram:IssueDateTime>
+      <udt:DateTimeString format="102">20260102</udt:DateTimeString>
+    </ram:IssueDateTime>
+  </rsm:ExchangedDocument>
+  <rsm:SupplyChainTradeTransaction>
+    <ram:ApplicableHeaderTradeAgreement>
+      <ram:SellerTradeParty>
+        <ram:Name>Fournisseur Sans GlobalID SAS</ram:Name>
+        <ram:SpecifiedLegalOrganization>
+          <ram:ID schemeID="0002">987654321</ram:ID>
+        </ram:SpecifiedLegalOrganization>
+        <ram:PostalTradeAddress><ram:CountryID>FR</ram:CountryID></ram:PostalTradeAddress>
+      </ram:SellerTradeParty>
+      <ram:BuyerTradeParty>
+        <ram:Name>Client Test</ram:Name>
+        <ram:PostalTradeAddress><ram:CountryID>FR</ram:CountryID></ram:PostalTradeAddress>
+      </ram:BuyerTradeParty>
+    </ram:ApplicableHeaderTradeAgreement>
+    <ram:ApplicableHeaderTradeDelivery/>
+    <ram:ApplicableHeaderTradeSettlement>
+      <ram:InvoiceCurrencyCode>EUR</ram:InvoiceCurrencyCode>
+      <ram:SpecifiedTradeSettlementHeaderMonetarySummation>
+        <ram:LineTotalAmount>1000.00</ram:LineTotalAmount>
+        <ram:TaxBasisTotalAmount>1000.00</ram:TaxBasisTotalAmount>
+        <ram:TaxTotalAmount currencyID="EUR">200.00</ram:TaxTotalAmount>
+        <ram:GrandTotalAmount>1200.00</ram:GrandTotalAmount>
+        <ram:DuePayableAmount>1200.00</ram:DuePayableAmount>
+      </ram:SpecifiedTradeSettlementHeaderMonetarySummation>
+    </ram:ApplicableHeaderTradeSettlement>
+  </rsm:SupplyChainTradeTransaction>
+</rsm:CrossIndustryInvoice>"""
+
+
+def test_parse_cii_falls_back_to_legal_organization_id_without_global_id():
+    """Régression : un émetteur sans `ram:GlobalID` (mais avec `ram:Specified
+    LegalOrganization/ram:ID`, cf. facture réelle `F20260913_011610_752`) donnait un
+    SIREN vide — la norme n'impose pas laquelle des deux localisations un émetteur
+    doit renseigner. Un SIREN vide fait ensuite échouer l'émission de CDAR
+    (BR-FR-CDV-13/MDT-129, "l'identifiant du vendeur... est obligatoire")."""
+    fields = parse_invoice_fields(_CII_SAMPLE_LEGAL_ORGANIZATION_ONLY, "CII")
+    assert fields.emitter_siren == "987654321"
+    assert fields.emitter_name == "Fournisseur Sans GlobalID SAS"
+
+
 def _build_facturx_pdf(cii_xml: bytes) -> bytes:
     """Un flux `flowSyntax=Factur-X` est un PDF/A-3 avec l'XML CII embarqué comme
     pièce jointe (pas du XML brut) — on en construit un vrai pour le test plutôt

@@ -71,6 +71,16 @@ class Company(AuditColumnsMixin, Base):
     # Utilisé à la place de `siren` dans les échanges avec l'annuaire/CDAR
     # (`cdar_service.build_data_dict`) quand renseigné ; `None` = utiliser `siren`.
     certified_platform_directory_id: Mapped[str | None] = mapped_column(String(35), nullable=True)
+    # Horodatage du dernier test de connexion réussi (§ IHM, saisie des identifiants,
+    # `certified_platform_credentials_service.test_connection`) — un simple aller-
+    # retour réseau, jamais persisté avant ce champ : ne certifie donc PAS que les
+    # identifiants sont toujours valides aujourd'hui (ils peuvent être révoqués côté
+    # SuperPDP depuis), seulement qu'ils l'étaient à cette date. `None` = jamais testés
+    # avec succès (y compris si `certified_platform_client_id` est renseigné mais
+    # n'a jamais été validé).
+    certified_platform_connection_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
 
 
 class PartnerDirectory(AuditColumnsMixin, Base):

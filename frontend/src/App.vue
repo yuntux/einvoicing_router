@@ -10,7 +10,7 @@ const navItems = [
   { to: '/invoices', label: 'Factures', icon: 'invoice', adminOnly: false },
   { to: '/routing-rules', label: 'Règles de routage', icon: 'route', adminOnly: false },
   { to: '/failed-routings', label: 'Échecs de routage', icon: 'alert', adminOnly: false },
-  { to: '/directory', label: 'Annuaire', icon: 'directory', adminOnly: false },
+  { to: '/directory', label: 'Annuaires', icon: 'directory', adminOnly: false },
 ] as const
 
 // Regroupées sous "Paramétrage" (toutes admin-only, § 5.1) plutôt qu'au premier

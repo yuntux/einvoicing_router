@@ -73,6 +73,22 @@ def _siren_siret_from_global_ids(global_id_children) -> tuple[str | None, str | 
     return siren, siret
 
 
+def _siren_siret_from_seller(seller) -> tuple[str | None, str | None]:
+    """`ram:GlobalID` (`seller.global_id`, plusieurs occurrences possibles) et
+    `ram:SpecifiedLegalOrganization/ram:ID` (`seller.legal_organization.id`, une
+    seule occurrence) portent chacun potentiellement le SIREN/SIRET — la norme
+    n'impose pas lequel des deux un émetteur doit renseigner, et un fichier peut
+    n'utiliser que le second (cf. `LegalOrganization` de `drafthorse`) : régression,
+    un émetteur sans `GlobalID` (mais avec `SpecifiedLegalOrganization/ID`) donnait
+    un SIREN vide, faisant ensuite échouer l'émission de CDAR (BR-FR-CDV-13/MDT-129,
+    "l'identifiant du vendeur... est obligatoire")."""
+    candidates = list(seller.global_id.children)
+    legal_id = seller.legal_organization.id
+    if legal_id._text:
+        candidates.append((legal_id._scheme_id, legal_id._text))
+    return _siren_siret_from_global_ids(candidates)
+
+
 def _decimal_or_none(currency_element) -> float | None:
     amount = getattr(currency_element, "_amount", None)
     if amount in (None, ""):
@@ -121,7 +137,7 @@ def parse_cii(file_content: bytes) -> ParsedInvoiceFields:
 
     doc = Document.parse(file_content, strict=False)
     seller = doc.trade.agreement.seller
-    siren, siret = _siren_siret_from_global_ids(seller.global_id.children)
+    siren, siret = _siren_siret_from_seller(seller)
     summation = doc.trade.settlement.monetary_summation
 
     invoice_date = doc.header.issue_date_time._value
@@ -172,7 +188,16 @@ def parse_ubl(file_content: bytes) -> ParsedInvoiceFields:
             legal_name = supplier_party.find("cac:PartyName/cbc:Name", _UBL_NS)
         emitter_name = legal_name.text.strip() if legal_name is not None and legal_name.text else None
 
+        # `cac:PartyLegalEntity/cbc:CompanyID` en priorité, `cac:PartyIdentification/
+        # cbc:ID` en repli (même flexibilité que côté CII, cf. `_siren_siret_from_
+        # seller` : la norme n'impose pas laquelle des deux localisations UBL un
+        # émetteur doit renseigner). `is not None`, jamais `or` : un élément lxml
+        # sans enfants (ex. `<cbc:CompanyID>000000002</cbc:CompanyID>`, texte seul)
+        # est faussement "falsy" (`bool(element)` reflète sa liste d'enfants, pas sa
+        # présence — piège lxml classique).
         company_id = supplier_party.find("cac:PartyLegalEntity/cbc:CompanyID", _UBL_NS)
+        if company_id is None:
+            company_id = supplier_party.find("cac:PartyIdentification/cbc:ID", _UBL_NS)
         if company_id is not None and company_id.text:
             identifier = company_id.text.strip()
             if len(identifier) == 14:
