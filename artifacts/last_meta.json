@@ -1,16 +1,16 @@
 {
-  "video_path": "/home/ubuntu/einvoicing_router/artifacts/temp_video/page@4452bc9a3b3fd64ef1d440e6f851c7cb.webm",
-  "intro_video_path": "/home/ubuntu/einvoicing_router/artifacts/temp_video/page@acffa1d3b791a39a258e0548ef113406.webm",
+  "video_path": "/home/ubuntu/einvoicing_router/artifacts/temp_video/page@ab37f26ef5f8f43ce58fabb87a554118.webm",
+  "intro_video_path": "/home/ubuntu/einvoicing_router/artifacts/temp_video/page@05713ae71dabd645bf44e7c93682e8bb.webm",
   "timestamps": {
-    "00_value_prop": 2.384185791015625e-06,
-    "01_companies": 26.48928189277649,
-    "02_target_applications": 36.73712515830994,
-    "03_routing_rules": 61.07064986228943,
-    "04_invoices": 76.78051352500916,
-    "05_lifecycle": 89.37494349479675,
-    "06_failed_routings": 98.91029739379883,
-    "07_traces": 108.80975842475891,
-    "08_access_audit": 117.54546451568604,
-    "09_outro": 128.06761860847473
+    "00_value_prop": 1.9073486328125e-06,
+    "01_companies": 26.490938663482666,
+    "02_target_applications": 36.770801305770874,
+    "03_routing_rules": 61.056753158569336,
+    "04_invoices": 76.80822467803955,
+    "05_lifecycle": 89.37095952033997,
+    "06_failed_routings": 98.92348456382751,
+    "07_traces": 108.82833409309387,
+    "08_access_audit": 117.57113552093506,
+    "09_outro": 128.06881761550903
   }
 }

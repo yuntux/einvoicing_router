@@ -89,17 +89,14 @@ def test_secrets_encryption_never_falls_back_to_jwt_secret(monkeypatch):
     assert decrypt_secret(ciphertext) == "super-pdp-client-secret"
 
 
-def test_jwt_session_and_encryption_secrets_have_distinct_defaults():
-    """Les valeurs par défaut (dev) telles qu'écrites dans le code sont déjà deux à
-    deux distinctes — la confusion entre jetons de session, jetons OAuth et clé de
-    chiffrement au repos n'est pas seulement empêchée par la claim `typ`, mais aussi
-    structurellement par défaut, sans configuration requise. Inspecte directement
-    les défauts du modèle Pydantic plutôt que `settings` (potentiellement surchargé
-    par les variables d'environnement du process de test)."""
-    from app.config import Settings
-
-    defaults = {
-        name: Settings.model_fields[name].default
-        for name in ("jwt_secret", "session_secret", "secrets_encryption_key")
-    }
-    assert len(set(defaults.values())) == 3
+def test_jwt_session_and_encryption_secrets_are_configured_and_distinct():
+    """`jwt_secret`/`session_secret`/`secrets_encryption_key` (§ `app.config.Settings`)
+    n'ont volontairement plus aucune valeur par défaut (§ audit sécurité — même
+    rationale fail-closed que `oidc_mode`) : un déploiement qui en oublierait une
+    échoue au démarrage plutôt que de tourner avec un secret public codé en dur. Ce
+    test vérifie donc que les trois valeurs effectivement configurées (ici, celles
+    posées par `conftest.py` pour la suite de tests) restent deux à deux distinctes —
+    la confusion entre jetons de session, jetons OAuth et clé de chiffrement au repos
+    n'est pas seulement empêchée par la claim `typ`, mais aussi par cette séparation."""
+    values = {settings.jwt_secret, settings.session_secret, settings.secrets_encryption_key}
+    assert len(values) == 3
