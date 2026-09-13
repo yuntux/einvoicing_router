@@ -5,10 +5,14 @@ sans réseau) et, optionnellement, la validation schématron (nécessite un serv
 `settings.saxon_server_url`).
 
 Note de conception : le mapping exact des clés `MDT-*` attendues par pyfrctc n'est
-documenté par aucune spécification publique complète à ce jour — les valeurs choisies
-ci-dessous ont été validées localement contre le XSD officiel embarqué dans pyfrctc
-(`check_xsd=True`) pour les statuts avec et sans détail/paiement, mais restent à
-recalibrer lors des premiers essais réels contre le bac à sable (§ 10.4)."""
+documenté par aucune spécification publique complète à ce jour — les valeurs ci-dessous
+ont été recalées sur l'implémentation de référence Akretion `l10n_fr_einvoicing`
+(`fr_einvoicing_event._prepare_xml_data`, module Odoo, coté achat/"purchase" — seul cas
+géré par ce service, cf. `lifecycle_service`) après qu'un essai réel contre le bac à
+sable SuperPDP a échoué avec `no matching invoices found` : `IssuerTradeParty`
+(MDT-38/39/40) et `RecipientTradeParty` (MDT-57/58/59) étaient inversés (l'acheteur qui
+émet l'accusé doit être l'*Issuer*, le vendeur qui le reçoit le *Recipient* — pas
+l'inverse, qui empêchait SuperPDP de corréler l'accusé à la facture)."""
 
 from datetime import date, datetime
 
@@ -27,7 +31,7 @@ GUIDELINE_ID = "urn.cpro.gouv.fr:1p0:CDV:invoice"
 # cf. BR-FR-CDV-CL-01) ni de flux hors mandat (B2C, international, etc.).
 BUSINESS_PROCESS_ID = "REGULATED"
 # "23" (Phase Traitement) : le seul des deux codes autorisés (BR-FR-CDV-09,
-# "23"/"305") compatible avec nos rôles fixes MDT-21="BY"/MDT-40="SE" — "305"
+# "23"/"305") compatible avec nos rôles fixes MDT-21="BY"/MDT-40="BY" — "305"
 # exige un rôle "WK" (BR-FR-CDV-CL-02/03) qu'on n'utilise jamais.
 ACKNOWLEDGEMENT_TYPE_CODE = "23"
 
@@ -55,24 +59,41 @@ def build_data_dict(
     data_dict: dict = {
         "MDT-2": BUSINESS_PROCESS_ID,
         "MDT-3": GUIDELINE_ID,
-        "MDT-4": f"cdar-{invoice.certified_platform_flow_id}-{status}-{int(now.timestamp())}",
+        # Format aligné sur `l10n_fr_einvoicing` (`{inv_number}_{type_code}_{date}#
+        # {status_code}_{timestamp}`) — notre ancien format libre
+        # (`cdar-{flow_id}-{status}-{epoch}`) ne suit aucune convention documentée ;
+        # SuperPDP semble parser CETTE valeur pour corréler l'accusé à la facture
+        # (`no matching invoices found` avec l'ancien format, alors que le contenu de
+        # `ReferenceReferencedDocument` était par ailleurs correct).
+        "MDT-4": (
+            f"{invoice.invoice_number}_380_{invoice.invoice_date.isoformat()}"
+            f"#{status_info.cdar_code}_{now.strftime('%Y%m%d%H%M%S')}"
+        ),
         "MDT-8": now,
+        # Côté achat, l'émetteur de CET ACCUSÉ est nous (l'acheteur, "BY") — jamais le
+        # fournisseur — cf. `l10n_fr_einvoicing` : `sender_role_code = "BY"` pour tout
+        # `invoice.is_purchase_document()`, réutilisé tel quel pour MDT-21 ET MDT-40.
         "MDT-21": "BY",
-        # Émetteur de la facture d'origine (fournisseur) — brut, cf. Invoice (§ 6.1).
-        "MDT-38": {"0002": invoice.emitter_siren},
-        "MDT-39": invoice.emitter_siret or invoice.emitter_siren,
-        "MDT-40": "SE",
-        # Destinataire de la facture d'origine (l'entreprise gérée, côté achat) —
-        # identifiant annuaire de la plateforme certifiée si renseigné (cf.
-        # `Company.certified_platform_directory_id`), sinon le SIREN légal : un bac à
-        # sable AFNOR peut immatriculer l'entreprise sous un identifiant technique qui
-        # n'est pas un SIREN valide, auquel cas l'annuaire ne reconnaît pas le SIREN
-        # légal et échoue à déterminer la règle de traitement/refuse l'émission.
-        "MDT-57": {"0002": buyer_company.certified_platform_directory_id or buyer_company.siren},
-        "MDT-58": buyer_company.name,
-        "MDT-59": "BY",
-        "MDT-73": "superpdp",
-        "MDT-73-1": "EM",
+        # Émetteur DE L'ACCUSÉ (nous, l'acheteur) — identifiant annuaire de la
+        # plateforme certifiée si renseigné (cf. `Company.certified_platform_directory_id`),
+        # sinon le SIREN légal : un bac à sable AFNOR peut immatriculer l'entreprise sous
+        # un identifiant technique qui n'est pas un SIREN valide.
+        "MDT-38": {"0002": buyer_company.certified_platform_directory_id or buyer_company.siren},
+        "MDT-39": buyer_company.name,
+        "MDT-40": "BY",
+        # Destinataire DE L'ACCUSÉ (le fournisseur, émetteur de la facture d'origine) —
+        # brut, cf. Invoice (§ 6.1).
+        "MDT-57": {"0002": invoice.emitter_siren},
+        "MDT-58": (invoice.partner.name if invoice.partner else None) or invoice.emitter_siren,
+        "MDT-59": "SE",
+        # Adresse électronique du destinataire (le fournisseur) — idéalement la ligne
+        # d'annuaire réelle du fournisseur (`fr_directory_line_identifier` côté
+        # `l10n_fr_einvoicing`, obtenue par consultation de l'annuaire AFNOR à la
+        # réception de la facture) ; non capturée aujourd'hui côté routeur (§ TODO),
+        # on retombe sur son SIREN sous le même schéma "0002" que MDT-57 plutôt que
+        # sur la valeur "superpdp"/"EM" précédente, qui n'avait aucun sens.
+        "MDT-73": invoice.emitter_siren,
+        "MDT-73-1": "0002",
         "MDT-74": False,
         "MDT-77": ACKNOWLEDGEMENT_TYPE_CODE,
         "MDT-78": now,
@@ -82,20 +103,28 @@ def build_data_dict(
         # `invoice.ref`/`invoice.name`, jamais un identifiant de flux interne.
         "MDT-87": invoice.invoice_number,
         "MDT-91": "380",
-        "MDT-100": now.date(),
+        # Date d'émission de la facture D'ORIGINE référencée (`ReferenceReferencedDocument/
+        # FormattedIssueDateTime`) — jamais la date d'émission DE CET ACCUSÉ (qui n'a pas
+        # de champ dédié ici) : `l10n_fr_einvoicing` y met `invoice.invoice_date`, jamais
+        # `now`. Envoyer la date du jour à la place de la vraie date de la facture
+        # empêchait vraisemblablement SuperPDP de la retrouver ("no matching invoices found").
+        "MDT-100": invoice.invoice_date,
         "MDT-105": status_info.cdar_code,
         "MDT-106": status_info.label,
         # Émetteur de la facture D'ORIGINE référencée (le fournisseur, pas nous) :
         # `pyfrctc.parse_cdar_from_raw` mappe explicitement MDT-129 sur la clé
-        # "invoice_issuer" (`ram:ReferenceReferencedDocument/ram:IssuerTradeParty`) —
-        # même valeur que MDT-38. Mettre ici l'identifiant de l'acheteur (comme avant
-        # cette correction) empêchait SuperPDP de retrouver la facture référencée
-        # ("no matching invoices found") : il corrèle l'accusé à la facture via
-        # (numéro de facture MDT-87 + émetteur MDT-129), jamais via l'acheteur.
+        # "invoice_issuer" (`ram:ReferenceReferencedDocument/ram:IssuerTradeParty`),
+        # même valeur que MDT-57 ci-dessus (`issuer_siren = partner_siren` côté
+        # `l10n_fr_einvoicing` pour un document d'achat).
         "MDT-129": {"0002": invoice.emitter_siren},
     }
     if status_info.mdt88_code:
         data_dict["MDT-88"] = status_info.mdt88_code
+    if invoice.received_at:
+        # Optionnel côté `pyfrctc` (rendu seulement si la clé est présente), mais
+        # renseigné dans l'exemple de référence `l10n_fr_einvoicing` — date à laquelle
+        # NOUS avons reçu la facture d'origine, pas sa date d'émission (MDT-100).
+        data_dict["MDT-95"] = invoice.received_at
 
     if reason or action or comment:
         doc_status: dict = {}

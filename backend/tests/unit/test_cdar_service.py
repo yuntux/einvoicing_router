@@ -62,38 +62,36 @@ def test_generated_cdar_satisfies_superpdp_business_rules_not_covered_by_local_x
     # MDT-40 = "WK" (BR-FR-CDV-CL-02/03) qu'on n'utilise jamais (toujours "BY"/"SE").
     assert data_dict["MDT-77"] == "23"
     assert data_dict["MDT-21"] == "BY"
-    assert data_dict["MDT-40"] == "SE"
+    assert data_dict["MDT-40"] == "BY"
 
 
-def test_build_data_dict_uses_certified_platform_directory_id_when_set():
-    """`MDT-57` (identifiant acheteur/destinataire) doit utiliser l'identifiant
-    annuaire de la plateforme certifiée quand il est renseigné — un bac à sable AFNOR
-    peut immatriculer l'entreprise sous un identifiant technique différent du SIREN
-    légal (§ cf. Company.certified_platform_directory_id), auquel cas envoyer le
-    SIREN légal fait échouer la résolution de l'entreprise côté annuaire."""
+def test_build_data_dict_issuer_is_us_the_buyer_recipient_is_the_seller():
+    """Recalé sur l'implémentation de référence Akretion `l10n_fr_einvoicing`
+    (`fr_einvoicing_event._prepare_xml_data`, côté achat) après un essai réel contre
+    le bac à sable SuperPDP en échec (`no matching invoices found`) : `IssuerTradeParty`
+    (MDT-38/39/40) est l'émetteur de CET ACCUSÉ — nous, l'acheteur — jamais le
+    fournisseur ; `RecipientTradeParty` (MDT-57/58/59) est le destinataire de l'accusé —
+    le fournisseur qui a émis la facture d'origine. L'inverse (notre mapping avant cette
+    correction) empêchait SuperPDP de corréler l'accusé à la facture référencée."""
     company = _company()
     company.certified_platform_directory_id = "000000001"
-    data_dict = cdar_service.build_data_dict(invoice=_invoice(), buyer_company=company, status="approved")
-    assert data_dict["MDT-57"] == {"0002": "000000001"}
-
-
-def test_build_data_dict_mdt129_is_the_original_invoice_issuer_not_the_buyer():
-    """MDT-129 (`ram:ReferenceReferencedDocument/ram:IssuerTradeParty`) : `pyfrctc`
-    le mappe explicitement sur la clé "invoice_issuer" en lecture
-    (`parse_cdar_from_raw`) — c'est l'émetteur de la facture D'ORIGINE référencée
-    (le fournisseur), jamais l'acheteur qui accuse réception. Y mettre
-    l'identifiant acheteur empêchait SuperPDP de retrouver la facture référencée
-    ("no matching invoices found", corrélation faite sur MDT-87 + MDT-129)."""
-    company = _company()
-    company.certified_platform_directory_id = "000000001"
-    data_dict = cdar_service.build_data_dict(invoice=_invoice(), buyer_company=company, status="approved")
-    assert data_dict["MDT-129"] == {"0002": "987654321"}
-    assert data_dict["MDT-129"] == data_dict["MDT-38"]
+    invoice = _invoice()
+    data_dict = cdar_service.build_data_dict(invoice=invoice, buyer_company=company, status="approved")
+    # MDT-38/39/40 : nous (l'acheteur), rôle "BY" — identifiant annuaire si renseigné
+    # (cf. Company.certified_platform_directory_id), sinon le SIREN légal.
+    assert data_dict["MDT-38"] == {"0002": "000000001"}
+    assert data_dict["MDT-39"] == "Acheteur SAS"
+    assert data_dict["MDT-40"] == "BY"
+    # MDT-57/58/59 : le fournisseur (émetteur de la facture d'origine), rôle "SE".
+    assert data_dict["MDT-57"] == {"0002": invoice.emitter_siren}
+    assert data_dict["MDT-59"] == "SE"
+    # MDT-129 ("invoice_issuer" côté lecture pyfrctc) porte la même valeur que MDT-57.
+    assert data_dict["MDT-129"] == data_dict["MDT-57"]
 
 
 def test_build_data_dict_falls_back_to_siren_without_directory_id():
     data_dict = cdar_service.build_data_dict(invoice=_invoice(), buyer_company=_company(), status="approved")
-    assert data_dict["MDT-57"] == {"0002": "123456789"}
+    assert data_dict["MDT-38"] == {"0002": "123456789"}
 
 
 def test_build_data_dict_mdt87_is_invoice_number_not_flow_id():
