@@ -69,6 +69,9 @@ export interface CreateLifecycleEventPayload {
   action?: string | null
   comment?: string | null
   confirmed?: boolean
+  /** Pièces jointes (§ 4.2, MDT-96) — la norme les autorise sur un message de cycle
+   * de vie, nos modules Odoo l'utilisent déjà côté émission. */
+  files?: File[]
 }
 
 export function getLifecycleCatalog(): Promise<LifecycleCatalog> {
@@ -91,9 +94,19 @@ export function createLifecycleEvent(
   invoiceId: number,
   payload: CreateLifecycleEventPayload,
 ): Promise<LifecycleEvent> {
+  // `multipart/form-data`, pas JSON : seul format permettant de joindre des
+  // fichiers dans la même requête que le reste de la saisie (§ backend, MDT-96).
+  const form = new FormData()
+  form.set('status', payload.status)
+  if (payload.reason) form.set('reason', payload.reason)
+  if (payload.action) form.set('action', payload.action)
+  if (payload.comment) form.set('comment', payload.comment)
+  form.set('confirmed', String(payload.confirmed ?? false))
+  for (const file of payload.files ?? []) form.append('files', file)
+
   return apiFetch(
     `/api/ihm/invoices/${invoiceId}/lifecycle-events`,
-    { method: 'POST', json: payload },
+    { method: 'POST', body: form },
     'Failed to create lifecycle event',
   )
 }

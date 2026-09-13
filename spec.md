@@ -814,3 +814,61 @@ Tous les points ouverts identifiés à ce stade ont été tranchés (cf. § 4.1,
 - Validation métier des factures (circuit d'approbation) : reste géré par Spendesk / Odoo, pas par le routeur.
 - Comptabilisation : reste gérée par Odoo / le comptable.
 - Génération de la facture elle-même (le routeur transporte et route, il n'émet pas de facture pour son propre compte, hormis le proxy transparent des appels d'émission initiés par Odoo).
+
+## 13. Cartographie des endpoints AFNOR XP Z12-013 (contrats v1.3.0)
+
+Détail endpoint par endpoint des deux contrats officiels consommés par le routeur (`AFNOR-Flow_Service-1.3.0-swagger.json`, `AFNOR-Directory_Service-1.3.0-swagger.json`, cf. § 8.1) : ce qui en est exposé côté routeur à Odoo (§ 8.2), et ce qui est effectivement déclenché par les actions de l'IHM (§ 8.3), directement contre SuperPDP ou via le contrat exposé.
+
+| Fichier Swagger | Endpoint | Version 1.3 | Description (contrat officiel) | API AFNOR exposée par eInvoicing router / Consommée par Odoo | API AFNOR exposée par eInvoicing router / Consommée par l'IHM eInvoicing Router | API AFNOR exposée par SuperPDP / Consommée par l'IHM eInvoicing Router |
+|---|---|---|---|---|---|---|
+| `afnor-flow` | `POST /v1/flows` | ✅ | Soumettre un flux (facture ou message de cycle de vie) | ✅ Proxy transparent (`send_invoice`/`send_cdar` selon `flowSyntax`), jamais stocké | ❌ (l'IHM n'a pas d'endpoint de soumission) | ✅ Déclenché par les boutons "Enregistrer un statut"/"Renvoyer" de la fiche facture |
+| `afnor-flow` | `POST /v1/flows/search` | ✅ | Rechercher des flux selon critères | ✅ Émulé (`flow_from_invoice`), filtré aux factures routées vers ce consommateur (NF2) — jamais un appel à SuperPDP pour Odoo | ❌ (l'IHM a sa propre liste `/api/ihm/invoices`) | ✅ Déclenché par "Relever les nouvelles factures" (`run_polling_cycle` → `search_flows_parsed`) |
+| `afnor-flow` | `GET /v1/flows/{flowId}` | ✅ | Télécharger le fichier d'un flux | ✅ `Metadata`/`Original` servis depuis nos données persistées ; `Converted`/`ReadableView` relayés en direct | ❌ (l'IHM utilise son propre endpoint `/api/ihm/invoices/{id}/download-readable`, pas ce contrat) | ✅ `Metadata`+`Original` à chaque relevé ; `ReadableView` via le bouton "Vue lisible (PDF)" |
+| `afnor-flow` | `GET /v1/healthcheck` | ✅ | Vérifier que l'API est disponible | ✅ Passe-plat brut (`raw_passthrough`) | ❌ | ❌ Jamais appelé par le routeur lui-même |
+| `afnor-directory` | `GET /v1/siren/code-insee:{siren}` | ✅ | Consulter une entreprise par SIREN | ✅ Passe-plat via `pyfrctc.get_directory_siren` **brut** | ❌ | ❌ (création d'entreprise = validation Luhn locale, aucune consultation live) |
+| `afnor-directory` | `POST /v1/siren/search` | ✅ | Recherche multi-critères d'entreprises | ✅ Passe-plat brut | ❌ | ❌ |
+| `afnor-directory` | `GET /v1/siret/code-insee:{siret}` | ✅ | Consulter un établissement par SIRET | ✅ Passe-plat via `pyfrctc.get_directory_siret` **brut** | ❌ | ❌ |
+| `afnor-directory` | `POST /v1/siret/search` | ✅ | Recherche multi-critères d'établissements | ✅ Passe-plat brut | ❌ | ❌ |
+| `afnor-directory` | `GET /v1/routing-code/siret:{siret}/code:{routing-identifier}` | ✅ | Consulter un code de routage | ✅ Passe-plat brut | ❌ | ❌ |
+| `afnor-directory` | `POST /v1/routing-code/search` | ✅ | Rechercher des codes de routage | ✅ Passe-plat brut | ❌ | ❌ |
+| `afnor-directory` | `GET /v1/directory-line/code:{addressing-identifier}` | ✅ | Consulter une ligne d'annuaire | ✅ Passe-plat brut | ❌ | ❌ |
+| `afnor-directory` | `POST /v1/directory-line/search` | ✅ | Rechercher des lignes d'annuaire | ✅ Passe-plat brut | ❌ | ❌ |
+| `afnor-directory` | `GET /v1/healthcheck` | ✅ | Vérifier que la connexion API est opérationnelle | ✅ Passe-plat brut | ❌ | ❌ |
+
+**Constat** : l'annuaire (`afnor-directory`, 9 endpoints) n'est utile qu'à Odoo — jamais appelé par le routeur pour ses propres besoins. Les 3 endpoints utiles à `afnor-flow` sont, eux, sollicités des deux côtés (Odoo *et* nos propres actions IHM), mais l'IHM ne passe jamais par notre contrat exposé — elle déclenche les mêmes appels `pyfrctc` directement, via ses propres endpoints `/api/ihm/*`.
+
+## 14. Cartographie des types de flux (`flowType`, contrat `afnor-flow` v1.3.0)
+
+Détail des 19 valeurs de l'énumération `FlowType` du contrat officiel `afnor-flow-openapi-v1.3.0.json` (§ 13), avec leur historique dans les versions successives du contrat AFNOR et ce que le routeur en gère effectivement — à la fois comme **client** de la plateforme agréée (SuperPDP, via `pyfrctc`/`AfnorClientAdapter`) et comme **fournisseur** de l'API normalisée AFNOR vis-à-vis d'Odoo (émulation de PDP, § 4.4).
+
+| Type de flux | Description | 1ère version AFNOR | Dernière version | Client de la plateforme agréée | Fournisseur de l'API normalisée |
+|---|---|---|---|---|---|
+| `CustomerInvoice` | Facture de vente non auto-facturée, ou facture d'achat auto-facturée | 1.0.0 * | — | Partiel — proxy d'émission non typé uniquement (`send_invoice`), jamais interprété | Partiel — même proxy transparent en émission, jamais stocké/interprété |
+| `SupplierInvoice` | Facture d'achat non auto-facturée, ou facture de vente auto-facturée | 1.0.0 * | — | **Oui** — seul flux réellement récupéré (`RECEIVED_INVOICE_FLOW_TYPES`, `pyfrctc_client.py`) | **Oui** — seul flux réellement émulé en lecture (`GET`/`search`, `afnor_server_controller.py`) |
+| `CustomerInvoiceLC` | Cycle de vie (CDAR) d'une facture client | 1.0.0 * | — | Partiel — proxy CDAR d'émission non typé uniquement | Partiel — proxy CDAR d'émission, jamais mémorisé comme `LifecycleEvent` (limite documentée) |
+| `SupplierInvoiceLC` | Cycle de vie (CDAR) d'une facture fournisseur | 1.0.0 * | — | **Oui** — récupéré (`INCOMING_LIFECYCLE_FLOW_TYPES`, `pyfrctc_client.py`) | Partiel — proxy CDAR d'émission, jamais mémorisé (même limite) |
+| `StateCustomerInvoiceLC` | Cycle de vie facture client envoyé au DFH | 1.0.0 * | — | Non | Non |
+| `StateSupplierInvoiceLC` | Cycle de vie facture fournisseur envoyé au DFH | 1.0.0 * | — | **Oui** — récupéré (`INCOMING_LIFECYCLE_FLOW_TYPES`) | Non |
+| `StateInvoice` | Facture client transmise à Chorus Pro — sens ambigu, cf. le commentaire du module `l10n_fr_einvoicing` lui-même ("Customer Invoice To Chorus ???") | 1.1.0 | 1.2.0 *(retiré en 1.3.0)* | Non | Non |
+| `AggregatedCustomerTransactionReport` | E-reporting transactions B2C agrégées (FRR 10.3) | 1.1.0 | — | Non — pas produit par `l10n_fr_ereporting` | Non |
+| `UnitaryCustomerTransactionReport` | E-reporting B2B international ou B2C unitaire (FRR 10.1) | 1.1.0 | — | Non — pas produit par `l10n_fr_ereporting` | Non |
+| `AggregatedCustomerPaymentReport` | E-reporting encaissements liés au B2C (FRR 10.4) | 1.1.0 | — | Non — pas produit par `l10n_fr_ereporting` | Non |
+| `UnitaryCustomerPaymentReport` | E-reporting encaissements B2B international/B2C unitaire (FRR 10.2) | 1.1.0 | — | Partiel ** — proxy d'émission non typé (comme `CustomerInvoice`), produit par `l10n_fr_ereporting` pour ses déclarations de paiements | Partiel ** — même proxy transparent, jamais interprété |
+| `UnitarySupplierTransactionReport` | E-reporting achats B2B international (FRR 10.1) | 1.1.0 | — | Partiel ** — idem, produit par `l10n_fr_ereporting` pour ses transactions d'achat | Partiel ** — idem |
+| `MultiFlowReport` | Flux e-reporting combinant ≥2 types (FRR 10) | 1.1.0 | — | Partiel ** — idem, produit par `l10n_fr_ereporting` pour ses transactions de vente | Partiel ** — idem |
+| `StateCustomerInvoice` | Flux 1 (état) envoyé au DFH pour une facture `CustomerInvoice` | 1.3.0 | — | Non | Non |
+| `StateSupplierInvoice` | Flux 1 (état) envoyé au DFH pour une facture `SupplierInvoice` (auto-facturation) | 1.3.0 | — | Non | Non |
+| `StateTransactionReport` | Flux 1 (état) pour un e-reporting transaction 10.1/10.3 | 1.3.0 | — | Non | Non |
+| `StateTransactionReportLC` | Cycle de vie d'un `StateTransactionReport` | 1.3.0 | — | Non | Non |
+| `StatePaymentReport` | Flux 1 (état) pour un e-reporting encaissement 10.2/10.4 | 1.3.0 | — | Non | Non |
+| `StatePaymentReportLC` | Cycle de vie d'un `StatePaymentReport` | 1.3.0 | — | Non | Non |
+| `Undefined` | Type non encore défini (statut Pending) ou indéterminable (statut Error) | 1.3.0 | — | Non applicable (valeur de repli, jamais initiée) | Non applicable |
+
+\* Les 6 types marqués `1.0.0` ne sont pas confirmés littéralement par le changelog du contrat (qui indique juste *"First release"* pour 1.0.0) — c'est une inférence : rien dans les changelogs 1.0.1 → 1.3.0 ne mentionne leur ajout, et ils sont déjà présents à la version la plus ancienne où le détail est connu (1.1.0, qui ajoute explicitement les 6 types e-reporting et `StateInvoice`, sans mentionner ces 6-là).
+
+\*\* Le chemin d'émission côté routeur (`POST /v1/flows` → `create_flow` dans `_common.py`) ne se branche que sur `flowSyntax` (`"CDAR"` → `send_cdar`, tout le reste → `send_invoice`, simple proxy transparent) — jamais sur `flowType`, qui n'est même pas un champ du corps `flowInfo` reçu (`FlowInfoIn`, `app/schemas/afnor_flow.py`). `FlowSyntax` inclut déjà `"FRR"` (syntaxe e-reporting) : le proxy laisse donc passer, sans erreur, tout flux e-reporting qu'Odoo soumettrait — capacité déjà présente dans le code, mais qui ne devient un trafic réel qu'une fois le module Odoo `l10n_fr_ereporting` installé côté application cible. D'après son code (`fr_ereporting.py::_prepare_flow_vals`), ce module ne produit que 3 des 6 types e-reporting, selon le type de déclaration : `MultiFlowReport` (ventes, `out_transaction`), `UnitarySupplierTransactionReport` (achats, `in_transaction`), `UnitaryCustomerPaymentReport` (paiements, `payment`) — `AggregatedCustomerTransactionReport`, `AggregatedCustomerPaymentReport` et `UnitaryCustomerTransactionReport` ne sont, eux, jamais émis par ce module et restent donc `Non` malgré la capacité latente du proxy.
+
+**Constats** :
+- Seul `SupplierInvoice` est géré de façon complète et typée dans les deux rôles (§ 4.3, périmètre du routeur limité aux factures reçues).
+- Toute l'émission (`POST /v1/flows`, côté client ET côté fournisseur) est un **proxy transparent non typé** — le `flowType` réel n'est jamais inspecté ni stocké (`_common.py`, `afnor_server_controller.py`) — d'où le statut "Partiel" pour `CustomerInvoice`, les variantes `*LC` autres que `SupplierInvoiceLC`/`StateSupplierInvoiceLC`, et désormais les 3 types e-reporting produits par `l10n_fr_ereporting` (Odoo) une fois ce module installé côté application cible (cf. note \*\*).
+- Les types "State*" ajoutés en v1.3.0 (flux 1 vers le DFH) et les 2 types e-reporting non produits par `l10n_fr_ereporting` (`AggregatedCustomerPaymentReport`, `UnitarySupplierTransactionReport`) restent non gérés, dans aucun des deux rôles.

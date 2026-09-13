@@ -127,9 +127,9 @@ class AfnorClientAdapter:
                 direction="router_to_superpdp",
                 afnor_api_version=afnor_api_version,
                 request=request_payload,
-                # `_parse_flow_dict` (appelé par `send_flow_parsed`) enrichit `result` de
-                # `datetime` dérivés en plus des chaînes ISO d'origine — non sérialisables
-                # tels quels dans la colonne JSON `FlowTrace.response` (§ NF1).
+                # Garde-fou générique (§ NF1) : un éventuel `datetime` natif dans
+                # `result` ne serait pas sérialisable tel quel dans la colonne JSON
+                # `FlowTrace.response` (ex. si `pyfrctc` en ajoutait un un jour).
                 response=_json_safe({k: v for k, v in result.items() if not isinstance(v, bytes)}),
                 http_status=200,
                 correlation_id=correlation_id,

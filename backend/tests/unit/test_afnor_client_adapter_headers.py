@@ -88,7 +88,7 @@ def test_send_invoice_captures_headers_on_success(db_session):
     with (
         patch.object(adapter, "_get_or_build_session", return_value=session),
         patch(
-            "app.afnor.client.adapter.core.send_flow_parsed", side_effect=fake_send_flow_parsed
+            "app.afnor.client.adapter.core.send_flow", side_effect=fake_send_flow_parsed
         ),
     ):
         result = adapter.send_invoice(
@@ -121,7 +121,7 @@ def test_send_invoice_captures_headers_on_failure(db_session):
     with (
         patch.object(adapter, "_get_or_build_session", return_value=session),
         patch(
-            "app.afnor.client.adapter.core.send_flow_parsed", side_effect=fake_send_flow_parsed
+            "app.afnor.client.adapter.core.send_flow", side_effect=fake_send_flow_parsed
         ),
     ):
         try:
@@ -143,11 +143,11 @@ def test_send_invoice_captures_headers_on_failure(db_session):
 
 
 def test_send_invoice_success_response_with_datetime_is_json_safe(db_session):
-    """`pyfrctc._parse_flow_dict` (appelé par `send_flow_parsed`) enrichit le dict
-    résultat de `datetime` dérivés (`submitted_at`/`updated_at`) en plus des chaînes
-    ISO d'origine — non sérialisables tels quels dans la colonne JSON
-    `FlowTrace.response` : régression, ça faisait échouer la trace (et la commande
-    entière) de tout envoi réussi sur un flux dont pyfrctc parse ces champs."""
+    """Un résultat contenant un `datetime` natif (ex. si un jour un champ de ce type
+    apparaissait dans la réponse brute de `core.send_flow`) ne doit jamais faire
+    planter la trace — colonne JSON `FlowTrace.response`. Garde-fou générique,
+    indépendant du fait qu'on appelle aujourd'hui `send_flow` (brut) plutôt que
+    `send_flow_parsed` (qui, lui, ajoutait volontairement de tels champs)."""
     from datetime import datetime
 
     company = _make_company(db_session)
@@ -165,7 +165,7 @@ def test_send_invoice_success_response_with_datetime_is_json_safe(db_session):
     with (
         patch.object(adapter, "_get_or_build_session", return_value=session),
         patch(
-            "app.afnor.client.adapter.core.send_flow_parsed", side_effect=fake_send_flow_parsed
+            "app.afnor.client.adapter.core.send_flow", side_effect=fake_send_flow_parsed
         ),
     ):
         result = adapter.send_invoice(
@@ -184,7 +184,7 @@ def test_send_invoice_success_response_with_datetime_is_json_safe(db_session):
 
 def test_send_cdar_uses_a_processing_rule_pyfrctc_accepts(db_session):
     """`pyfrctc.send_flow` valide `processing_rule` côté client contre une liste
-    fermée avant tout appel réseau — on ne mocke donc pas `core.send_flow_parsed` ici
+    fermée avant tout appel réseau — on ne mocke donc pas `core.send_flow` ici
     (contrairement aux autres tests de ce module) pour vérifier réellement contre le
     code de la lib que la valeur passée est acceptée. Régression : un ancien
     `"LifeCycle"` n'en faisait pas partie et faisait échouer tout envoi de CDAR,

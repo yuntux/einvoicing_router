@@ -16,8 +16,10 @@ factures de vente) reste donc défini dans le catalogue mais inatteignable tant 
 écran dédié aux factures émises n'existe pas.
 """
 
-from dataclasses import dataclass
+import mimetypes
+from dataclasses import dataclass, field
 from datetime import date, datetime
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -29,15 +31,27 @@ from app.models.lifecycle import (
     AfnorFlowType,
     EventDirection,
     LifecycleEvent,
+    LifecycleEventAttachment,
     LifecycleEventDetail,
     LifecycleEventPayment,
 )
 from app.services import cdar_service, webhook_notification_service
 from app.services.lifecycle_catalog import STATUS_CATALOG, ManualSide
+from app.storage.filesystem import save_afnor_flow_file, save_lifecycle_attachment
 
 
 class LifecycleValidationError(ValueError):
     pass
+
+
+@dataclass
+class UploadedAttachment:
+    """Pièce jointe saisie manuellement (§ 4.2, MDT-96) — à joindre au CDAR sortant
+    généré pour l'événement, en plus d'être conservée pour téléchargement (comme les
+    pièces jointes reçues, cf. `create_incoming_event`)."""
+
+    filename: str
+    content: bytes
 
 
 @dataclass
@@ -47,6 +61,32 @@ class ManualEventInput:
     action: str | None = None
     comment: str | None = None
     confirmed: bool = False
+    attachments: list[UploadedAttachment] = field(default_factory=list)
+
+
+def _mdt96_from_uploads(attachments: list[UploadedAttachment]) -> list[dict]:
+    result = []
+    for attachment in attachments:
+        mime_type, _ = mimetypes.guess_type(attachment.filename)
+        result.append(
+            {
+                "bin": attachment.content,
+                "filename": attachment.filename,
+                "mime_type": mime_type or "application/octet-stream",
+            }
+        )
+    return result
+
+
+def _save_attachments(db: Session, *, event: LifecycleEvent, company_siren: str, attachments: list[UploadedAttachment]) -> None:
+    for attachment in attachments:
+        file_path = save_lifecycle_attachment(
+            company_siren=company_siren,
+            event_id=event.id,
+            file_name=attachment.filename,
+            content=attachment.content,
+        )
+        db.add(LifecycleEventAttachment(event_id=event.id, filename=attachment.filename, file_path=file_path))
 
 
 _FLOW_TYPE_BY_SIDE: dict[ManualSide, AfnorFlowType] = {
@@ -106,6 +146,10 @@ def create_manual_event(
     db.commit()
     db.refresh(event)
 
+    if data.attachments:
+        _save_attachments(db, event=event, company_siren=invoice.company.siren, attachments=data.attachments)
+        db.commit()
+
     if settings.certified_platform_client_mode == "pyfrctc":
         _generate_and_send_cdar(db, invoice=invoice, flow=flow, data=data)
 
@@ -162,12 +206,21 @@ def retry_cdar(
         detail.comment = overrides.comment
         db.commit()
 
+    # Réattache les pièces jointes déjà saisies à la création (§ 4.2, MDT-96) — un
+    # renvoi doit reproduire le même CDAR, pièces jointes comprises, pas juste le
+    # motif/action/commentaire.
+    existing_attachments = [
+        UploadedAttachment(filename=a.filename, content=Path(a.file_path).read_bytes())
+        for a in event.attachments
+        if a.file_path
+    ]
     data = ManualEventInput(
         status=event.status,
         reason=detail.reason if detail else None,
         action=detail.action if detail else None,
         comment=detail.comment if detail else None,
         confirmed=True,
+        attachments=existing_attachments,
     )
     _generate_and_send_cdar(db, invoice=invoice, flow=flow, data=data)
 
@@ -183,9 +236,12 @@ def _generate_and_send_cdar(db: Session, *, invoice: Invoice, flow: AfnorFlow, d
             reason=data.reason,
             action=data.action,
             comment=data.comment,
+            attachments=_mdt96_from_uploads(data.attachments) if data.attachments else None,
         )
         cdar_bytes = cdar_service.generate(data_dict)
-        flow.file_bin = cdar_bytes
+        flow.file_path = save_afnor_flow_file(
+            company_siren=invoice.company.siren, flow_id=flow.id, content=cdar_bytes
+        )
         flow.data_dict = cdar_service.to_json_safe(data_dict)
         flow.state = AfnorFlowState.GENERATED
         db.commit()
@@ -258,11 +314,11 @@ def create_incoming_event(
         syntax="CDAR",
         processing_rule=invoice.processing_rule,
         state=AfnorFlowState.DONE,
-        file_bin=xml_bytes,
         data_dict=cdar_service.to_json_safe(parsed),
     )
     db.add(flow)
-    db.flush()  # obtient flow.id sans committer
+    db.flush()  # obtient flow.id avant écriture sur disque (nom de dossier), sans committer
+    flow.file_path = save_afnor_flow_file(company_siren=invoice.company.siren, flow_id=flow.id, content=xml_bytes)
 
     status_code = parsed.get("status_code")
     status_key = cdar_service.resolve_status_key(status_code) if status_code else None
@@ -311,6 +367,19 @@ def create_incoming_event(
     invoice.lifecycle_status = status_key
     db.commit()
     db.refresh(event)
+
+    # Pièces jointes du CDAR entrant (§ 4.2, MDT-96 — "attachments" côté
+    # `pyfrctc.parse_cdar_from_raw`) : la norme permet d'en joindre à un message de
+    # cycle de vie ; nos modules Odoo l'utilisent déjà côté émission.
+    incoming_attachments = parsed.get("attachments") or []
+    if incoming_attachments:
+        uploads = [
+            UploadedAttachment(filename=a.get("filename") or "attachment.bin", content=a["bin"])
+            for a in incoming_attachments
+            if a.get("bin")
+        ]
+        _save_attachments(db, event=event, company_siren=invoice.company.siren, attachments=uploads)
+        db.commit()
 
     try:
         webhook_notification_service.notify_lifecycle_event(db, invoice=invoice, status=status_key)

@@ -16,6 +16,10 @@ export class ApiError extends Error {
 interface ApiFetchOptions extends Omit<RequestInit, 'body'> {
   /** Sérialisé en JSON et envoyé comme corps, avec le header Content-Type associé. */
   json?: unknown
+  /** Corps brut (typiquement `FormData`, pour un envoi `multipart/form-data` — ex.
+   * pièces jointes) — jamais sérialisé, le navigateur pose lui-même le bon
+   * `Content-Type` (avec boundary) quand c'est un `FormData`. Exclusif avec `json`. */
+  body?: BodyInit
 }
 
 /** `detail` vaut soit une chaîne (`HTTPException(detail="...")`), soit — pour les 422 de
@@ -53,10 +57,11 @@ export async function apiFetch<T = void>(
   options: ApiFetchOptions = {},
   errorLabel = 'Request failed',
 ): Promise<T> {
-  const { json, ...init } = options
+  const { json, body, ...init } = options
   const response = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
     ...init,
+    ...(body !== undefined && { body }),
     ...(json !== undefined && {
       body: JSON.stringify(json),
       headers: { 'Content-Type': 'application/json', ...init.headers },

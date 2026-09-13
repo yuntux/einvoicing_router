@@ -10,6 +10,7 @@ const navItems = [
   { to: '/invoices', label: 'Factures', icon: 'invoice', adminOnly: false },
   { to: '/routing-rules', label: 'Règles de routage', icon: 'route', adminOnly: false },
   { to: '/failed-routings', label: 'Échecs de routage', icon: 'alert', adminOnly: false },
+  { to: '/directory', label: 'Annuaire', icon: 'directory', adminOnly: false },
 ] as const
 
 // Regroupées sous "Paramétrage" (toutes admin-only, § 5.1) plutôt qu'au premier
@@ -77,6 +78,8 @@ onMounted(ensureAuthStatus)
             <circle v-if="item.icon === 'route'" cx="17" cy="19" r="1.5" />
             <path v-if="item.icon === 'alert'" d="M12 3 2 20h20z" />
             <path v-if="item.icon === 'alert'" d="M12 10v4M12 17h.01" />
+            <path v-if="item.icon === 'directory'" d="M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+            <path v-if="item.icon === 'directory'" d="M8 3v18M12 8h4M12 12h4" />
           </svg>
           {{ item.label }}
         </RouterLink>

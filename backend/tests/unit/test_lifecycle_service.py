@@ -9,6 +9,7 @@ from app.services import cdar_service
 from app.services.lifecycle_service import (
     LifecycleValidationError,
     ManualEventInput,
+    UploadedAttachment,
     create_incoming_event,
     create_manual_event,
 )
@@ -69,6 +70,29 @@ def test_create_manual_event_dispute_with_reason_succeeds(db_session):
     )
     assert len(event.details) == 1
     assert event.details[0].reason == "TX_TVA_ERR"
+
+
+def test_create_manual_event_persists_attachments(db_session):
+    """Symétrique de `test_create_incoming_event_persists_attachments` côté sortant
+    (saisie manuelle, § 4.2/MDT-96) — pas de restriction par statut : `l10n_fr_
+    einvoicing` autorise les pièces jointes sur n'importe quel statut manuel, sans
+    condition liée au statut dans `_compute_required_fields`."""
+    invoice = _make_invoice(db_session)
+    event = create_manual_event(
+        db_session,
+        invoice=invoice,
+        side="purchase",
+        data=ManualEventInput(
+            status="approved",
+            attachments=[UploadedAttachment(filename="justificatif.pdf", content=b"%PDF-1.4 fake")],
+        ),
+    )
+    assert len(event.attachments) == 1
+    attachment = event.attachments[0]
+    assert attachment.filename == "justificatif.pdf"
+    from pathlib import Path
+
+    assert Path(attachment.file_path).read_bytes() == b"%PDF-1.4 fake"
 
 
 def test_create_manual_event_rejects_reason_not_allowed_for_status(db_session):
@@ -139,6 +163,32 @@ def _generate_cdar_bytes(invoice, *, status, **kwargs) -> bytes:
         invoice=invoice, buyer_company=invoice.company, status=status, **kwargs
     )
     return cdar_service.generate(data_dict)
+
+
+def test_create_incoming_event_persists_attachments(db_session):
+    """MDT-96 (pièce jointe, § 4.2) — la norme les autorise sur un message de cycle
+    de vie et nos modules Odoo les utilisent déjà côté émission : un CDAR entrant qui
+    en porte une doit être téléchargeable côté IHM, pas seulement visible en tant que
+    fichier CDAR brut. (`invoice_storage_root` déjà isolé par la fixture autouse
+    `_tmp_invoice_storage`.)"""
+    invoice = _make_invoice(db_session)
+    xml_bytes = _generate_cdar_bytes(
+        invoice,
+        status="dispute",
+        reason="TX_TVA_ERR",
+        attachments=[{"bin": b"%PDF-1.4 fake", "filename": "justificatif.pdf", "mime_type": "application/pdf"}],
+    )
+
+    event = create_incoming_event(db_session, invoice=invoice, flow_id="cdar-flow-attach-1", xml_bytes=xml_bytes)
+
+    assert event is not None
+    assert len(event.attachments) == 1
+    attachment = event.attachments[0]
+    assert attachment.filename == "justificatif.pdf"
+    assert attachment.file_path is not None
+    from pathlib import Path
+
+    assert Path(attachment.file_path).read_bytes() == b"%PDF-1.4 fake"
 
 
 def test_create_incoming_event_dispute_with_detail(db_session):

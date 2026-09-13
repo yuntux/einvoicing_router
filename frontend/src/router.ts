@@ -3,6 +3,7 @@ import { ensureAuthStatus, loginUrl } from './api/auth'
 import AfnorFlowDetailView from './views/AfnorFlowDetailView.vue'
 import AuditLogsView from './views/AuditLogsView.vue'
 import CompaniesView from './views/CompaniesView.vue'
+import DirectoryView from './views/DirectoryView.vue'
 import FailedRoutingsView from './views/FailedRoutingsView.vue'
 import FlowTracesView from './views/FlowTracesView.vue'
 import InvoicesView from './views/InvoicesView.vue'
@@ -30,6 +31,7 @@ export const router = createRouter({
       props: true,
     },
     { path: '/failed-routings', name: 'failed-routings', component: FailedRoutingsView },
+    { path: '/directory', name: 'directory', component: DirectoryView },
     { path: '/settings', name: 'settings', component: SettingsView },
     { path: '/users', name: 'users', component: UsersView },
     { path: '/traces/flow-traces', name: 'flow-traces', component: FlowTracesView },

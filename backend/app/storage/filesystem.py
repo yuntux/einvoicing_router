@@ -37,3 +37,33 @@ def save_invoice_file(
     file_path = directory / safe_file_name
     file_path.write_bytes(content)
     return str(file_path)
+
+
+def save_lifecycle_attachment(*, company_siren: str, event_id: int, file_name: str, content: bytes) -> str:
+    """Écrit une pièce jointe de message de cycle de vie CDAR (norme XP Z12-013 § 4.2,
+    MDT-96) — entrante (nom de fichier assigné par la contrepartie via SuperPDP) ou
+    sortante (saisie manuelle IHM). Classée par `event_id` (identifiant interne,
+    jamais influencé de l'extérieur) plutôt que par `flow_id` : un événement sortant
+    n'a pas encore de `flow_id` externe au moment de la saisie."""
+    root = Path(settings.invoice_storage_root)
+    directory = root / company_siren / "lifecycle-attachments" / str(event_id)
+    directory.mkdir(parents=True, exist_ok=True)
+    safe_file_name = _safe_path_component(file_name, fallback=f"attachment-{event_id}.bin")
+    file_path = directory / safe_file_name
+    file_path.write_bytes(content)
+    return str(file_path)
+
+
+def save_afnor_flow_file(*, company_siren: str, flow_id: int, content: bytes) -> str:
+    """Écrit le fichier d'un flux AFNOR (CDAR entrant ou sortant, § 6.2) — classé par
+    `flow_id` **interne** (`AfnorFlow.id`, jamais influencé de l'extérieur), pas par
+    l'identifiant technique externe (`AfnorFlow.flow_id`, absent tant qu'un flux
+    sortant n'a pas encore été transmis) — même principe que `save_lifecycle_
+    attachment`. Toujours nommé `cdar.xml` : un seul fichier par flux, le dossier
+    (`flow_id` interne) suffit à le distinguer des autres."""
+    root = Path(settings.invoice_storage_root)
+    directory = root / company_siren / "afnor-flows" / str(flow_id)
+    directory.mkdir(parents=True, exist_ok=True)
+    file_path = directory / "cdar.xml"
+    file_path.write_bytes(content)
+    return str(file_path)

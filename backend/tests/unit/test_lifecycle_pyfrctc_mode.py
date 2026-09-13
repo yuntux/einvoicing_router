@@ -60,7 +60,7 @@ def test_manual_event_generates_and_sends_real_cdar(db_session):
     flow = db_session.get(AfnorFlow, event.afnor_flow_id)
     assert flow.state == AfnorFlowState.SENT
     assert flow.flow_id == "superpdp-flow-42"
-    assert flow.file_bin is not None
+    assert flow.file_path is not None
     assert flow.data_dict is not None
 
 

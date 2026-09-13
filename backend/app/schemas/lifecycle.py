@@ -30,8 +30,8 @@ class LifecycleEventAttachmentRead(BaseModel):
 
 
 class AfnorFlowRead(BaseModel):
-    """`has_file` : idem, dérivé de `file_bin is not None` sans jamais exposer les
-    octets bruts (téléchargés via un endpoint dédié, cf. `invoices.py`)."""
+    """`has_file` : idem, dérivé de `file_path is not None` sans jamais exposer le
+    contenu (téléchargé via un endpoint dédié, cf. `invoices.py`)."""
 
     id: int
     flow_id: str | None
@@ -62,14 +62,6 @@ class LifecycleEventRead(BaseModel):
     # ligne le statut métier et son état de transmission, sans requête séparée sur
     # "Flux AFNOR" (cf. maquette popin facture).
     afnor_flow: AfnorFlowRead | None
-
-
-class CreateManualLifecycleEvent(BaseModel):
-    status: str
-    reason: str | None = None
-    action: str | None = None
-    comment: str | None = None
-    confirmed: bool = False
 
 
 class RetryAfnorFlow(BaseModel):
