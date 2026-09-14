@@ -13,6 +13,27 @@ export class ApiError extends Error {
   }
 }
 
+export function loginUrl(next?: string): string {
+  const base = `${API_BASE}/api/ihm/auth/login`
+  return next ? `${base}?next=${encodeURIComponent(next)}` : base
+}
+
+// Toutes les fonctions de `api/*.ts` passent par `apiFetch` pour parler à l'IHM
+// (jamais à l'API AFNOR exposée aux applications cibles, § auth différente) — un 401
+// ici ne peut donc signifier qu'une chose : la session a expiré (ou a été révoquée)
+// depuis le dernier chargement de page. `ensureAuthStatus` (`api/auth.ts`) ne revérifie
+// qu'une fois par chargement (§ commentaire associé) : sans cette redirection ici, un
+// clic sur un menu après expiration ne faisait qu'afficher un bandeau d'erreur générique
+// au lieu de renvoyer proprement vers le login. `redirecting` évite une rafale de
+// redirections si plusieurs requêtes en vol échouent en même temps.
+let redirectingToLogin = false
+
+function redirectToLogin() {
+  if (redirectingToLogin) return
+  redirectingToLogin = true
+  window.location.href = loginUrl(window.location.pathname + window.location.search)
+}
+
 interface ApiFetchOptions extends Omit<RequestInit, 'body'> {
   /** Sérialisé en JSON et envoyé comme corps, avec le header Content-Type associé. */
   json?: unknown
@@ -69,6 +90,9 @@ export async function apiFetch<T = void>(
   })
 
   if (!response.ok) {
+    if (response.status === 401) {
+      redirectToLogin()
+    }
     const body = await response.json().catch(() => null)
     throw new ApiError(formatErrorDetail(body?.detail) ?? `${errorLabel}: ${response.status}`, response.status)
   }

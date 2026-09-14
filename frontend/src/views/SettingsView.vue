@@ -5,9 +5,12 @@ import {
   deleteBillingManagerContact,
   getRouterSettings,
   listBillingManagerContacts,
+  sendSmtpTestEmail,
+  testSmtpConnection,
   updateRouterSettings,
   type BillingManagerContact,
   type RouterSettings,
+  type SmtpTestResult,
 } from '../api/settings'
 import { useErrorMessage } from '../composables/useErrorMessage'
 
@@ -39,6 +42,46 @@ async function refreshSettings() {
 
 async function refreshContacts() {
   contacts.value = await listBillingManagerContacts()
+}
+
+// Valeurs SMTP telles que saisies dans le formulaire (§ boutons de test) — un champ
+// vide est envoyé `null` pour que le backend retombe sur la valeur déjà enregistrée
+// (même sémantique que `submitSettings` ci-dessous), plutôt que de tester avec une
+// valeur vide (typiquement le mot de passe, jamais rechargé depuis `GET /settings`).
+function currentSmtpOverrides() {
+  return {
+    smtp_host: smtpHost.value || null,
+    smtp_port: smtpPort.value,
+    smtp_username: smtpUsername.value || null,
+    smtp_password: smtpPassword.value || null,
+    smtp_use_tls: smtpUseTls.value,
+    smtp_from_address: smtpFromAddress.value || null,
+  }
+}
+
+const connectionTestResult = ref<SmtpTestResult | null>(null)
+const connectionTestRunning = ref(false)
+
+async function runConnectionTest() {
+  connectionTestResult.value = null
+  connectionTestRunning.value = true
+  await guard(async () => {
+    connectionTestResult.value = await testSmtpConnection(currentSmtpOverrides())
+  })
+  connectionTestRunning.value = false
+}
+
+const testEmailAddress = ref('')
+const testEmailResult = ref<SmtpTestResult | null>(null)
+const testEmailSending = ref(false)
+
+async function runSendTestEmail() {
+  testEmailResult.value = null
+  testEmailSending.value = true
+  await guard(async () => {
+    testEmailResult.value = await sendSmtpTestEmail(currentSmtpOverrides(), testEmailAddress.value)
+  })
+  testEmailSending.value = false
 }
 
 async function submitSettings() {
@@ -125,6 +168,50 @@ onMounted(async () => {
         </div>
         <label><input v-model="smtpUseTls" type="checkbox" /> TLS</label>
         <button type="submit" data-testid="settings-submit-button">Enregistrer</button>
+      </form>
+
+      <div class="cluster" style="margin-top: 12px">
+        <button
+          type="button"
+          class="btn-secondary"
+          :disabled="connectionTestRunning"
+          data-testid="smtp-test-connection-button"
+          @click="runConnectionTest"
+        >
+          {{ connectionTestRunning ? 'Test en cours…' : 'Tester la connexion SMTP' }}
+        </button>
+        <span
+          v-if="connectionTestResult"
+          :class="connectionTestResult.ok ? 'badge badge-success' : 'badge badge-danger'"
+          data-testid="smtp-test-connection-result"
+        >
+          {{ connectionTestResult.ok ? 'Connexion réussie' : `Échec : ${connectionTestResult.error}` }}
+        </span>
+      </div>
+
+      <form class="cluster" style="margin-top: 8px" @submit.prevent="runSendTestEmail">
+        <input
+          v-model="testEmailAddress"
+          type="email"
+          placeholder="Adresse de test"
+          required
+          data-testid="smtp-test-email-address-input"
+        />
+        <button
+          type="submit"
+          class="btn-secondary"
+          :disabled="testEmailSending"
+          data-testid="smtp-send-test-email-button"
+        >
+          {{ testEmailSending ? 'Envoi en cours…' : 'Envoyer un courriel de test' }}
+        </button>
+        <span
+          v-if="testEmailResult"
+          :class="testEmailResult.ok ? 'badge badge-success' : 'badge badge-danger'"
+          data-testid="smtp-send-test-email-result"
+        >
+          {{ testEmailResult.ok ? 'Courriel envoyé' : `Échec : ${testEmailResult.error}` }}
+        </span>
       </form>
     </section>
 

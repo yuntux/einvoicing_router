@@ -258,7 +258,7 @@ script_segments = [
         "id": "01_companies",
         "text": (
             "Dans i-iinvoïcing routeur, chaque entreprise gérée dispose d'une fiche unique : SIREN, raison sociale, et ses "
-            "identifiants d'accès à la plateforme certifiée."
+            "identifiants d'accès à la plateforme agréée."
         ),
     },
     {
@@ -281,7 +281,7 @@ script_segments = [
     {
         "id": "04_invoices",
         "text": (
-            "Les factures reçues depuis la plateforme certifiée sont automatiquement routées "
+            "Les factures reçues depuis la plateforme agréée sont automatiquement routées "
             "vers les bonnes cibles — consultables, filtrables, téléchargeables, avec le détail complet "
             "de leurs métadonnées issue de l'API normalisée AFNOR."
         ),
@@ -304,7 +304,7 @@ script_segments = [
     {
         "id": "07_traces",
         "text": (
-            "Chaque échange avec la plateforme certifiée est tracé en base, avec un identifiant de "
+            "Chaque échange avec la plateforme agréée est tracé en base, avec un identifiant de "
             "corrélation commun de bout en bout, pour un audit complet."
         ),
     },
