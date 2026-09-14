@@ -31,6 +31,11 @@ test('downloads an invoice file and sees the last download timestamp', async ({ 
   const download = await downloadPromise
   expect(download.suggestedFilename()).toContain(invoiceNumber)
 
+  // Régression : le détail facture est désormais une page routée (/invoices/:id),
+  // plus une popin superposée à la liste — il faut donc revenir explicitement à la
+  // liste avant de pouvoir réutiliser le filtre, cf. InvoicesView.vue.
+  await page.getByTestId('invoice-detail-back').click()
+
   // Re-sélectionne la facture pour récupérer la fiche à jour (jointure AuditLog).
   await page.getByTestId('filter-invoice-number').fill(invoiceNumber)
   await page.getByTestId('filter-submit-button').click()

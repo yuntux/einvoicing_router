@@ -14,8 +14,16 @@ test('updates general settings and manages billing manager contacts', async ({ p
   await page.getByTestId('smtp-from-input').fill('factures@example.com')
   await page.getByTestId('settings-submit-button').click()
 
-  await page.getByTestId('ihm-ip-allowlist-input').fill('203.0.113.0/24')
-  await page.getByTestId('afnor-api-ip-allowlist-input').fill('198.51.100.0/24')
+  // Régression : une CIDR qui exclut le runner de test lui-même (ex. `203.0.113.0/24`,
+  // qui n'inclut pas `127.0.0.1`) se verrouille immédiatement — `IPAllowlistMiddleware`
+  // n'exempte que `/api/ihm/auth/*`, jamais `/api/ihm/settings` lui-même — et pollue
+  // `RouterSettings` (une ligne unique, partagée par toute la base de test) pour
+  // TOUS les tests suivants de la suite, y compris les étapes suivantes de CE test
+  // (création du contact de facturation ci-dessous, elle aussi sous `/api/ihm/*`).
+  // On inclut donc explicitement `127.0.0.1/32` en plus de la valeur de démonstration,
+  // pour exercer la sauvegarde/persistance du champ sans se bloquer soi-même.
+  await page.getByTestId('ihm-ip-allowlist-input').fill('127.0.0.1/32, ::1/128, 203.0.113.0/24')
+  await page.getByTestId('afnor-api-ip-allowlist-input').fill('127.0.0.1/32, ::1/128, 198.51.100.0/24')
   await page.getByTestId('ip-allowlist-submit-button').click()
 
   await page.getByTestId('contact-email-input').fill(contactEmail)

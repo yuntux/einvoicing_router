@@ -24,7 +24,10 @@ test('records a dispute lifecycle event with a reason', async ({ page }) => {
   await page.getByTestId('filter-submit-button').click()
   await page.getByTestId(`invoice-row-${invoiceNumber}`).click()
 
-  await expect(page.getByTestId('invoice-detail')).toContainText(invoiceNumber)
+  // Régression : le titre "Facture <numéro>" est dans l'en-tête de page (fil
+  // d'Ariane), en dehors de la section `data-testid="invoice-detail"` elle-même —
+  // cf. même correction dans invoices.spec.ts.
+  await expect(page.getByRole('heading', { name: `Facture ${invoiceNumber}` })).toBeVisible()
 
   await page.getByTestId('lifecycle-status-select').selectOption({ label: 'En litige' })
   await page.getByTestId('lifecycle-reason-select').selectOption({ label: 'Taux de TVA erroné' })
