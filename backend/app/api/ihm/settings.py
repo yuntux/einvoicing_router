@@ -17,6 +17,9 @@ from app.schemas.settings import (
     BillingManagerContactRead,
     RouterSettingsRead,
     RouterSettingsUpdate,
+    SmtpOverrides,
+    SmtpSendTestEmailRequest,
+    SmtpTestResult,
 )
 from app.services import audit_trace_service, billing_manager_contact_service, router_settings_service
 
@@ -45,6 +48,27 @@ def update_router_settings(
     )
     audit_trace_service.record_user_action(db, request, user, action="settings_update", target="router_settings")
     return result
+
+
+@router.post("/smtp/test-connection", response_model=SmtpTestResult)
+def test_smtp_connection(payload: SmtpOverrides, db: Session = Depends(get_db)):
+    ok, error = router_settings_service.test_smtp_connection(db, payload.model_dump())
+    return SmtpTestResult(ok=ok, error=error)
+
+
+@router.post("/smtp/send-test-email", response_model=SmtpTestResult)
+def send_smtp_test_email(
+    payload: SmtpSendTestEmailRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    fields = payload.model_dump(exclude={"to_address"})
+    ok, error = router_settings_service.send_test_email(db, fields, to_address=payload.to_address)
+    audit_trace_service.record_user_action(
+        db, request, user, action="settings_smtp_test_email", target=payload.to_address
+    )
+    return SmtpTestResult(ok=ok, error=error)
 
 
 @router.post(

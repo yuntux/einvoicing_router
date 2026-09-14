@@ -1,5 +1,7 @@
 import { computed, ref } from 'vue'
-import { API_BASE, apiFetch } from './http'
+import { apiFetch, loginUrl } from './http'
+
+export { loginUrl }
 
 export interface CurrentUser {
   id: number
@@ -19,11 +21,6 @@ export interface CurrentUserStatus {
 
 export function getCurrentUserStatus(): Promise<CurrentUserStatus> {
   return apiFetch('/api/ihm/auth/me', {}, 'Failed to get current user')
-}
-
-export function loginUrl(next?: string): string {
-  const base = `${API_BASE}/api/ihm/auth/login`
-  return next ? `${base}?next=${encodeURIComponent(next)}` : base
 }
 
 export async function logout(): Promise<void> {
