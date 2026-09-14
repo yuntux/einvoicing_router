@@ -53,10 +53,20 @@ test('simulates an invoice reception and sees it routed', async ({ page }) => {
   await expect(row).toBeVisible()
   await row.click()
 
-  await expect(page.getByTestId('invoice-detail')).toContainText(invoiceNumber)
-  await expect(page.getByTestId('invoice-routings-list')).toContainText('to_send')
+  // Régression : le titre "Facture <numéro>" est dans l'en-tête de page (fil
+  // d'Ariane), en dehors de la section `data-testid="invoice-detail"` elle-même
+  // (cartouches de synthèse) — dépuis la conversion popin -> page routée du détail
+  // facture, cf. InvoicesView.vue.
+  await expect(page.getByRole('heading', { name: `Facture ${invoiceNumber}` })).toBeVisible()
+  // Régression : contrairement à `StatusBadge` (cycle de vie), le statut de
+  // transfert est traduit en libellé humain par `routingStatusLabel` — la valeur
+  // API brute "to_send" n'apparaît jamais dans le DOM, cf. InvoicesView.vue.
+  await expect(page.getByTestId('invoice-routings-list')).toContainText(
+    "En attente du prochain cycle d'envoi",
+  )
   await expect(page.getByTestId('lifecycle-events-list')).toContainText('Aucun événement de cycle de vie.')
-  await page.getByTestId('invoice-detail-close').click()
+  // Idem : plus de popin à fermer, un vrai lien de retour vers la liste.
+  await page.getByTestId('invoice-detail-back').click()
 
   // Filtre par raison sociale émetteur (jointure PartnerDirectory).
   await page.getByTestId('filter-invoice-number').fill('')

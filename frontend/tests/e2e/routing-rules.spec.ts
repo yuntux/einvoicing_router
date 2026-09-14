@@ -107,11 +107,13 @@ test('activating a 2nd channel offers to reroute existing invoices or not', asyn
     invoiceDate: '2026-03-01',
   })
 
+  // Régression : `invoice-routings-list` est un `<table>` (`tbody > tr`), plus une
+  // `<ul><li>` — depuis la conversion popin -> page routée du détail facture.
   await page.goto('/invoices')
   await page.getByTestId('filter-invoice-number').fill(invoiceNumber)
   await page.getByTestId('filter-submit-button').click()
   await page.getByTestId(`invoice-row-${invoiceNumber}`).click()
-  await expect(page.getByTestId('invoice-routings-list').locator('li')).toHaveCount(1)
+  await expect(page.getByTestId('invoice-routings-list').locator('tbody tr')).toHaveCount(1)
 
   // Active le canal B en choisissant "futures uniquement" : la facture déjà reçue
   // ne doit PAS être routée vers B en plus de A.
@@ -124,7 +126,7 @@ test('activating a 2nd channel offers to reroute existing invoices or not', asyn
   await page.getByTestId('filter-invoice-number').fill(invoiceNumber)
   await page.getByTestId('filter-submit-button').click()
   await page.getByTestId(`invoice-row-${invoiceNumber}`).click()
-  await expect(page.getByTestId('invoice-routings-list').locator('li')).toHaveCount(1)
+  await expect(page.getByTestId('invoice-routings-list').locator('tbody tr')).toHaveCount(1)
 
   // Désactive puis réactive le canal B, cette fois avec le choix par défaut
   // ("toutes les factures déjà reçues") : la facture doit alors recevoir un 2e
@@ -140,7 +142,7 @@ test('activating a 2nd channel offers to reroute existing invoices or not', asyn
   await page.getByTestId('filter-invoice-number').fill(invoiceNumber)
   await page.getByTestId('filter-submit-button').click()
   await page.getByTestId(`invoice-row-${invoiceNumber}`).click()
-  await expect(page.getByTestId('invoice-routings-list').locator('li')).toHaveCount(2)
+  await expect(page.getByTestId('invoice-routings-list').locator('tbody tr')).toHaveCount(2)
 })
 
 test('edits a mail target application and toggles it inactive then active', async ({ page }) => {

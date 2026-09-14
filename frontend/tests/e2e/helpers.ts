@@ -20,12 +20,25 @@ function luhnIsValid(digits: string): boolean {
 }
 
 /**
- * SIREN unique (dérivé de l'horloge, pour ne jamais entrer en collision d'un test
- * à l'autre) et valide au sens Luhn (cf. app/schemas/validators.py côté backend) —
+ * SIREN unique et valide au sens Luhn (cf. app/schemas/validators.py côté backend) —
  * un `String(Date.now()).slice(-9)` brut est rejeté par l'API une fois sur dix.
+ *
+ * Régression : dériver uniquement de `Date.now()` (précision milliseconde) produit
+ * une VRAIE collision quand deux specs, exécutées dans deux workers Playwright
+ * différents, appellent cette fonction à la même milliseconde — plausible au
+ * démarrage de la suite, où plusieurs tests appellent ce helper en quelques dizaines
+ * de ms les uns des autres. La contrainte `unique` sur `Company.siren` fait alors
+ * échouer une des deux créations sans que le test correspondant s'en aperçoive
+ * (simplement pas dans la liste ensuite) — symptôme observé en CI sur des tests
+ * sans rapport entre eux (entreprises, contacts de facturation, cycle de vie...),
+ * chacun créant sa propre entreprise de test. On mélange donc un tirage aléatoire
+ * dans le préfixe plutôt que de ne garder que la fin de l'horodatage.
  */
 export function uniqueValidSiren(): string {
-  const prefix = String(Date.now()).slice(-8)
+  const random = Math.floor(Math.random() * 1_000_000)
+    .toString()
+    .padStart(6, '0')
+  const prefix = `${String(Date.now()).slice(-2)}${random}`
   for (let checkDigit = 0; checkDigit <= 9; checkDigit++) {
     const candidate = `${prefix}${checkDigit}`
     if (luhnIsValid(candidate)) return candidate
