@@ -48,6 +48,16 @@ jobs:
     defaults:
       run:
         working-directory: frontend
+    # `Settings.oidc_mode`/`jwt_secret`/`session_secret`/`secrets_encryption_key`
+    # (backend/app/config.py) n'ont volontairement aucune valeur par défaut
+    # (fail-closed, § audit sécurité) — contrairement au job `backend-tests`, protégé
+    # par le fallback de `backend/tests/conftest.py`, ce job démarre un vrai backend
+    # (pour Playwright) et doit donc les fournir lui-même explicitement.
+    env:
+      ROUTER_OIDC_MODE: disabled
+      ROUTER_JWT_SECRET: ci-test-jwt-secret
+      ROUTER_SESSION_SECRET: ci-test-session-secret
+      ROUTER_SECRETS_ENCRYPTION_KEY: ci-test-secrets-encryption-key
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
