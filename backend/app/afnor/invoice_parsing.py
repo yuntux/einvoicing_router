@@ -213,7 +213,10 @@ def parse_ubl(file_content: bytes) -> ParsedInvoiceFields:
         emitter_name=emitter_name,
         invoice_number=text("cbc:ID"),
         invoice_date=date.fromisoformat(invoice_date_text) if invoice_date_text else None,
-        amount_total=amount("cac:LegalMonetaryTotal/cbc:PayableAmount"),
+        # `cbc:PayableAmount` est le *reste à payer* (TaxInclusiveAmount - PrepaidAmount
+        # - remises), pas le TTC — sur une facture déjà prélevée (ex. SEPA), il tombe à
+        # 0 alors que le TTC réel est bien `TaxInclusiveAmount` (HT + TVA).
+        amount_total=amount("cac:LegalMonetaryTotal/cbc:TaxInclusiveAmount"),
         amount_excl_tax=amount("cac:LegalMonetaryTotal/cbc:TaxExclusiveAmount"),
         amount_tax=amount("cac:TaxTotal/cbc:TaxAmount"),
         currency=text("cbc:DocumentCurrencyCode"),
