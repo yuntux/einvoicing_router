@@ -69,7 +69,9 @@ _UBL_SAMPLE = b"""<?xml version="1.0" encoding="UTF-8"?>
   </cac:TaxTotal>
   <cac:LegalMonetaryTotal>
     <cbc:TaxExclusiveAmount>500.00</cbc:TaxExclusiveAmount>
-    <cbc:PayableAmount>600.00</cbc:PayableAmount>
+    <cbc:TaxInclusiveAmount>600.00</cbc:TaxInclusiveAmount>
+    <cbc:PrepaidAmount>600.00</cbc:PrepaidAmount>
+    <cbc:PayableAmount>0.00</cbc:PayableAmount>
   </cac:LegalMonetaryTotal>
 </Invoice>"""
 
@@ -195,6 +197,16 @@ def test_parse_ubl_extracts_business_fields():
     assert fields.amount_tax == 100.0
     assert fields.currency == "EUR"
     assert fields.type_code == "380"
+
+
+def test_parse_ubl_amount_total_is_tax_inclusive_not_payable():
+    """Régression (facture réelle OVH `FR81006092`) : `amount_total` doit provenir de
+    `cbc:TaxInclusiveAmount` (le TTC), pas de `cbc:PayableAmount`. `PayableAmount` est
+    le *reste à payer* (TaxInclusiveAmount - PrepaidAmount - remises) — sur une
+    facture déjà prélevée (PrepaidAmount = TaxInclusiveAmount, ex. SEPA), il tombe à
+    0 alors que le TTC réel (HT + TVA = 246.99 + 49.40 = 296.39) reste inchangé."""
+    fields = parse_invoice_fields(_UBL_SAMPLE, "UBL")
+    assert fields.amount_total == 600.0  # TaxInclusiveAmount, pas PayableAmount (0.00)
 
 
 def test_amount_tax_is_not_recomputed_by_subtraction():
